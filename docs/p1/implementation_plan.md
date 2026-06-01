@@ -1,7 +1,7 @@
 # Phase 1 — Implementation Plan
 
-> Parent: [../backlogger_implementation_plan.md](../backlogger_implementation_plan.md)
-> Source design: [../backlogger_design_document.md](../backlogger_design_document.md)
+> Parent: [../design/roadmap.md](../design/roadmap.md)
+> Source design: [../design/overview.md](../design/overview.md)
 > Scope: Phase 1 MVP only. Non-goals from the design doc are explicitly excluded.
 
 ---
@@ -32,6 +32,18 @@ Phase 1 is built from six independently designed "lego blocks". Each block has i
 ## 3. Build Order & Milestones
 
 Each milestone delivers a runnable, demoable slice.
+
+### Status
+
+| Milestone | Block | Status      | Notes |
+|-----------|-------|-------------|-------|
+| M0        | 0     | ✅ Done      | Walking skeleton green: lint, typecheck, test, build all pass. See [Block 0 — Implementation Notes](./blocks/block-0-foundation.md#7-implementation-notes). |
+| M1        | 1     | ✅ Done      | `FsRepository` + `PathResolver` shipped with 47 tests; `npm run reindex` summary script works against an empty `data/`. See [Block 1 — Implementation Notes](./blocks/block-1-markdown-storage.md#7-implementation-notes). |
+| M2        | 2     | ✅ Done      | SQLite + migration runner + `projects` table + full project CRUD API (13 Supertest cases) + React `ProjectSwitcher` with new/delete dialogs. See [Block 2 — Implementation Notes](./blocks/block-2-project-registry.md#7-implementation-notes). |
+| M3        | 4     | ✅ Done      | Document types end-to-end: shared `Frontmatter` zod schema, `0002_documents.sql` (FK CASCADE on project delete), `DocumentsRepo`, `DocumentService` with `If-Match` optimistic locking and `<slug>-<short8>.md` naming, `POST /api/admin/reindex`, startup auto-reindex when table is empty but disk has files. 12 new Supertest cases (72 total). See [Block 4 — Implementation Notes](./blocks/block-4-document-types.md#7-implementation-notes). |
+| M4        | 3     | ✅ Done      | 3-pane workspace (tree | editor | metadata) with CodeMirror 6 + `oneDark`, debounced save (800 ms) via `PUT /api/documents/:id` with `If-Match`, dirty/saved indicator, 409 conflict banner, `beforeunload` guard, theme toggle in topbar (dark default, persisted). RTL test covers dirty → save → clean. See [Block 3 — Implementation Notes](./blocks/block-3-markdown-editor.md#7-implementation-notes). |
+| M5        | 5     | ✅ Done      | 5 built-in templates (design doc, implementation plan, idea expansion, risk assessment, findings report) loaded at startup from `packages/api/templates/`. `GET /api/templates` + `GET /api/templates/:id`. `POST /api/projects/:id/documents` accepts optional `template` field; placeholders `{{title}}`, `{{project}}`, `{{date}}` substituted; type mismatch → 400 `TEMPLATE_TYPE_MISMATCH`, unknown id → 404 `TEMPLATE_NOT_FOUND`. `NewDocumentDialog` now Type → Template → Title with "Blank" option and per-type filtering. 84 tests total. See [Block 5 — Implementation Notes](./blocks/block-5-templates.md#7-implementation-notes). |
+| M6        | —     | ✅ Done      | Hardening: modal-based `confirm`/`prompt` + toast (`DialogProvider`, replaces `window.prompt`/`confirm`); `MarkdownEditor` lazy-loaded (initial JS gzip 853 → 124 kB; editor chunk 176 kB gzip on demand); Edit/Split/Preview toggle in the editor toolbar; Reindex button in the topbar (calls `POST /api/admin/reindex` with toast feedback); top-level `<ErrorBoundary>`; README extended with env vars + reindex script; Playwright smoke spec scaffolded at `packages/web/e2e/smoke.spec.ts` (run with `npm run test:e2e` after installing `@playwright/test`). 87 tests total. See [Block 6 — Implementation Notes](./blocks/block-6-hardening.md#7-implementation-notes). |
 
 ### M0 — Foundation
 Deliver Block 0. Walking skeleton: monorepo, Express health route, React shell, CI green.

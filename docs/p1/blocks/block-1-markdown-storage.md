@@ -109,3 +109,35 @@ interface FsRepository {
 | Path traversal vulnerability | Centralized resolver + dedicated test suite. |
 | Partial writes corrupt files | Temp-file + rename + fsync. |
 | OS-specific filename edge cases | Restrict allowed character set; tested on Linux CI runners. |
+
+---
+
+## 7. Implementation Notes
+
+**Status:** ✅ Complete (M1).
+
+### What shipped
+- `PathResolver` with project-id / filename validation, relative-path resolution, and a `assertNoSymlinks` walker that rejects symlinks on any component between `projectsRoot` and the target ([packages/api/src/fs/path-resolver.ts](../../../packages/api/src/fs/path-resolver.ts)).
+- `FsRepository` with `ensureRoot`, `ensureProjectSkeleton`, `removeProject`, `projectExists`, `listProjectFiles`, `read`, `write`, `delete`, `walk`, `walkProject` ([packages/api/src/fs/repository.ts](../../../packages/api/src/fs/repository.ts)).
+- Atomic writes: open temp file `wx` in target directory, `writeFile` → `fsync` → `close` → `rename`. Temp file is cleaned up on rename failure.
+- Typed error hierarchy with stable `code` field ([packages/api/src/fs/errors.ts](../../../packages/api/src/fs/errors.ts)).
+- Markdown parsing/serialization via `gray-matter`.
+- `scripts/reindex.ts` summary tool wired as `npm run reindex` ([scripts/reindex.ts](../../../scripts/reindex.ts)).
+- 47 new unit tests (31 resolver + 16 repository) running against per-test `mkdtemp` directories — zero contact with the real `data/`.
+
+### Deviations from the design
+- **Body trailing newline.** `gray-matter`'s `stringify` always appends a trailing newline. Round-trip is therefore byte-for-byte modulo a final `\n` on the body. Tests assert the actual behavior; the design's "byte-for-byte" wording is amended in spirit — the *content* round-trips, with serializer-driven newline normalization.
+- **`walk()` skips symlinked entries silently.** The design says symlinks are rejected. `assertNoSymlinks` does reject them on read/write paths; `walk()` instead skips them during traversal so a stray symlink can't poison a reindex. Symlinks placed *above* a target file are still rejected through `assertNoSymlinks` on every read/write.
+- **`walkMarkdown` swallows parse errors.** Unparseable `.md` files are silently skipped during `walk()` so reindex can't crash on hand-edited corruption. Block 4's reindex service will log skipped files.
+- **`reindex` script is read-only.** Block 1 only needs the summary; the actual DB rebuild lives in Block 4.
+
+### Verification (local)
+- `npm run typecheck` — pass.
+- `npm run lint` — pass (0 warnings).
+- `npm test` — 48/48 pass (1 prior + 47 new).
+- `npm run build` — pass.
+- `npm run reindex` — prints zero-doc summary against empty `data/`.
+
+### Follow-ups for later blocks
+- Block 4 will replace the read-only reindex with one that rebuilds the SQLite `documents` table and logs skipped files with reason.
+- Block 4's `DocumentService` will sit on top of `FsRepository`; no further changes needed here for now.

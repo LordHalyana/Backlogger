@@ -1,0 +1,44 @@
+{
+  "name": "backlogger",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Self-hosted Markdown workspace for ideas, design docs, and backlogs.",
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,magenta \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "npm -w @backlogger/api run dev",
+    "dev:web": "npm -w @backlogger/web run dev",
+    "build": "npm -ws --if-present run build",
+    "test": "vitest run",
+    "lint": "eslint . --max-warnings 0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc -b",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "reindex": "tsx scripts/reindex.ts",
+    "seed:docs": "tsx scripts/seed-docs-project.ts",
+    "test:e2e": "playwright test",
+    "bench": "tsx scripts/bench-search.ts",
+    "bundle-audit": "tsx scripts/bundle-audit.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "@types/node": "^20.14.10",
+    "@typescript-eslint/eslint-plugin": "^7.16.0",
+    "@typescript-eslint/parser": "^7.16.0",
+    "concurrently": "^8.2.2",
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-react": "^7.34.3",
+    "eslint-plugin-react-hooks": "^4.6.2",
+    "prettier": "^3.3.2",
+    "tsx": "^4.16.2",
+    "typescript": "^5.5.3",
+    "vitest": "^1.6.0"
+  }
+}

@@ -1,0 +1,29 @@
+/* Theme tokens. Dark is the default. */
+:root,
+[data-theme='dark'] {
+  --bg: #0e1116;
+  --bg-elev: #161b22;
+  --bg-panel: #1c2129;
+  --border: #2a313c;
+  --fg: #d9dee6;
+  --fg-muted: #8b95a5;
+  --accent: #6aa7ff;
+  --accent-fg: #0e1116;
+  --danger: #ff6b6b;
+  --ok: #5ad19a;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+[data-theme='light'] {
+  --bg: #f7f8fa;
+  --bg-elev: #ffffff;
+  --bg-panel: #ffffff;
+  --border: #e1e4e8;
+  --fg: #1f2328;
+  --fg-muted: #57606a;
+  --accent: #2f6feb;
+  --accent-fg: #ffffff;
+  --danger: #d1242f;
+  --ok: #1a7f37;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}

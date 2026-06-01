@@ -1,6 +1,6 @@
 # Backlogger — Implementation Plan
 
-> Scope: Phase 1 MVP as defined in [backlogger_design_document.md](backlogger_design_document.md).
+> Scope: Phase 1 MVP as defined in [overview.md](overview.md).
 > Target stack: Node.js + Express (backend), React + Vite (frontend), SQLite (metadata), filesystem (source of truth).
 
 ---

@@ -102,3 +102,43 @@ const UpdateProject = CreateProject.partial().omit({ id: true });
 | DB/filesystem drift on partial failure | Two-phase create with rollback; reindex as recovery. |
 | Accidental project deletion | UI confirmation modal requires typing the project id. |
 | Long-lived DB handle in dev reload | Single-process singleton; close on `SIGINT`. |
+
+---
+
+## 7. Implementation Notes
+
+**Status:** ✅ Complete (M2).
+
+### What shipped
+- SQLite bootstrap with `better-sqlite3` 12.x, WAL mode, foreign keys ON, and a numbered-`.sql` migration runner ([packages/api/src/db/database.ts](../../../packages/api/src/db/database.ts)).
+- Migration [migrations/0001_init.sql](../../../migrations/0001_init.sql) creates `projects` and `schema_version`.
+- `ProjectsRepo` over `better-sqlite3` prepared statements ([packages/api/src/db/projects-repo.ts](../../../packages/api/src/db/projects-repo.ts)).
+- `ProjectService` with two-phase create (insert row → ensure folder; rollback row on FS failure) and delete (row first, FS best-effort) ([packages/api/src/services/project-service.ts](../../../packages/api/src/services/project-service.ts)).
+- Shared zod schemas + DTO types in [packages/shared/src/projects.ts](../../../packages/shared/src/projects.ts) and an `ApiErrorBody` shape in [packages/shared/src/errors.ts](../../../packages/shared/src/errors.ts).
+- Express `/api/projects` router with full CRUD + zod validation ([packages/api/src/routes/projects.ts](../../../packages/api/src/routes/projects.ts)).
+- Centralized error middleware mapping `HttpError` and `FsRepoError` to JSON responses ([packages/api/src/error-middleware.ts](../../../packages/api/src/error-middleware.ts), [packages/api/src/errors.ts](../../../packages/api/src/errors.ts)).
+- App composition root ([packages/api/src/context.ts](../../../packages/api/src/context.ts)); `server.ts` now opens the DB, runs migrations, and registers a `SIGINT/SIGTERM` shutdown hook to close it cleanly.
+- `scripts/migrate.ts` + `npm run db:migrate` ([scripts/migrate.ts](../../../scripts/migrate.ts)).
+- 13 new Supertest cases for `/api/projects` covering happy paths, validation, 404, 409, and disk side-effects ([packages/api/src/app.test.ts](../../../packages/api/src/app.test.ts)).
+- Web: `apiFetch` wrapper with typed `ApiError` ([packages/web/src/lib/api.ts](../../../packages/web/src/lib/api.ts)), react-query hooks `useProjects`, `useCreateProject`, `useUpdateProject`, `useDeleteProject` ([packages/web/src/lib/projects.ts](../../../packages/web/src/lib/projects.ts)), and a `ProjectSwitcher` component with a "New Project" modal and a confirm-by-typing delete button ([packages/web/src/components/ProjectSwitcher.tsx](../../../packages/web/src/components/ProjectSwitcher.tsx)).
+- Theming extended: modal and form controls use the existing CSS variables ([packages/web/src/styles/app.css](../../../packages/web/src/styles/app.css)).
+
+### Deviations from the design
+- **`better-sqlite3` v12, not v11.** Node 24 on the dev machine has no prebuilt binary for `better-sqlite3` 11.x and the gyp build fails; 12.x ships prebuilds for Node 24. API is identical for our usage. CI still pins Node 20 (which has prebuilds for both).
+- **Description column is nullable.** Design said "optional"; the SQLite column is `TEXT` (nullable) and the API returns `null` (not `undefined`) for absent descriptions. Shared `ProjectSchema` reflects this.
+- **Project id minimum length is 2.** The shared zod regex (`/^[a-z0-9][a-z0-9-]{1,62}$/`) requires at least 2 characters. Single-char ids are intentionally rejected so the slug can't collide with common filesystem entries.
+- **No project list endpoint pagination.** All projects come back in one response; acceptable while the workspace is single-user.
+- **Delete confirmation in the UI uses `window.prompt`.** Functional but not pretty; will be replaced with a proper modal during M6 hardening.
+- **DB handle is a request-scoped singleton via the `AppContext`** rather than a hidden module-level singleton, so tests can pass `':memory:'` and a custom `migrationsDir`.
+
+### Verification (local)
+- `npm run db:migrate` — schema version 1.
+- `npm run typecheck` — pass.
+- `npm run lint` — pass (0 warnings).
+- `npm test` — 60/60 pass (47 from Block 1 + 13 new).
+- `npm run build` — pass; vite bundle 188 KB (60 KB gzip).
+
+### Follow-ups for later blocks
+- Block 4 will add migration `0002_documents.sql`, the `documents` table, the document API surface, and the reindex endpoint. The `MetadataRepository` will grow a `documents` namespace next to `projects`.
+- Replace `window.prompt` delete confirmation with a styled modal during M6.
+- Audit warnings remain from Block 0 install; defer to M6.

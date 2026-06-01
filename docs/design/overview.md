@@ -228,6 +228,17 @@ DELETE /api/documents/:documentId
 - Full-text search
 - Document linking
 - Tag explorer
+- User-defined templates
+
+### Phase 2 Status
+
+| Block | Feature                     | Status      |
+|-------|-----------------------------|-------------|
+| 1     | Full-text Search            | ✅ Complete |
+| 2     | Document Linking & Backlinks| ✅ Complete |
+| 3     | Tag Explorer                | ✅ Complete |
+| 4     | User-defined Templates      | ✅ Complete |
+| 5     | Phase 2 Hardening           | ✅ Complete |
 
 ## Phase 3
 

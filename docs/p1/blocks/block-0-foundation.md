@@ -100,3 +100,34 @@ Out of scope: SQLite, filesystem storage, any domain models, the theme toggle UI
 |------|------------|
 | Workspace tool quirks | Pin Node 20 LTS; commit `package-lock.json`. |
 | Vite proxy misconfig blocks API calls | Add a smoke test that hits `/api/health` through the proxy. |
+
+---
+
+## 7. Implementation Notes
+
+**Status:** ✅ Complete (M0).
+
+### What shipped
+- Root: [package.json](../../../package.json), [tsconfig.base.json](../../../tsconfig.base.json), [tsconfig.json](../../../tsconfig.json), [.gitignore](../../../.gitignore), [.env.example](../../../.env.example), [.eslintrc.cjs](../../../.eslintrc.cjs), [.prettierrc.json](../../../.prettierrc.json), [vitest.config.ts](../../../vitest.config.ts).
+- `packages/shared` — `HealthStatus` type only ([src/index.ts](../../../packages/shared/src/index.ts)).
+- `packages/api` — Express app with `GET /health`, `tsx watch` dev script, Supertest unit test ([src/app.ts](../../../packages/api/src/app.ts), [src/server.ts](../../../packages/api/src/server.ts), [src/app.test.ts](../../../packages/api/src/app.test.ts)).
+- `packages/web` — Vite + React 18 + react-query app showing live health status. Dark theme by default via CSS variables on `[data-theme]`, with a pre-hydration inline script that reads `localStorage.theme` before React mounts to prevent a flash of light content ([index.html](../../../packages/web/index.html), [src/main.tsx](../../../packages/web/src/main.tsx), [src/App.tsx](../../../packages/web/src/App.tsx), [src/styles/theme.css](../../../packages/web/src/styles/theme.css), [src/styles/app.css](../../../packages/web/src/styles/app.css)).
+- CI: [.github/workflows/ci.yml](../../../.github/workflows/ci.yml) running install → lint → typecheck → test → build on Node 20.
+- [README.md](../../../README.md) quickstart.
+
+### Deviations from the design
+- **`typecheck` script uses `tsc -b` (not `tsc -b --noEmit`).** Composite project references require emit; TypeScript errors with TS6310 when a referenced project disables emit. Build artifacts land in per-package `dist/` (gitignored), so this is harmless and keeps incremental builds fast.
+- **Vite proxy proxies both `/api` and `/health`** so the existing `/health` route is reachable from the web app without changing it. When Block 2 adds `/api/*`, both stay routed correctly.
+- **Node version on the dev machine is 24**, but `engines` and CI are pinned to Node 20 LTS as planned.
+
+### Verification (local)
+- `npm install` — 488 packages, no errors (some moderate audit warnings from transitive deps; revisit in M6).
+- `npm run typecheck` — pass.
+- `npm run lint` — pass (0 warnings).
+- `npm test` — 1/1 pass (`GET /health`).
+- `npm run build` — pass; vite bundle ~182 KB (57 KB gzip).
+
+### Follow-ups for later blocks
+- Add a Vite-proxy smoke test (listed under Risks). Defer to M6 hardening so we don't pay the Playwright setup cost yet.
+- Consider migrating ESLint to v9 flat config when the toolchain is stable; v8 is end-of-life but works.
+- Audit warnings: revisit during M6.

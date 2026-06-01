@@ -98,3 +98,52 @@ The PUT request includes the last-known `updated_at`. The API rejects with 409 i
 | Save storms during fast typing | Debounce + single-flight mutation. |
 | Editor performance on large files | CodeMirror handles large docs; warn over 1 MB. |
 | Preview drift vs server render | Single `renderMarkdown` shared between API and web. |
+
+---
+
+## 7. Implementation Notes
+
+> Status: ✅ Done. All exit criteria met. 73/73 tests pass; lint, typecheck, and build are clean.
+
+### What shipped
+
+- **Shared** `packages/shared/src/markdown.ts` exports `renderMarkdown(source)` backed by a single `markdown-it` instance (`html: false`, `linkify: true`). Re-exported from `@backlogger/shared`.
+- **Web hooks** `packages/web/src/lib/documents.ts`: `useDocuments(projectId)`, `useDocument(id)` (with `staleTime: Infinity` so the editor buffer is never clobbered by a refetch), `useCreateDocument`, `useUpdateDocument` (sends `If-Match`), `useDeleteDocument`.
+- **Theme** `packages/web/src/lib/theme.ts` — `useTheme()` hook that reads/writes `localStorage.theme` and toggles `<html data-theme>`; pre-hydration script in `index.html` continues to set the attribute before React mounts.
+- **Components**:
+  - `ThemeToggle` — sun/moon button in the topbar.
+  - `ProjectTree` — sidebar grouped by document type, with `+ New` button that opens `NewDocumentDialog`. Selected item is highlighted; non-`draft` statuses show a small badge.
+  - `NewDocumentDialog` — title + type select (six types).
+  - `DocumentEditor` — thin React wrapper around CodeMirror 6 (`@codemirror/state`, `@codemirror/view`, `@codemirror/commands`, `@codemirror/lang-markdown`, `@codemirror/theme-one-dark`). Theme swap uses a `Compartment` (no remount). External `value` changes are diffed against the editor's current doc so typing doesn't trigger a reset.
+  - `DocumentPreview` — renders `renderMarkdown(body)`. Hidden via CSS for MVP; toggle is a follow-up.
+  - `MetadataPanel` — title / status / tags (comma-separated) + path + updated time + delete button.
+  - `DocumentWorkspace` — orchestrates the buffer, debounced save (800 ms via `useDebouncedCallback`), `If-Match` against `baseUpdatedAt`, conflict banner with Reload action on 409, `beforeunload` guard while dirty, status line (`Saved` / `Unsaved changes` / `Saving…` / `Save failed: …`), and confirm-then-delete flow.
+- **App shell**: `App.tsx` now hosts the 3-pane `project-layout` grid (`240px 1fr`); the workspace internally splits `1fr | 320px` for editor + metadata. Topbar shows project switcher, health pill, and theme toggle.
+- **Styling**: extended `styles/app.css` with tree, workspace, conflict banner, dirty dot, metadata panel, CodeMirror host (`.cm-editor { height: 100% }`), and lightweight `.markdown-body` rules for the (currently hidden) preview.
+- **Tests**: Vitest now picks `jsdom` for `packages/web/**` via `environmentMatchGlobs`. New `DocumentWorkspace.test.tsx` (React Testing Library + user-event + fake timers) stubs `fetch`, loads a document, edits the title via the metadata panel, advances 900 ms, and asserts: status flips dirty → saving → saved, and the `PUT` carried `If-Match: <original updated_at>` plus the new title.
+
+### Deviations from the design
+
+- **No router yet.** Selection is state-based (`selectedProjectId` + `selectedDocumentId` in `App.tsx`) instead of `/projects/:id/documents/:id`. The hooks already key by id, so adding `react-router-dom` is a drop-in follow-up.
+- **Preview pane hidden for MVP.** The 3-pane design called for tree | editor | preview/metadata. The preview component and shared `renderMarkdown` are wired up; we render the metadata pane in the right column for now. A topbar toggle to swap preview ↔ metadata is queued for M6.
+- **Manual theme toggle only**; no `prefers-color-scheme` auto-detect (block design explicitly scoped this out).
+- **Bundle size warning**: the production JS bundle is now 853 KB (297 KB gzip) because CodeMirror's lang/view/theme packages don't tree-shake well. Acceptable for self-hosted MVP; M6 should add `manualChunks` or dynamic-import the editor.
+
+### Verification
+
+```bash
+npm run typecheck  # clean
+npm run lint       # clean (after escaping curly quotes in JSX copy)
+npm test           # 73/73 (4 files: path-resolver 31, repository 16, app 25, workspace 1)
+npm run build      # api + shared + web; bundle 853 KB / 297 KB gzip (CodeMirror weight)
+```
+
+### Follow-ups for later blocks
+
+- M5 (templates): `NewDocumentDialog` already accepts only `title` + `type`; add a template picker that pre-fills `body`/`tags` and posts via the existing `CreateDocumentRequest.template` field (server-side wiring lives in M5).
+- M6 hardening:
+  - Replace `window.confirm` and the legacy `window.prompt` (project delete) with a proper confirm modal.
+  - Add a preview ↔ metadata toggle and reinstate the third pane.
+  - Code-split the editor to bring first-load JS back under ~250 KB gzip.
+  - Add Playwright smoke covering: create project → create doc → edit → reload → see saved content.
+  - Wire the admin reindex endpoint to a small UI in the topbar.

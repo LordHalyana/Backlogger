@@ -139,3 +139,50 @@ CREATE INDEX idx_documents_type    ON documents(type);
 | Invalid frontmatter on disk (hand-edited) | Reindex logs and skips; document the recovery path in README. |
 | UUID collisions | UUID v4; unique index enforces. |
 | Title renames orphan filenames | Out of scope for MVP; document limitation. |
+
+---
+
+## 7. Implementation Notes
+
+> Status: ✅ Done. All exit criteria met. 72/72 tests pass; lint, typecheck, and build are clean.
+
+### What shipped
+
+- **Shared schemas** (`packages/shared/src/documents.ts`): `DocumentTypeSchema`, `DocumentStatusSchema`, `FrontmatterSchema` (with defaults for `status` and `tags`), `DOCUMENT_TYPE_TO_SUBDIR` map, plus `CreateDocumentRequestSchema` / `UpdateDocumentRequestSchema` / `DocumentSchema` / `DocumentSummarySchema`. Re-exported from `@backlogger/shared`.
+- **Migration** `migrations/0002_documents.sql`: `documents` table with `project_id` FK `ON DELETE CASCADE`, `path` UNIQUE, JSON-encoded `tags` column, indexes on `project_id` and `type`.
+- **Repo** `packages/api/src/db/documents-repo.ts`: `listByProject`, `find`, `findByPath`, `upsert` (idempotent — `INSERT ... ON CONFLICT(id) DO UPDATE`), `delete`, `truncate`, `count`. Tags round-trip through JSON.
+- **Service** `packages/api/src/services/document-service.ts`:
+  - `create` → generate UUID + timestamps → build frontmatter via `FrontmatterSchema` → atomic write → upsert row. Rolls back the file on DB failure.
+  - `update` → optional `If-Match` against current `updated_at` → 409 `DOCUMENT_VERSION_MISMATCH` on mismatch → read+merge+write → upsert.
+  - `delete` → row delete then `fs.delete().catch(() => undefined)` (FS missing is tolerated, matches Block 2 project-delete pattern).
+  - `get` → returns full document (frontmatter + body read fresh from disk).
+  - `buildFilename(title, uuid)` → `<slug≤60>-<first8>.md`; slug uses NFKD-normalized lowercase `[a-z0-9-]+`, falls back to `"untitled"`.
+- **Reindex service** `packages/api/src/services/reindex-service.ts`: truncates and re-walks via `fs.walk()`. Skips files whose `frontmatter.project` doesn't match the on-disk folder, unknown projects, or invalid frontmatter; returns `{ scanned, inserted, skipped[] }`.
+- **Routes**:
+  - `routes/documents.ts` → `projectDocumentsRouter` (GET/POST under `/api/projects/:projectId/documents`) and `documentsRouter` (GET/PUT/DELETE under `/api/documents/:id`). `PUT` reads `If-Match` header.
+  - `routes/admin.ts` → `POST /api/admin/reindex`.
+- **App + server**: `app.ts` mounts the three new routers; `server.ts` runs reindex on startup when `documentsRepo.count() === 0` AND `data/projects/` contains any `.md` file (recursive `hasAnyMarkdown` helper).
+- **Context** updated to construct `DocumentsRepo`, `DocumentService`, `ReindexService` once per app.
+- **Tests** (12 new in `app.test.ts`, 72 total): empty list, idea created under `ideas/`, `finding` routed to `notes/`, unknown project on create → 404, invalid type → 400 `VALIDATION_FAILED`, read returns body, update bumps `updated_at`, stale `If-Match` → 409 `DOCUMENT_VERSION_MISMATCH`, matching `If-Match` succeeds, delete removes file, project delete cascades document rows (via FK), and reindex round-trip rebuilds the table from disk.
+
+### Deviations from the design
+
+- `tags` are stored as a JSON string in SQLite (single TEXT column) rather than a join table. Phase 1 has no tag query — when we add one, switch to `document_tags(document_id, tag)` and reindex.
+- `finding` → `notes/` is implemented; design doc notes this is a deliberate MVP folding.
+- Filename slug falls back to `"untitled"` if the title strips to empty (e.g. emoji-only); design didn't specify the empty-slug case.
+- `DELETE /api/documents/:id` tolerates a missing on-disk file (succeeds with 204) — matches the project-delete behavior shipped in M2.
+
+### Verification
+
+```bash
+npm run typecheck   # clean
+npm run lint        # clean (after dropping unused BadRequestError import)
+npm test            # 72/72 (path-resolver 31 + repository 16 + app 25)
+npm run build       # api + shared + web (188 KB JS / 60 KB gzip)
+```
+
+### Follow-ups for later blocks
+
+- M4 (editor) consumes `GET /api/documents/:id` for read and `PUT` with `If-Match` for save; surface 409 to the user with a "reload" affordance.
+- M5 (templates) populates `body` and possibly `tags` on `POST .../documents` via the optional `template` field already accepted by `CreateDocumentRequestSchema` (currently ignored by the service).
+- Reindex skip list is not yet surfaced in the UI; M6 hardening should add a small admin panel that calls `POST /api/admin/reindex` and shows the report.

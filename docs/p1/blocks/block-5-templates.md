@@ -129,3 +129,43 @@ If `template` is provided, its `type` must match the request's `type` (server en
 | Template drift between repo and shipped artifact | Templates loaded from the package directory; covered by a CI test that asserts the five expected ids load. |
 | Placeholder injection via title | Substitution is plain string replace into Markdown source; rendered output is sanitized by `markdown-it` defaults (no raw HTML). |
 | Future user templates | Loader API is extensible; document the path forward in the block's "Future" note (not implemented in MVP). |
+
+## 7. Implementation Notes
+
+### Status
+✅ Done. 84/84 tests passing (5 registry + 6 templates API added). Lint, typecheck, and build all clean.
+
+### What shipped
+- 5 built-in templates under `packages/api/templates/` loaded at startup:
+  - `design-document.md` (type `design_doc`) — Purpose / Goals / Design / Alternatives / Risks / Open Questions.
+  - `implementation-plan.md` (type `implementation_plan`) — Objective / Scope / Build Order / Exit Criteria / Risks.
+  - `idea-expansion.md` (type `idea`).
+  - `risk-assessment.md` (type `finding`) — risks table.
+  - `findings-report.md` (type `finding`) — Summary / Investigation / Findings / Recommendations.
+- `packages/shared/src/templates.ts` — `TemplateIdSchema` (kebab-case), `TemplateSummarySchema`, `TemplateSchema`, `TemplateFrontmatterSchema`. Re-exported from package index.
+- `packages/api/src/templates/registry.ts` — `TemplateRegistry` (`list/get/getOrThrow/setAll`), `loadTemplatesFromDir` (skips invalid frontmatter and reports the reason), `defaultTemplatesDir()` (resolves `packages/api/templates/` from compiled output), `applyPlaceholders` (regex `/\{\{\s*([a-z_][a-z0-9_]*)\s*\}\}/gi`; supports `{{title}}`, `{{project}}`, `{{date}}` — local-time `YYYY-MM-DD`; unknown placeholders left untouched).
+- `packages/api/src/routes/templates.ts` — `GET /api/templates` (sorted by name) and `GET /api/templates/:id` (404 `TEMPLATE_NOT_FOUND`).
+- `DocumentService.create` — when `template` is provided: resolves via registry, enforces `tpl.type === parsed.type` (else 400 `TEMPLATE_TYPE_MISMATCH`), then substitutes placeholders into the body before writing.
+- `context.ts` / `app.ts` / `server.ts` wired: server resolves `process.env.BACKLOGGER_TEMPLATES_DIR ?? defaultTemplatesDir()`, loads at startup, logs `loaded/skipped/dir`.
+- `packages/web/src/lib/templates.ts` — `useTemplates()` (React Query, `staleTime: Infinity`).
+- `packages/web/src/components/NewDocumentDialog.tsx` rewritten — Type → Template → Title flow, "Blank" option, templates filtered by selected type, resets to Blank when type changes.
+
+### Deviations from the original plan
+- No SIGHUP/runtime reload; restart to pick up template changes (acceptable for MVP).
+- User-defined templates not implemented — left as a follow-up.
+- `{{date}}` uses local time (not UTC).
+- `app.test.ts` `TEMPLATES_DIR` resolves with a single `..` from `src/` to `packages/api/templates/` (one level, not two).
+
+### Verification
+- `npm run typecheck` ✅
+- `npm run lint` ✅
+- `npm test` → 84/84 ✅ (`packages/api/src/templates/registry.test.ts` 5 tests; `packages/api/src/app.test.ts` Templates API block adds 6 tests: list, get, 404, create-with-placeholders, type mismatch, unknown template id)
+- `npm run build` ✅
+
+### Follow-ups (rolled into M6 Hardening)
+- Playwright smoke covering "create project → create design doc from template → edit → reload → content intact" (matches §5 exit criterion).
+- Replace `window.prompt` / `confirm` with a real modal.
+- Code-split CodeMirror to address the 853 kB bundle warning.
+- Preview toggle in editor.
+- Reindex UI surface for `POST /api/admin/reindex`.
+- Allow user-defined templates from a `data/templates/` directory.
