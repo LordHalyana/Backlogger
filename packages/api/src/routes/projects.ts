@@ -10,12 +10,14 @@ import type { ProjectService } from '../services/project-service.js';
 import type { LinkService } from '../services/link-service.js';
 import { ReloadInProgressError, type ReindexService } from '../services/reindex-service.js';
 import type { FsRepository } from '../fs/index.js';
+import type { GraphService } from '../services/graph-service.js';
 
 export function projectsRouter(
   service: ProjectService,
   linkService?: LinkService,
   reindexService?: ReindexService,
   fs?: FsRepository,
+  graphService?: GraphService,
 ): Router {
   const router = Router();
 
@@ -164,6 +166,20 @@ export function projectsRouter(
       }
       await fs.removeFolder(id, parsed.data);
       res.status(204).send();
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.get('/:id/graph', async (req, res, next) => {
+    try {
+      const id = parseId(req.params.id);
+      if (!graphService) {
+        res.status(503).json({ error: 'Graph service not available' });
+        return;
+      }
+      const payload = graphService.getGraph(id);
+      res.json(payload);
     } catch (err) {
       next(err);
     }

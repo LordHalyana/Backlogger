@@ -66,11 +66,34 @@ docs/
   [5 Help center](p3/blocks/block-5-help-center.md) ·
   [6 Project reload](p3/blocks/block-6-project-reload.md)
 
-### Phase 4 — Dogfooding improvements (in progress)
+### Phase 4 — Dogfooding improvements (✅ complete)
 - [Plan](p4/implementation_plan.md)
 - Blocks: [1 Folder management](p4/blocks/block-1-folder-management.md)
+
+### Phase 5 — Knowledge graph (✅ complete)
+- [Plan](p5/implementation_plan.md)
+- Blocks: [4 Knowledge graph](p5/blocks/block-4-knowledge-graph.md) ·
+  [5 Hardening](p5/blocks/block-5-hardening.md)
+
+### Phase 6 — AI assistance (⏸ on hold)
+- [Plan](p6/implementation_plan.md)
+- Blocks: [1 Provider abstraction](p6/blocks/block-1-provider-abstraction.md) ·
+  [2 Inline expansion](p6/blocks/block-2-inline-expansion.md) ·
+  [3 Template generation](p6/blocks/block-3-template-generation.md) ·
+  [4 Streaming UI](p6/blocks/block-4-streaming-ui.md) ·
+  [5 Audit log & cost caps](p6/blocks/block-5-audit-log.md)
+
+### Phase 7 — Multi-user & RBAC (⏸ on hold)
+- [Plan](p7/implementation_plan.md)
+- Blocks: [1 Authentication](p7/blocks/block-1-authentication.md) ·
+  [2 Users & roles](p7/blocks/block-2-users-roles.md) ·
+  [3 Project ACL](p7/blocks/block-3-project-acl.md) ·
+  [4 Edit audit log](p7/blocks/block-4-edit-audit-log.md) ·
+  [5 Real-time presence](p7/blocks/block-5-presence.md)
 
 ### Operations & reports
 - [Monitoring](operations/monitoring.md)
 - [Status report — 2026-05-31](reports/2026-05-31-status.md)
 - [Status report — 2026-06-01 · Folder management](reports/2026-06-01-folder-management.md)
+- [**Comprehensive project report — 2026-06-01**](reports/2026-06-01-comprehensive-project-report.md)
+- [Status report — 2026-06-02 · Phase 5 complete](reports/2026-06-02-phase-5.md)

@@ -41,7 +41,7 @@ export function createApp(ctx: AppContext, options: CreateAppOptions = {}): Expr
       .json(HEALTH_JSON_SCHEMA);
   });
 
-  app.use('/api/projects', projectsRouter(ctx.projectService, ctx.linkService, ctx.reindexService, ctx.fs));
+  app.use('/api/projects', projectsRouter(ctx.projectService, ctx.linkService, ctx.reindexService, ctx.fs, ctx.graphService));
   app.use('/api/projects/:projectId/documents', projectDocumentsRouter(ctx.documentService));
   app.use('/api/projects/:projectId/import', importRouter(ctx.importService));
   app.use('/api/documents', documentsRouter(ctx.documentService, ctx.linkService));

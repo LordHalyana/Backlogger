@@ -9,6 +9,7 @@ import { LinkService } from './services/link-service.js';
 import { ProjectService } from './services/project-service.js';
 import { ReindexService } from './services/reindex-service.js';
 import { SearchService } from './services/search-service.js';
+import { GraphService } from './services/graph-service.js';
 import { TagsService } from './services/tags-service.js';
 import { TemplateRegistry } from './templates/registry.js';
 
@@ -26,6 +27,7 @@ export interface AppContext {
   searchService: SearchService;
   linkService: LinkService;
   tagsService: TagsService;
+  graphService: GraphService;
   templates: TemplateRegistry;
   healthService: HealthService;
   importService: ImportService;
@@ -53,6 +55,7 @@ export function buildContext(opts: BuildContextOptions): AppContext {
   const projectService = new ProjectService({ projectsRepo, fs });
   const linkService = new LinkService(opts.db);
   const tagsService = new TagsService(opts.db);
+  const graphService = new GraphService(opts.db);
   const documentService = new DocumentService({
     documentsRepo,
     projectsRepo,
@@ -60,6 +63,7 @@ export function buildContext(opts: BuildContextOptions): AppContext {
     templates,
     linkService,
     tagsService,
+    graphService,
   });
   const reindexService = new ReindexService({ documentsRepo, projectsRepo, fs, linkService, tagsService });
   const searchService = new SearchService(opts.db);
@@ -82,6 +86,7 @@ export function buildContext(opts: BuildContextOptions): AppContext {
     searchService,
     linkService,
     tagsService,
+    graphService,
     templates,
     healthService,
     importService,

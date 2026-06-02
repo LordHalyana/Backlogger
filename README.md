@@ -2,9 +2,9 @@
 
 Self-hosted Markdown workspace for ideas, design documents, implementation plans, and backlogs.
 
-> Status: Phase 2 complete. See [docs/p2/implementation_plan.md](docs/p2/implementation_plan.md).
+> Status: Phase 5 complete. See [docs/README.md](docs/README.md) for the full roadmap.
 
-## Phase 2 Features
+## Features
 
 **Full-text Search** — Press `Ctrl/Cmd+K` to open the command palette. Type any word or phrase to search across all documents in real time. Results show ranked snippets; pressing Enter or clicking opens the document.
 
@@ -13,6 +13,10 @@ Self-hosted Markdown workspace for ideas, design documents, implementation plans
 **Tag Explorer** — Add comma- or Enter-separated tags on any document's metadata panel. Tags appear in the sidebar with counts; click a tag to filter the document tree. Multiple active tags use AND semantics. A filter bar above the tree shows active tags with remove chips and a Clear button.
 
 **User-defined Templates** — Drop a Markdown file with `template_id:` / `template_name:` frontmatter into `data/templates/`. Open Settings (⚙ in the topbar), click **Reload**, and the template appears in the New Document dialog with a "user" badge — no restart needed.
+
+**Folder Management** — Organise documents into collapsible nested folders directly from the project tree. Drag or rename via right-click context menu; the folder hierarchy persists across reloads.
+
+**Knowledge Graph** — Click **Graph** in the topbar to open an interactive canvas overlay showing every document as a node and every wiki-link as a directed edge. Filter by title or tag, hover to highlight neighbours, click a node to open the document. Broken links (targets that don't exist yet) appear as red sink nodes.
 
 ## Quickstart
 
@@ -47,7 +51,8 @@ The web dev server proxies `/api` and `/health` to the API.
 | `npm run db:migrate` | Apply SQL migrations.                  |
 | `npm run reindex`  | One-shot CLI: rescans `data/` and rebuilds metadata. |
 | `npm run bench`    | Search latency bench (p50/p95/p99 on 1 k docs). |
-| `npm run bundle-audit` | Verify initial JS gzip ≤ 200 kB.    |
+| `npm run bench:graph` | Knowledge-graph latency bench (p50/p95/p99 on 1 k docs / 5 k links). |
+| `npm run bundle-audit` | Verify initial JS gzip ≤ 220 kB.    |
 
 ## Environment variables
 

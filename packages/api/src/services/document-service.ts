@@ -14,6 +14,7 @@ import type { FsRepository, RawDocument } from '../fs/index.js';
 import type { DocumentsRepo } from '../db/documents-repo.js';
 import type { LinkService } from './link-service.js';
 import type { TagsService } from './tags-service.js';
+import type { GraphService } from './graph-service.js';
 import type { ProjectsRepo } from '../db/projects-repo.js';
 import { applyPlaceholders, type TemplateRegistry } from '../templates/registry.js';
 
@@ -24,6 +25,7 @@ export interface DocumentServiceDeps {
   templates?: TemplateRegistry;
   linkService?: LinkService;
   tagsService?: TagsService;
+  graphService?: GraphService;
   now?: () => string;
   newId?: () => string;
 }
@@ -35,6 +37,7 @@ export class DocumentService {
   private readonly templates: TemplateRegistry | undefined;
   private readonly linkService: LinkService | undefined;
   private readonly tagsService: TagsService | undefined;
+  private readonly graphService: GraphService | undefined;
   private readonly now: () => string;
   private readonly newId: () => string;
 
@@ -45,6 +48,7 @@ export class DocumentService {
     this.templates = deps.templates;
     this.linkService = deps.linkService;
     this.tagsService = deps.tagsService;
+    this.graphService = deps.graphService;
     this.now = deps.now ?? (() => new Date().toISOString());
     this.newId = deps.newId ?? (() => uuidv4());
   }
@@ -152,6 +156,7 @@ export class DocumentService {
 
     this.linkService?.rebuildForDocument(id, frontmatter.title, body);
     this.tagsService?.rebuildForDocument(id, frontmatter.tags);
+    this.graphService?.invalidate(projectId);
 
     return { ...frontmatter, project_id: projectId, path: relPath, body };
   }
@@ -204,6 +209,7 @@ export class DocumentService {
       summary.title,
     );
     this.tagsService?.rebuildForDocument(summary.id, nextFrontmatter.tags);
+    this.graphService?.invalidate(summary.project_id);
 
     return {
       ...nextFrontmatter,
@@ -218,6 +224,7 @@ export class DocumentService {
     if (!summary) throw new NotFoundError('DOCUMENT_NOT_FOUND', `Document not found: ${id}`);
     this.documentsRepo.delete(id);
     this.linkService?.onDocumentDeleted(id);
+    this.graphService?.invalidate(summary.project_id);
     await this.fs.delete(summary.path).catch(() => undefined);
   }
 

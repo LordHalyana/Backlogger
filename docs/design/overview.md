@@ -252,6 +252,25 @@ DELETE /api/documents/:documentId
 - RBAC
 - Team workspaces
 
+## Phase 5
+
+- Knowledge graph
+
+### Phase 5 Status
+
+| Block | Feature                     | Status      |
+|-------|-----------------------------|-------------|
+| 4     | Knowledge Graph             | ✅ Complete |
+| 5     | Phase 5 Hardening           | ✅ Complete |
+
+## Phase 6 — AI assistance
+
+> **⏸ On hold** — deferred; adds complexity beyond current scope.
+
+## Phase 7 — Multi-user & RBAC
+
+> **⏸ On hold** — deferred; adds complexity beyond current scope.
+
 ---
 
 # Success Criteria

@@ -23,7 +23,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const distDir = path.join(root, 'packages', 'web', 'dist', 'assets');
 
 function parseArgs(): { budget: number } {
-  let budget = 200;
+  let budget = 220; // P5 raised from 200 kB (P2) to 220 kB to fit react-force-graph-2d
   for (const arg of process.argv.slice(2)) {
     const m = /^--budget=(\d+)$/.exec(arg);
     if (m) budget = Number(m[1]);

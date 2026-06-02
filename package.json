@@ -24,6 +24,7 @@
     "seed:docs": "tsx scripts/seed-docs-project.ts",
     "test:e2e": "playwright test",
     "bench": "tsx scripts/bench-search.ts",
+    "bench:graph": "tsx scripts/bench-graph.ts",
     "bundle-audit": "tsx scripts/bundle-audit.ts"
   },
   "devDependencies": {

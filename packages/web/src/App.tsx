@@ -8,6 +8,7 @@ import { CommandPalette } from './components/CommandPalette.js';
 import { ImportDialog } from './components/ImportDialog.js';
 import { SettingsDialog } from './components/SettingsDialog.js';
 import { HelpDrawer } from './components/HelpDrawer.js';
+import { KnowledgeGraph } from './components/KnowledgeGraph.js';
 import { readHelpSlugFromUrl } from './lib/help-link.js';
 import { useTheme } from './lib/theme.js';
 import { useTitles, type TitleRow } from './lib/links.js';
@@ -27,6 +28,7 @@ export function App(): JSX.Element {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [graphOpen, setGraphOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState<boolean>(() => readHelpSlugFromUrl() !== null);
   const [helpSlug, setHelpSlug] = useState<string | null>(() => readHelpSlugFromUrl());
   const [toast, setToast] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
@@ -181,6 +183,16 @@ export function App(): JSX.Element {
               {reload.isPending ? 'Reloading\u2026' : 'Reload'}
             </button>
           )}
+          {selectedProjectId && (
+            <button
+              type="button"
+              className="graph-button"
+              onClick={() => setGraphOpen(true)}
+              title="View knowledge graph"
+            >
+              Graph
+            </button>
+          )}
           <span className={cls}>
             <span className="dot" />
             {label}
@@ -278,6 +290,13 @@ export function App(): JSX.Element {
           onImported={() => {
             void qc.invalidateQueries({ queryKey: ['documents', selectedProjectId] });
           }}
+        />
+      )}
+      {graphOpen && selectedProjectId && (
+        <KnowledgeGraph
+          projectId={selectedProjectId}
+          onOpenDocument={openDocumentFromSearch}
+          onClose={() => setGraphOpen(false)}
         />
       )}
     </div>

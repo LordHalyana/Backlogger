@@ -884,6 +884,123 @@ a.download-button {
   cursor: progress;
 }
 
+.topbar-right .graph-button {
+  background: var(--bg-panel);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.topbar-right .graph-button:hover {
+  border-color: var(--accent);
+}
+
+/* ── Knowledge Graph overlay ─────────────────────────────────────── */
+.graph-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-body, #0f172a);
+  color: var(--fg);
+}
+
+.graph-overlay__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+  flex-shrink: 0;
+}
+
+.graph-overlay__title {
+  font-weight: 600;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.graph-overlay__filter {
+  flex: 1;
+  min-width: 0;
+  max-width: 320px;
+  background: var(--bg-body);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 13px;
+}
+
+.graph-overlay__close {
+  margin-left: auto;
+  background: transparent;
+  color: var(--fg-muted, #94a3b8);
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.graph-overlay__close:hover {
+  background: var(--border);
+  color: var(--fg);
+}
+
+.graph-overlay__canvas {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+.graph-overlay__state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  color: var(--fg-muted, #94a3b8);
+}
+.graph-overlay__state--error {
+  color: #f87171;
+}
+
+.graph-overlay__legend {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  padding: 6px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+  font-size: 11px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.graph-overlay__legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--fg-muted, #94a3b8);
+}
+
+.graph-overlay__legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+.graph-overlay__legend-dot--broken {
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px currentColor;
+}
+
 .app-toast {
   padding: 8px 12px;
   font-size: 13px;
