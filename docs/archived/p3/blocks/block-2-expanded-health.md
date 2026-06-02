@@ -1,3 +1,14 @@
+---
+id: f5a5ffb3-650a-4730-929f-98bdbb2569f4
+title: "Block 2 — Expanded Health Endpoint"
+project: backlogger-docs
+type: design_doc
+status: archived
+created_at: "2026-05-31T13:43:30.193Z"
+updated_at: "2026-05-31T14:12:13.841Z"
+tags: ["p3"]
+---
+
 # Block 2 — Expanded Health Endpoint
 
 > Parent: [../implementation_plan.md](../implementation_plan.md)

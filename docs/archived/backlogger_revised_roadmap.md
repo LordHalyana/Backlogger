@@ -1,3 +1,14 @@
+---
+id: 973dadf6-adf0-4408-995f-731961985799
+title: "Backlogger — Revised Roadmap & Strategic Direction"
+project: backlogger-docs
+type: note
+status: archived
+created_at: "2026-06-01T10:02:02.588Z"
+updated_at: "2026-06-01T10:02:02.588Z"
+tags: []
+---
+
 # Backlogger — Revised Roadmap & Strategic Direction
 
 ## Executive Summary

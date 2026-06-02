@@ -1,3 +1,14 @@
+---
+id: 71bc8e7a-69b4-4d89-935f-49533ecc859e
+title: "Block 3 — Markdown Editor (UI)"
+project: backlogger-docs
+type: design_doc
+status: archived
+created_at: "2026-05-30T07:02:10.224Z"
+updated_at: "2026-05-30T10:55:57.892Z"
+tags: ["p1"]
+---
+
 # Block 3 — Markdown Editor (UI)
 
 > Parent: [../implementation_plan.md](../implementation_plan.md)

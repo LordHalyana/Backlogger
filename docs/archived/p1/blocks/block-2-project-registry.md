@@ -1,3 +1,14 @@
+---
+id: 1e1c6a8d-9763-473d-8b69-c2af3323b285
+title: "Block 2 — Project Registry"
+project: backlogger-docs
+type: design_doc
+status: archived
+created_at: "2026-05-30T07:02:10.170Z"
+updated_at: "2026-05-30T10:27:23.838Z"
+tags: ["p1"]
+---
+
 # Block 2 — Project Registry
 
 > Parent: [../implementation_plan.md](../implementation_plan.md)

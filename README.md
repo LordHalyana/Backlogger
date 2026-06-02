@@ -20,6 +20,8 @@ Self-hosted Markdown workspace for ideas, design documents, implementation plans
 
 ## Quickstart
 
+### Local development
+
 ```bash
 npm install
 cp .env.example .env     # tweak BACKLOGGER_PORT / BACKLOGGER_ALLOWED_ORIGINS if needed
@@ -36,6 +38,41 @@ is reachable from another device on your LAN at
 box; set the env var to a comma-separated allow-list to lock it down.
 
 The web dev server proxies `/api` and `/health` to the API.
+
+### Docker
+
+```bash
+docker compose up -d
+```
+
+Open http://localhost:3002. The API serves the built web frontend, so only one port is needed.
+
+**Mount an existing docs folder as a project:**
+
+```bash
+docker run -d \
+  -p 3002:3002 \
+  -v backlogger-data:/app/data \
+  -v /path/to/my-project:/app/data/projects/my-project \
+  backlogger
+```
+
+Any folder (or symlink) placed under `/app/data/projects/` is auto-discovered and registered on startup — no manual import needed. The folder name becomes the project ID.
+
+**Build the image locally:**
+
+```bash
+docker build -t backlogger .
+```
+
+**Environment variables in Docker** — pass them with `-e` or via the `environment:` key in `docker-compose.yml`:
+
+| Variable | Docker default | Purpose |
+|----------|---------------|---------|
+| `BACKLOGGER_DATA_DIR` | `/app/data` | DB + user templates root. Mount a volume here. |
+| `BACKLOGGER_PORT` | `3002` | Port the server listens on inside the container. |
+| `BACKLOGGER_HOST` | `0.0.0.0` | Bind address. |
+| `BACKLOGGER_ALLOWED_ORIGINS` | `*` | CORS allow-list. |
 
 ## Scripts
 
@@ -76,6 +113,8 @@ packages/
 └── web/      # React + Vite app
 data/         # runtime data (gitignored) — filesystem source of truth
 docs/         # design + implementation plans
+Dockerfile
+docker-compose.yml
 ```
 
 ## Theme

@@ -1,3 +1,14 @@
+---
+id: 6e6761e7-b5d8-4798-a8e5-b4bcd58fbd31
+title: "Block 4 — Knowledge Graph Index & API"
+project: backlogger-docs
+type: design_doc
+status: archived
+created_at: "2026-06-01T10:07:09.808Z"
+updated_at: "2026-06-02T06:56:49.391Z"
+tags: ["p5"]
+---
+
 # Block 4 — Knowledge Graph Index & API
 
 > Phase 5 / Block 4 · Parent: [../implementation_plan.md](../implementation_plan.md)

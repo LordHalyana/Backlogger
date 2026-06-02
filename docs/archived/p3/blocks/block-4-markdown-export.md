@@ -1,3 +1,14 @@
+---
+id: 0a4887a3-13fc-485a-94a0-2186789cec13
+title: "Block 4 — Markdown Export"
+project: backlogger-docs
+type: design_doc
+status: archived
+created_at: "2026-05-31T13:44:48.678Z"
+updated_at: "2026-05-31T14:16:54.771Z"
+tags: ["p3"]
+---
+
 # Block 4 — Markdown Export
 
 > Parent: [../implementation_plan.md](../implementation_plan.md)

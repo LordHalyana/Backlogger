@@ -41,13 +41,14 @@ describe('loadTemplatesFromDir', () => {
     expect(defaultTemplatesDir()).toContain('packages/api/templates');
   });
 
-  it('loads all five built-in templates', async () => {
+  it('loads all six built-in templates', async () => {
     const { loaded, skipped } = await loadTemplatesFromDir(TEMPLATES_DIR);
     expect(skipped).toEqual([]);
     const ids = loaded.map((t) => t.id).sort();
     expect(ids).toEqual(
       [
         'design-document',
+        'docs-template',
         'findings-report',
         'idea-expansion',
         'implementation-plan',

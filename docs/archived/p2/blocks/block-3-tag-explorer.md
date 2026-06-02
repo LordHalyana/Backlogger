@@ -1,3 +1,14 @@
+---
+id: 3c6e7870-9c9c-4d65-a36d-1d3d97f0fb90
+title: "Block 3 — Tag Explorer"
+project: backlogger-docs
+type: design_doc
+status: archived
+created_at: "2026-05-30T12:33:36.942Z"
+updated_at: "2026-05-30T14:11:16.297Z"
+tags: ["p2"]
+---
+
 # Block 3 — Tag Explorer
 
 > Parent: [../implementation_plan.md](../implementation_plan.md)

@@ -1,3 +1,14 @@
+---
+id: 26643f4b-0809-4fd6-b26b-ee6ca6ec3661
+title: "Block 5 — Help & Documentation Center"
+project: backlogger-docs
+type: design_doc
+status: archived
+created_at: "2026-05-31T13:45:16.096Z"
+updated_at: "2026-06-01T01:42:32.417Z"
+tags: ["p3"]
+---
+
 # Block 5 — Help & Documentation Center
 
 > Parent: [../implementation_plan.md](../implementation_plan.md)

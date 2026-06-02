@@ -36,8 +36,9 @@ function parseFrontmatter(source: string): { fm: RawFrontmatter; body: string } 
   for (const line of block.split('\n')) {
     const m = line.match(/^(\w+):\s*(.*)$/);
     if (!m) continue;
-    const key = m[1];
-    let value: string | number = m[2].trim();
+    const [, key, rawValue] = m;
+    if (key === undefined || rawValue === undefined) continue;
+    let value: string | number = rawValue.trim();
     if (value.startsWith('"') && value.endsWith('"')) {
       value = value.slice(1, -1);
     } else if (/^-?\d+$/.test(value)) {

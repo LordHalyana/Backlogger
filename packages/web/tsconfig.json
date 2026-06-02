@@ -7,7 +7,7 @@
     "jsx": "react-jsx",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "tsBuildInfoFile": "./dist/.tsbuildinfo",
-    "types": []
+    "types": ["vite/client"]
   },
   "include": ["src"],
   "references": [{ "path": "../shared" }]

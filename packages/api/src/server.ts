@@ -2,6 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
+import express from 'express';
 import { createApp } from './app.js';
 import { buildContext } from './context.js';
 import { openDatabase } from './db/database.js';
@@ -43,6 +44,13 @@ await ctx.fs.ensureRoot();
 
 const stopWatcher = watchUserTemplates({ builtinDir, userDir, registry: templates });
 
+// Auto-discover project folders (or symlinks) that exist on disk but have
+// no DB row yet. This handles Docker volume mounts and manual folder drops:
+//   docker run -v /host/my-project:/app/data/projects/my-project backlogger
+// Any folder whose name matches the project-id pattern (^[a-z0-9][a-z0-9-]+$)
+// and is absent from the DB is registered automatically and reindexed.
+await discoverNewProjects(ctx.resolver.projectsRoot, ctx.projectsRepo, ctx.reindexService);
+
 // Auto-reindex on startup if the documents table is empty but the FS has
 // content (e.g. fresh DB after a restore or a manual file drop).
 if (ctx.documentsRepo.count() === 0 && (await hasAnyMarkdown(ctx.resolver.projectsRoot))) {
@@ -54,6 +62,21 @@ if (ctx.documentsRepo.count() === 0 && (await hasAnyMarkdown(ctx.resolver.projec
 }
 
 const app = createApp(ctx, { allowedOrigins });
+
+// In production (Docker), the API server also serves the Vite-built web
+// frontend. The web dist sits at <repo-root>/packages/web/dist/.
+// In dev the Vite dev server handles the frontend separately.
+if (process.env.NODE_ENV === 'production') {
+  const webDistDir = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    '..', '..', '..', 'packages', 'web', 'dist',
+  );
+  app.use(express.static(webDistDir));
+  // SPA fallback: client-side routes not matched by static files get index.html
+  app.use((_req, res) => {
+    res.sendFile(path.join(webDistDir, 'index.html'));
+  });
+}
 
 app.listen(port, host, () => {
   // eslint-disable-next-line no-console
@@ -91,6 +114,69 @@ async function hasAnyMarkdown(dir: string): Promise<boolean> {
     }
   }
   return false;
+}
+
+/** Kebab-id → "Title Case" display name. `backlogger-docs` → `Backlogger Docs`. */
+function idToName(id: string): string {
+  return id
+    .split('-')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+}
+
+/**
+ * Scan the projects root for directories (and symlinks to directories) whose
+ * name is a valid project-id but have no DB row yet.  Registers each one and
+ * runs a project-scoped reindex so documents are queryable immediately.
+ * Safe to call every startup — existing projects are skipped.
+ */
+async function discoverNewProjects(
+  projectsRoot: string,
+  projectsRepo: import('./db/projects-repo.js').ProjectsRepo,
+  reindexService: import('./services/reindex-service.js').ReindexService,
+): Promise<void> {
+  // Same pattern as ProjectIdSchema in @backlogger/shared.
+  const VALID_ID = /^[a-z0-9][a-z0-9-]{1,62}$/;
+
+  let entries: import('node:fs').Dirent[];
+  try {
+    entries = await fs.readdir(projectsRoot, { withFileTypes: true });
+  } catch {
+    return;
+  }
+
+  for (const entry of entries) {
+    const id = entry.name;
+    if (!VALID_ID.test(id)) continue;
+    if (projectsRepo.exists(id)) continue;
+
+    // Accept plain directories and symlinks that resolve to a directory.
+    let isDir = entry.isDirectory();
+    if (!isDir && entry.isSymbolicLink()) {
+      try {
+        const st = await fs.stat(path.join(projectsRoot, id));
+        isDir = st.isDirectory();
+      } catch {
+        isDir = false;
+      }
+    }
+    if (!isDir) continue;
+
+    const now = new Date().toISOString();
+    projectsRepo.insert({
+      id,
+      name: idToName(id),
+      description: null,
+      created_at: now,
+      updated_at: now,
+    });
+
+    const report = await reindexService.runProject(id);
+    // eslint-disable-next-line no-console
+    console.log(
+      `[backlogger] discovered project '${id}': indexed ${report.added} doc(s), skipped ${report.skipped.length}`,
+    );
+  }
 }
 
 function parseOrigins(raw: string): string[] | '*' {

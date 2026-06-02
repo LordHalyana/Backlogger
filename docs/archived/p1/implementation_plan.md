@@ -1,3 +1,14 @@
+---
+id: 42f5dc69-1b6e-46d4-9035-d1f97225a4d9
+title: "Phase 1 — Implementation Plan"
+project: backlogger-docs
+type: implementation_plan
+status: archived
+created_at: "2026-05-30T07:02:10.009Z"
+updated_at: "2026-06-01T02:29:09.811Z"
+tags: ["p1"]
+---
+
 # Phase 1 — Implementation Plan
 
 > Parent: [../design/roadmap.md](../design/roadmap.md)

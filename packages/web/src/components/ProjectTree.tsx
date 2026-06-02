@@ -1,10 +1,19 @@
 import { useMemo, useState } from 'react';
-import type { DocumentSummary, DocumentType } from '@backlogger/shared';
+import type { DocumentSummary } from '@backlogger/shared';
 import { useDocuments } from '../lib/documents.js';
 import { useFilteredDocuments } from '../lib/tags.js';
 import { useFolders, useCreateFolder, useDeleteFolder } from '../lib/folders.js';
 import { TagChip } from './TagChip.js';
 import { NewDocumentDialog } from './NewDocumentDialog.js';
+
+/** True if any ancestor folder (not self) is in the collapsed set. */
+function isAncestorCollapsed(folder: string, collapsed: ReadonlySet<string>): boolean {
+  const parts = folder.split('/');
+  for (let i = 1; i < parts.length; i++) {
+    if (collapsed.has(parts.slice(0, i).join('/'))) return true;
+  }
+  return false;
+}
 
 interface ProjectTreeProps {
   projectId: string;
@@ -14,15 +23,6 @@ interface ProjectTreeProps {
   onClearTags?: () => void;
   onRemoveTag?: (tag: string) => void;
 }
-
-const TYPE_BADGE: Record<DocumentType, string> = {
-  idea: 'idea',
-  design_doc: 'design',
-  implementation_plan: 'plan',
-  backlog_item: 'backlog',
-  note: 'note',
-  finding: 'finding',
-};
 
 function folderOf(projectId: string, path: string): string {
   const rest = path.startsWith(`${projectId}/`) ? path.slice(projectId.length + 1) : path;
@@ -48,6 +48,8 @@ export function ProjectTree({
   const [showNew, setShowNew] = useState(false);
   const [manageFolders, setManageFolders] = useState(false);
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
+  // Archived section is collapsed by default
+  const [archiveSectionCollapsed, setArchiveSectionCollapsed] = useState(true);
 
   const toggleCollapsed = (folder: string): void => {
     setCollapsed((prev) => {
@@ -69,11 +71,17 @@ export function ProjectTree({
     return map;
   }, [data, projectId]);
 
-  const allFolders = useMemo(() => {
+  const { activeFolders, archivedFolders } = useMemo(() => {
     const s = new Set<string>(grouped.keys());
     for (const f of folders.data ?? []) s.add(f);
     s.delete('');
-    return [...s].sort();
+    const active: string[] = [];
+    const archived: string[] = [];
+    for (const f of [...s].sort()) {
+      if (f === 'archived' || f.startsWith('archived/')) archived.push(f);
+      else active.push(f);
+    }
+    return { activeFolders: active, archivedFolders: archived };
   }, [grouped, folders.data]);
 
   const rootDocs = grouped.get('') ?? [];
@@ -114,20 +122,70 @@ export function ProjectTree({
         aria-label={d.title}
       >
         <span className="tree-item-title">{d.title}</span>
-        <span
-          className={`badge badge-type badge-type-${d.type}`}
-          aria-hidden="true"
-        >
-          {TYPE_BADGE[d.type]}
-        </span>
-        {d.status !== 'draft' && (
-          <span className={`badge badge-${d.status}`} aria-hidden="true">
-            {d.status}
+        {d.status === 'archived' && (
+          <span className="badge badge-archived" aria-hidden="true">
+            archived
           </span>
         )}
       </button>
     </li>
   );
+
+  const renderFolder = (folder: string): JSX.Element | null => {
+    if (isAncestorCollapsed(folder, collapsed)) return null;
+    const items = grouped.get(folder) ?? [];
+    const isCollapsed = collapsed.has(folder);
+    const depth = folder.split('/').length - 1;
+    // Show only the last path segment as the label
+    const displayName = folder.split('/').pop() ?? folder;
+    return (
+      <li
+        key={folder}
+        className={'tree-group' + (isCollapsed ? ' collapsed' : '')}
+        style={{ '--folder-depth': depth } as React.CSSProperties}
+      >
+        <div className="tree-group-label folder-row">
+          <button
+            type="button"
+            className="folder-toggle"
+            onClick={() => toggleCollapsed(folder)}
+            aria-expanded={!isCollapsed}
+            aria-label={(isCollapsed ? 'Expand' : 'Collapse') + ' folder ' + folder}
+            title={folder}
+          >
+            <span className="folder-caret" aria-hidden="true">
+              {isCollapsed ? '▸' : '▾'}
+            </span>
+            <span className="folder-name" title={folder}>
+              {displayName}
+            </span>
+            {items.length > 0 && (
+              <span className="folder-count" aria-hidden="true">
+                {items.length}
+              </span>
+            )}
+          </button>
+          {manageFolders && (
+            <button
+              type="button"
+              className="folder-delete-btn"
+              onClick={() => removeFolder(folder)}
+              aria-label={`Delete folder ${folder}`}
+              title={
+                items.length > 0
+                  ? `Folder not empty (${items.length})`
+                  : 'Delete folder'
+              }
+              disabled={items.length > 0}
+            >
+              ×
+            </button>
+          )}
+        </div>
+        {!isCollapsed && items.length > 0 && <ul>{items.map(renderItem)}</ul>}
+      </li>
+    );
+  };
 
   return (
     <aside className="project-tree">
@@ -171,57 +229,11 @@ export function ProjectTree({
       )}
       {isLoading && <p className="muted">Loading…</p>}
       {isError && <p className="error">Failed to load: {error?.message}</p>}
-      {!isLoading && !isError && (data?.length ?? 0) === 0 && allFolders.length === 0 && (
+      {!isLoading && !isError && (data?.length ?? 0) === 0 && activeFolders.length === 0 && archivedFolders.length === 0 && (
         <p className="muted">No documents yet. Click &ldquo;+ New&rdquo; to create one.</p>
       )}
       <ul className="tree-groups">
-        {allFolders.map((folder) => {
-          const items = grouped.get(folder) ?? [];
-          const isCollapsed = collapsed.has(folder);
-          return (
-            <li key={folder} className={'tree-group' + (isCollapsed ? ' collapsed' : '')}>
-              <div className="tree-group-label folder-row">
-                <button
-                  type="button"
-                  className="folder-toggle"
-                  onClick={() => toggleCollapsed(folder)}
-                  aria-expanded={!isCollapsed}
-                  aria-label={(isCollapsed ? 'Expand' : 'Collapse') + ' folder ' + folder}
-                  title={isCollapsed ? 'Expand' : 'Collapse'}
-                >
-                  <span className="folder-caret" aria-hidden="true">
-                    {isCollapsed ? '▸' : '▾'}
-                  </span>
-                  <span className="folder-name" title={folder}>
-                    {folder}
-                  </span>
-                  {items.length > 0 && (
-                    <span className="folder-count" aria-hidden="true">
-                      {items.length}
-                    </span>
-                  )}
-                </button>
-                {manageFolders && (
-                  <button
-                    type="button"
-                    className="folder-delete-btn"
-                    onClick={() => removeFolder(folder)}
-                    aria-label={`Delete folder ${folder}`}
-                    title={
-                      items.length > 0
-                        ? `Folder not empty (${items.length})`
-                        : 'Delete folder'
-                    }
-                    disabled={items.length > 0}
-                  >
-                    ×
-                  </button>
-                )}
-              </div>
-              {!isCollapsed && items.length > 0 && <ul>{items.map(renderItem)}</ul>}
-            </li>
-          );
-        })}
+        {activeFolders.map(renderFolder)}
         {rootDocs.length > 0 && (
           <li className={'tree-group' + (collapsed.has('') ? ' collapsed' : '')}>
             <div className="tree-group-label folder-row">
@@ -246,6 +258,28 @@ export function ProjectTree({
           </li>
         )}
       </ul>
+      {archivedFolders.length > 0 && (
+        <>
+          <div className="tree-section-divider">
+            <button
+              type="button"
+              className="tree-section-toggle"
+              onClick={() => setArchiveSectionCollapsed((v) => !v)}
+              aria-expanded={!archiveSectionCollapsed}
+            >
+              <span className="folder-caret" aria-hidden="true">
+                {archiveSectionCollapsed ? '▸' : '▾'}
+              </span>
+              Archived
+            </button>
+          </div>
+          {!archiveSectionCollapsed && (
+            <ul className="tree-groups tree-groups--archived">
+              {archivedFolders.map(renderFolder)}
+            </ul>
+          )}
+        </>
+      )}
       {showNew && (
         <NewDocumentDialog
           projectId={projectId}

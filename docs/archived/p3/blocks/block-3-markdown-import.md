@@ -1,3 +1,14 @@
+---
+id: fe6e579a-d84a-4eef-bac3-f1cda2551a24
+title: "Block 3 — Markdown Import"
+project: backlogger-docs
+type: design_doc
+status: archived
+created_at: "2026-05-31T13:44:27.552Z"
+updated_at: "2026-05-31T22:59:56.635Z"
+tags: ["p3"]
+---
+
 # Block 3 — Markdown Import
 
 > Parent: [../implementation_plan.md](../implementation_plan.md)

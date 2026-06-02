@@ -11,8 +11,8 @@ import {
 /** Pattern for project ids (kebab-case slug). */
 export const PROJECT_ID_RE = /^[a-z0-9][a-z0-9-]{1,62}$/;
 
-/** Pattern for individual `.md` filenames (no slashes). */
-export const FILENAME_RE = /^[a-z0-9][a-z0-9-_]{0,127}\.md$/;
+/** Pattern for individual `.md` filenames (no slashes). Uppercase stems are allowed (e.g. README.md). */
+export const FILENAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9-_]{0,127}\.md$/;
 
 /** Pattern for a single folder segment under a project. */
 export const FOLDER_SEGMENT_RE = /^[a-z0-9][a-z0-9-_]{0,63}$/;
@@ -169,6 +169,13 @@ export class PathResolver {
    * confirm none of them is a symlink. Throws `SymlinkNotAllowedError` if any
    * existing component is a symlink. Missing components are ignored (so this
    * is safe to call before creating a file).
+   *
+   * **Exception**: the project root directory itself (the first segment after
+   * `projectsRoot`) is allowed to be a symlink. This supports Docker volume
+   * mounts and local dev setups where the entire project folder is symlinked
+   * from another location (e.g. `data/projects/backlogger-docs → ../../docs`).
+   * Symlinks at any deeper level — within the project's content tree — are
+   * still rejected to prevent path-traversal attacks via user-controlled files.
    */
   async assertNoSymlinks(absolute: string): Promise<void> {
     if (!this.isInsideProjectsRoot(absolute)) {
@@ -179,8 +186,12 @@ export class PathResolver {
     let current = this.projectsRoot;
     // Also check the projects root itself.
     await this.lstatOrSkip(current);
-    for (const part of parts) {
-      current = path.join(current, part);
+    for (let i = 0; i < parts.length; i++) {
+      current = path.join(current, parts[i]!);
+      // The project root directory (i === 0) may be a symlink — this is
+      // intentional for Docker mounts and local dev symlink setups.
+      // Everything deeper must be a real file/directory.
+      if (i === 0) continue;
       // eslint-disable-next-line no-await-in-loop
       await this.lstatOrSkip(current);
     }

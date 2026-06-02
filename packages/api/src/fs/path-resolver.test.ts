@@ -39,11 +39,11 @@ describe('PathResolver', () => {
   });
 
   describe('assertFilename', () => {
-    it.each(['note.md', 'my-doc.md', 'a.md', 'doc_1.md'])('accepts %s', (n) => {
+    it.each(['note.md', 'my-doc.md', 'a.md', 'doc_1.md', 'UPPER.md', 'README.md'])('accepts %s', (n) => {
       expect(() => resolver.assertFilename(n)).not.toThrow();
     });
 
-    it.each(['', 'no-ext', 'UPPER.md', 'has space.md', '../escape.md', '.hidden.md'])(
+    it.each(['', 'no-ext', 'has space.md', '../escape.md', '.hidden.md'])(
       'rejects %s',
       (n) => {
         expect(() => resolver.assertFilename(n)).toThrow(InvalidFilenameError);
@@ -96,13 +96,30 @@ describe('PathResolver', () => {
       await expect(resolver.assertNoSymlinks(abs)).resolves.toBeUndefined();
     });
 
-    it('throws when a path component is a symlink', async () => {
-      // Create a sibling directory and symlink it as a "project".
+    it('allows a symlink at the project-root level (Docker mount / local dev)', async () => {
       const real = await fs.mkdtemp(path.join(os.tmpdir(), 'backlogger-real-'));
       try {
         const linkPath = path.join(resolver.projectsRoot, 'linked');
         await fs.symlink(real, linkPath, 'dir');
+        // The project folder itself being a symlink is fine.
+        await expect(resolver.assertNoSymlinks(linkPath)).resolves.toBeUndefined();
+        // A path *inside* the symlinked project is also fine (no nested symlinks).
         const target = path.join(linkPath, 'ideas', 'note.md');
+        await expect(resolver.assertNoSymlinks(target)).resolves.toBeUndefined();
+      } finally {
+        await fs.rm(real, { recursive: true, force: true });
+      }
+    });
+
+    it('throws when a path component inside a project is a symlink', async () => {
+      const real = await fs.mkdtemp(path.join(os.tmpdir(), 'backlogger-real-'));
+      try {
+        // Create a real project folder containing a symlinked sub-directory.
+        const projectPath = path.join(resolver.projectsRoot, 'linked');
+        await fs.mkdir(projectPath, { recursive: true });
+        const innerLink = path.join(projectPath, 'ideas');
+        await fs.symlink(real, innerLink, 'dir');
+        const target = path.join(innerLink, 'note.md');
         await expect(resolver.assertNoSymlinks(target)).rejects.toBeInstanceOf(
           SymlinkNotAllowedError,
         );

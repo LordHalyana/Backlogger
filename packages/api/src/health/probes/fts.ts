@@ -1,4 +1,5 @@
 import type { SubsystemState } from '@backlogger/shared';
+import type Database from 'better-sqlite3';
 import type { Db } from '../../db/database.js';
 
 /**
@@ -6,10 +7,10 @@ import type { Db } from '../../db/database.js';
  * A count of `0` is healthy (a fresh install has no docs yet).
  */
 export function createFtsProbe(db: Db): () => SubsystemState {
-  let stmt: ReturnType<Db['prepare']> | null = null;
+  let stmt: Database.Statement<[], { c: number }> | null = null;
   return (): SubsystemState => {
     try {
-      if (!stmt) stmt = db.prepare('SELECT count(*) AS c FROM documents_fts');
+      if (!stmt) stmt = db.prepare<[], { c: number }>('SELECT count(*) AS c FROM documents_fts');
       stmt.get();
       return 'ok';
     } catch {

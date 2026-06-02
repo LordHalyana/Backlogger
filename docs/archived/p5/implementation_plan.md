@@ -1,3 +1,14 @@
+---
+id: f686e995-2416-4e9b-9e61-563577e61e79
+title: "Phase 5 — Implementation Plan"
+project: backlogger-docs
+type: implementation_plan
+status: archived
+created_at: "2026-06-01T10:04:43.618Z"
+updated_at: "2026-06-02T06:56:49.391Z"
+tags: ["p5"]
+---
+
 # Phase 5 — Implementation Plan
 
 > Parent: [../design/roadmap.md](../design/roadmap.md)

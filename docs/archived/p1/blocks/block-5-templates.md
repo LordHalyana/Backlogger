@@ -1,3 +1,14 @@
+---
+id: 5d4b2cfd-1b63-4487-8dbb-8ddc30786c86
+title: "Block 5 — Templates"
+project: backlogger-docs
+type: design_doc
+status: archived
+created_at: "2026-05-30T07:02:10.317Z"
+updated_at: "2026-05-30T11:27:08.526Z"
+tags: ["p1"]
+---
+
 # Block 5 — Templates
 
 > Parent: [../implementation_plan.md](../implementation_plan.md)

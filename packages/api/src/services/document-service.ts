@@ -178,16 +178,30 @@ export class DocumentService {
 
     const existing = await this.fs.read(summary.path);
     const now = this.now();
+    const nextStatus = input.status ?? summary.status;
     const nextFrontmatter: Frontmatter = FrontmatterSchema.parse({
       ...existing.frontmatter,
       title: input.title ?? summary.title,
-      status: input.status ?? summary.status,
+      status: nextStatus,
       tags: input.tags ?? summary.tags,
       updated_at: now,
     });
     const nextBody = input.body ?? existing.body;
 
-    await this.fs.write(summary.path, { frontmatter: nextFrontmatter, body: nextBody });
+    // Move the file when archive status changes.
+    const nextPath =
+      nextStatus !== summary.status
+        ? nextStatus === 'archived'
+          ? toArchivedPath(summary.path)
+          : summary.status === 'archived'
+            ? fromArchivedPath(summary.path)
+            : summary.path
+        : summary.path;
+
+    await this.fs.write(nextPath, { frontmatter: nextFrontmatter, body: nextBody });
+    if (nextPath !== summary.path) {
+      await this.fs.delete(summary.path).catch(() => undefined);
+    }
 
     this.documentsRepo.upsert({
       id: summary.id,
@@ -195,7 +209,7 @@ export class DocumentService {
       title: nextFrontmatter.title,
       type: nextFrontmatter.type,
       status: nextFrontmatter.status,
-      path: summary.path,
+      path: nextPath,
       tags: nextFrontmatter.tags,
       body: nextBody,
       created_at: summary.created_at,
@@ -214,7 +228,7 @@ export class DocumentService {
     return {
       ...nextFrontmatter,
       project_id: summary.project_id,
-      path: summary.path,
+      path: nextPath,
       body: nextBody,
     };
   }
@@ -233,6 +247,30 @@ export class DocumentService {
       throw new NotFoundError('PROJECT_NOT_FOUND', `Project not found: ${projectId}`);
     }
   }
+}
+
+/**
+ * Insert an `archived` segment immediately after the project-id in a
+ * project-relative path.
+ *
+ * `my-project/notes/doc-abc.md` → `my-project/archived/notes/doc-abc.md`
+ */
+export function toArchivedPath(currentPath: string): string {
+  const parts = currentPath.split('/');
+  return [parts[0], 'archived', ...parts.slice(1)].join('/');
+}
+
+/**
+ * Remove the `archived` segment from an archived project-relative path.
+ *
+ * `my-project/archived/notes/doc-abc.md` → `my-project/notes/doc-abc.md`
+ *
+ * If the path is not under `archived/`, it is returned unchanged.
+ */
+export function fromArchivedPath(currentPath: string): string {
+  const parts = currentPath.split('/');
+  if (parts[1] !== 'archived') return currentPath;
+  return [parts[0], ...parts.slice(2)].join('/');
 }
 
 /**

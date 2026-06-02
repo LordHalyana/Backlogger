@@ -1,3 +1,14 @@
+---
+id: d3089431-cc44-4ce1-8855-06dd0e259c18
+title: "Monitoring Backlogger"
+project: backlogger-docs
+type: note
+status: active
+created_at: "2026-05-31T14:09:57.981Z"
+updated_at: "2026-05-31T14:12:13.850Z"
+tags: ["operations"]
+---
+
 # Monitoring Backlogger
 
 Single-user LAN deployment. Backlogger exposes one read-only HTTP endpoint for external monitoring (e.g. Home System).

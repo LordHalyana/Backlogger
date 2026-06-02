@@ -1,3 +1,14 @@
+---
+id: 5507f8b0-8fcb-40fa-a138-1e4cbb38fe6c
+title: "Backlogger — Design Document"
+project: backlogger-docs
+type: design_doc
+status: active
+created_at: "2026-05-30T02:32:58.120Z"
+updated_at: "2026-06-02T09:42:32.072Z"
+tags: ["design"]
+---
+
 # Backlogger — Design Document
 
 ## Project Overview
@@ -242,19 +253,45 @@ DELETE /api/documents/:documentId
 
 ## Phase 3
 
-- Git synchronization
-- Knowledge graphs
-- AI-assisted document expansion
+Integration, usability, and document portability — without changing the "filesystem is source of truth" contract.
+
+- Home System integration (health tile with subsystem badges)
+- Expanded `/health` endpoint (per-subsystem `ok / degraded / error`)
+- Markdown import (drop `.md` files into any project)
+- Markdown export (download any document as a valid `.md` file)
+- Help & Documentation Center (in-app `?` drawer)
+- Project Reload & Reindex (reconcile external filesystem changes)
+
+### Phase 3 Status
+
+| Block | Feature                         | Status      |
+|-------|---------------------------------|-------------|
+| 1     | Home System Integration         | ✅ Complete |
+| 2     | Expanded Health Endpoint        | ✅ Complete |
+| 3     | Markdown Import                 | ✅ Complete |
+| 4     | Markdown Export                 | ✅ Complete |
+| 5     | Help & Documentation Center     | ✅ Complete |
+| 6     | Project Reload & Reindex        | ✅ Complete |
 
 ## Phase 4
 
-- Multi-user support
-- RBAC
-- Team workspaces
+Dogfooding improvements driven by using Backlogger to manage its own documentation.
+
+- Folder Management — arbitrary nested folders in the project tree (decoupled from document `type`)
+
+### Phase 4 Status
+
+| Block | Feature            | Status      |
+|-------|--------------------|-------------|
+| 1     | Folder Management  | ✅ Complete |
 
 ## Phase 5
 
-- Knowledge graph
+Interactive knowledge graph and hardening.
+
+- Knowledge Graph — interactive canvas overlay; nodes = documents (coloured by type), edges = wiki-links; filter bar; node-click navigation; broken-link (red) nodes
+- Archived documents — `archived/` folder mirrors the project tree; Archive/Unarchive button in metadata panel moves files automatically
+- Performance hardening — graph latency bench (p95 ≤ 50 ms), bundle audit (≤ 220 kB gzip)
 
 ### Phase 5 Status
 

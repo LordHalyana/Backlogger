@@ -1,3 +1,14 @@
+---
+id: 0567baf0-b945-4a5e-ad09-724ae497257a
+title: "Block 4 — User-defined Templates"
+project: backlogger-docs
+type: design_doc
+status: archived
+created_at: "2026-05-30T12:33:37.015Z"
+updated_at: "2026-05-30T14:48:45.172Z"
+tags: ["p2"]
+---
+
 # Block 4 — User-defined Templates
 
 > Parent: [../implementation_plan.md](../implementation_plan.md)

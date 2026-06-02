@@ -1,3 +1,14 @@
+---
+id: 8beb95eb-f2a0-4a9c-850c-8720ca1fdc67
+title: "Backlogger Phase 3 — Integration, Usability & Document Portability"
+project: backlogger-docs
+type: design_doc
+status: archived
+created_at: "2026-05-31T13:40:34.147Z"
+updated_at: "2026-05-31T13:40:34.151Z"
+tags: ["p3"]
+---
+
 # Backlogger Phase 3 — Integration, Usability & Document Portability
 
 ## Overview

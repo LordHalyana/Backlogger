@@ -1,3 +1,14 @@
+---
+id: d2eefc85-12d0-40af-b335-e69e6136d953
+title: "Status — 2026-06-01 · Folder Management"
+project: backlogger-docs
+type: note
+status: archived
+created_at: "2026-06-01T03:58:21.772Z"
+updated_at: "2026-06-01T03:59:18.508Z"
+tags: ["reports", "status"]
+---
+
 # Status — 2026-06-01 · Folder Management
 
 > Phase 4 / Block 1 ships. Backlogger now supports arbitrary

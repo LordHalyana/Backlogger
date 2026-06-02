@@ -1,0 +1,41 @@
+services:
+  backlogger:
+    build: .
+    image: backlogger:latest
+    ports:
+      - "3002:3002"
+    volumes:
+      - backlogger-data:/app/data
+      # ── Mount external project folders ──────────────────────────────────────
+      # Any folder mounted under /app/data/projects/<name> is auto-discovered
+      # by Backlogger on startup. The folder name becomes the project ID.
+      #
+      # Example — expose a local docs directory as a project called "my-project":
+      #   - /home/user/my-project/docs:/app/data/projects/my-project
+      - /opt/dev-local/Backlogger/docs:/app/data/projects/backlogger-docs
+      - /opt/dev-local/background-swapper/docs:/app/data/projects/background-swapper
+      - /opt/dev-local/project-epsilon/docs:/app/data/projects/home-system
+      #
+    environment:
+      BACKLOGGER_DATA_DIR: /app/data
+      BACKLOGGER_PORT: 3002
+      BACKLOGGER_HOST: 0.0.0.0
+      # CORS: use '*' for open LAN access; set specific origins to lock down.
+      BACKLOGGER_ALLOWED_ORIGINS: "*"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3002/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  backlogger-data:
+    # Named volume for the SQLite database and user templates.
+    # To use a host directory instead, replace with:
+    #   driver: local
+    #   driver_opts:
+    #     type: none
+    #     o: bind
+    #     device: /host/path/to/backlogger-data

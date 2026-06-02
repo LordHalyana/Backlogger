@@ -1,3 +1,14 @@
+---
+id: d2e67efa-5878-4b7f-a64a-8ca3e7b5a426
+title: "Block 5 — Phase 2 Hardening"
+project: backlogger-docs
+type: design_doc
+status: archived
+created_at: "2026-05-30T12:33:37.198Z"
+updated_at: "2026-06-01T02:29:09.813Z"
+tags: ["p2"]
+---
+
 # Block 5 — Phase 2 Hardening
 
 > Parent: [../implementation_plan.md](../implementation_plan.md)

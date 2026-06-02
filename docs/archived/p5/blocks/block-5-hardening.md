@@ -1,3 +1,14 @@
+---
+id: ce027d24-4c59-4502-83ba-207023844ce4
+title: "Block 5 — Phase 5 Hardening"
+project: backlogger-docs
+type: design_doc
+status: archived
+created_at: "2026-06-01T10:07:27.105Z"
+updated_at: "2026-06-02T06:56:49.393Z"
+tags: ["p5"]
+---
+
 # Block 5 — Phase 5 Hardening
 
 > Phase 5 / Block 5 · Parent: [../implementation_plan.md](../implementation_plan.md)

@@ -1,3 +1,14 @@
+---
+id: b45f567e-f148-4b3f-8aae-18459e7da1f2
+title: "Block 6 — Project Reload"
+project: backlogger-docs
+type: design_doc
+status: archived
+created_at: "2026-05-31T13:45:47.536Z"
+updated_at: "2026-06-01T00:02:41.273Z"
+tags: ["p3"]
+---
+
 # Block 6 — Project Reload
 
 > Parent: [../implementation_plan.md](../implementation_plan.md)

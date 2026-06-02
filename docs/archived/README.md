@@ -1,3 +1,14 @@
+---
+id: d8f89ba4-08aa-4960-abc2-b03d5e4088dd
+title: "Backlogger — Documentation"
+project: backlogger-docs
+type: note
+status: archived
+created_at: "2026-06-01T01:59:05.531Z"
+updated_at: "2026-06-02T07:36:22.207Z"
+tags: []
+---
+
 # Backlogger — Documentation
 
 This is the source of truth for everything Backlogger: the original product

@@ -1,3 +1,14 @@
+---
+id: 092ad44e-4860-42b5-82bc-3c273cbb3ecc
+title: "Block 0 — Foundation / Walking Skeleton"
+project: backlogger-docs
+type: design_doc
+status: archived
+created_at: "2026-05-30T07:02:10.068Z"
+updated_at: "2026-05-30T10:02:33.202Z"
+tags: ["p1"]
+---
+
 # Block 0 — Foundation / Walking Skeleton
 
 > Parent: [../implementation_plan.md](../implementation_plan.md)

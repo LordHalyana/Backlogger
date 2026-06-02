@@ -1,3 +1,14 @@
+---
+id: c42a2bba-0e12-4d48-ad2f-c55fe6be3a45
+title: "Phase 3 — Implementation Plan"
+project: backlogger-docs
+type: implementation_plan
+status: archived
+created_at: "2026-05-31T13:43:02.218Z"
+updated_at: "2026-06-01T02:29:09.813Z"
+tags: ["p3"]
+---
+
 # Phase 3 — Implementation Plan
 
 > Parent: [../design/roadmap.md](../design/roadmap.md)

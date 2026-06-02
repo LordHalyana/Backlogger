@@ -1,3 +1,14 @@
+---
+id: aff63c72-3703-4b9c-930a-5a5fbe88d8e1
+title: "Block 1 — Full-text Search"
+project: backlogger-docs
+type: design_doc
+status: archived
+created_at: "2026-05-30T12:33:36.783Z"
+updated_at: "2026-05-30T12:51:34.707Z"
+tags: ["p2"]
+---
+
 # Block 1 — Full-text Search
 
 > Parent: [../implementation_plan.md](../implementation_plan.md)

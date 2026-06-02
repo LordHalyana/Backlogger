@@ -115,6 +115,18 @@ export function MetadataPanel({
       <button type="button" className="danger" onClick={onDelete} disabled={deleting}>
         {deleting ? 'Deleting…' : 'Delete document'}
       </button>
+      <button
+        type="button"
+        className={value.status === 'archived' ? 'archive-toggle archive-toggle--restore' : 'archive-toggle'}
+        onClick={() =>
+          onChange({
+            ...value,
+            status: value.status === 'archived' ? 'active' : 'archived',
+          })
+        }
+      >
+        {value.status === 'archived' ? 'Unarchive' : 'Archive'}
+      </button>
       <details className="backlinks" open>
         <summary>
           Backlinks

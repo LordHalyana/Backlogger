@@ -1,3 +1,14 @@
+---
+id: 09e0d8f4-872c-4664-ab24-812e6502ebfd
+title: "Phase 4 — Implementation Plan"
+project: backlogger-docs
+type: implementation_plan
+status: archived
+created_at: "2026-06-01T03:58:08.216Z"
+updated_at: "2026-06-01T03:59:18.508Z"
+tags: ["p4"]
+---
+
 # Phase 4 — Implementation Plan
 
 > Parent: [../design/roadmap.md](../design/roadmap.md)

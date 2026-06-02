@@ -1,3 +1,14 @@
+---
+id: ed4f17c7-7f01-47a4-896e-b6419db51d87
+title: "Block — Folder Management"
+project: backlogger-docs
+type: design_doc
+status: archived
+created_at: "2026-06-01T03:57:59.402Z"
+updated_at: "2026-06-01T03:59:18.508Z"
+tags: ["p4"]
+---
+
 # Block — Folder Management
 
 > Phase 4 / Block 1 · Surface area: API + Web sidebar + NewDocumentDialog

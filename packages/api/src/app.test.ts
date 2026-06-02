@@ -428,13 +428,14 @@ describe('Templates API', () => {
   });
   afterEach(() => teardown(h));
 
-  it('lists the five built-in templates', async () => {
+  it('lists the six built-in templates', async () => {
     const res = await request(h.app).get('/api/templates');
     expect(res.status).toBe(200);
     const ids = (res.body as Array<{ id: string }>).map((t) => t.id).sort();
     expect(ids).toEqual(
       [
         'design-document',
+        'docs-template',
         'findings-report',
         'idea-expansion',
         'implementation-plan',

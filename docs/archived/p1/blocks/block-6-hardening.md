@@ -1,3 +1,14 @@
+---
+id: c1b29e66-f580-41eb-be6a-5b18db74a23b
+title: "Block 6 — Hardening"
+project: backlogger-docs
+type: design_doc
+status: archived
+created_at: "2026-05-30T11:27:55.668Z"
+updated_at: "2026-05-30T12:13:16.122Z"
+tags: ["p1"]
+---
+
 # Block 6 — Hardening
 
 > Parent: [../implementation_plan.md](../implementation_plan.md)

@@ -1,3 +1,14 @@
+---
+id: ce1d67ed-e982-4d5f-8fd5-aacb7368f92e
+title: "Block 1 — Markdown Storage"
+project: backlogger-docs
+type: design_doc
+status: archived
+created_at: "2026-05-30T07:02:10.122Z"
+updated_at: "2026-05-30T10:11:26.363Z"
+tags: ["p1"]
+---
+
 # Block 1 — Markdown Storage
 
 > Parent: [../implementation_plan.md](../implementation_plan.md)

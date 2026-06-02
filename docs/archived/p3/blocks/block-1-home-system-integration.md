@@ -1,3 +1,14 @@
+---
+id: bba8f051-eb54-4e8a-9695-f0a48f928e8d
+title: "Block 1 — Home System Integration"
+project: backlogger-docs
+type: design_doc
+status: archived
+created_at: "2026-05-31T13:43:53.276Z"
+updated_at: "2026-05-31T14:12:13.841Z"
+tags: ["p3"]
+---
+
 # Block 1 — Home System Integration
 
 > Parent: [../implementation_plan.md](../implementation_plan.md)

@@ -1,3 +1,14 @@
+---
+id: bd9b2fa8-3946-4280-9f95-7ec08909cd37
+title: "Backlogger — Implementation Plan"
+project: backlogger-docs
+type: implementation_plan
+status: active
+created_at: "2026-05-30T06:50:27.881Z"
+updated_at: "2026-06-01T02:29:09.816Z"
+tags: ["design"]
+---
+
 # Backlogger — Implementation Plan
 
 > Scope: Phase 1 MVP as defined in [overview.md](overview.md).

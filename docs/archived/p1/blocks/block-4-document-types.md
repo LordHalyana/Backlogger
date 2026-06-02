@@ -1,3 +1,14 @@
+---
+id: 0f43d84b-6a20-4756-89b2-8d5532828d73
+title: "Block 4 — Document Types"
+project: backlogger-docs
+type: design_doc
+status: archived
+created_at: "2026-05-30T07:02:10.273Z"
+updated_at: "2026-05-30T10:39:50.631Z"
+tags: ["p1"]
+---
+
 # Block 4 — Document Types
 
 > Parent: [../implementation_plan.md](../implementation_plan.md)

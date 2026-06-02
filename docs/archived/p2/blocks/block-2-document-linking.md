@@ -1,3 +1,14 @@
+---
+id: 9c691bdc-3d90-40a8-906f-fe31f8b1e5d8
+title: "Block 2 — Document Linking & Backlinks"
+project: backlogger-docs
+type: design_doc
+status: archived
+created_at: "2026-05-30T12:33:36.855Z"
+updated_at: "2026-05-30T13:39:27.398Z"
+tags: ["p2"]
+---
+
 # Block 2 — Document Linking & Backlinks
 
 > Parent: [../implementation_plan.md](../implementation_plan.md)

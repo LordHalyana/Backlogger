@@ -108,7 +108,7 @@ describe('FsRepository', () => {
     });
 
     it('rejects invalid filename', async () => {
-      await expect(repo.read('home-system/ideas/BAD.md')).rejects.toBeInstanceOf(
+      await expect(repo.read('home-system/ideas/has space.md')).rejects.toBeInstanceOf(
         InvalidFilenameError,
       );
     });

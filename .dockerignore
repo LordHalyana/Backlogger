@@ -1,0 +1,31 @@
+# Dependencies — reinstalled inside Docker
+node_modules
+packages/*/node_modules
+
+# Build outputs — rebuilt inside Docker
+dist
+build
+packages/*/dist
+.vite
+*.tsbuildinfo
+
+# Runtime data — never bake into image; mount as a volume
+data
+.e2e-data
+
+# Test artifacts
+coverage
+test-results
+playwright-report
+
+# Local environment overrides
+.env
+.env.local
+
+# Version control
+.git
+
+# Editor files
+.vscode
+.idea
+.DS_Store
