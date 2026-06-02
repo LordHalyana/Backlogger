@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ForceGraph2D from 'react-force-graph-2d';
-import { useGraph, type GraphNode, type GraphEdge } from '../lib/graph.js';
+import { useGraph, type GraphNode } from '../lib/graph.js';
 
 interface Props {
   projectId: string;

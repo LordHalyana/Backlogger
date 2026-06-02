@@ -2,10 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openDatabase, type Db } from '../db/database.js';
-import { DocumentsRepo } from '../db/documents-repo.js';
-import { ProjectsRepo } from '../db/projects-repo.js';
 import { GraphService } from './graph-service.js';
-import { LinkService } from './link-service.js';
 
 const MIGRATIONS_DIR = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
