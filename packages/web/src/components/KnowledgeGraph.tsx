@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ForceGraph2D from 'react-force-graph-2d';
+import type { DocumentType } from '@backlogger/shared';
 import { useGraph, type GraphNode } from '../lib/graph.js';
+import { StatusMessage } from './StatusMessage.js';
+import { DOCUMENT_TYPE_COLORS } from '../lib/display.js';
 
 interface Props {
   projectId: string;
@@ -8,14 +11,7 @@ interface Props {
   onClose: () => void;
 }
 
-// Colour by document type
-const TYPE_COLOURS: Record<string, string> = {
-  idea: '#a78bfa',
-  note: '#60a5fa',
-  decision: '#f59e0b',
-  design: '#34d399',
-  finding: '#f87171',
-};
+// Colour by document type — defined in packages/web/src/lib/display.ts.
 const BROKEN_COLOUR = '#ef4444';
 const ORPHAN_COLOUR = '#94a3b8';
 const DEFAULT_COLOUR = '#64748b';
@@ -23,7 +19,7 @@ const DEFAULT_COLOUR = '#64748b';
 function nodeColour(node: GraphNode): string {
   if (node.kind === 'broken') return BROKEN_COLOUR;
   if (node.inDegree === 0 && node.outDegree === 0) return ORPHAN_COLOUR;
-  return TYPE_COLOURS[node.type ?? ''] ?? DEFAULT_COLOUR;
+  return (node.type ? DOCUMENT_TYPE_COLORS[node.type as DocumentType] : undefined) ?? DEFAULT_COLOUR;
 }
 
 // Scale node size by in-degree (min 3, max 14)
@@ -154,11 +150,15 @@ export function KnowledgeGraph({ projectId, onOpenDocument, onClose }: Props) {
       </div>
 
       <div className="graph-overlay__canvas" ref={containerRef}>
-        {isLoading && <div className="graph-overlay__state">Loading graph…</div>}
+        {isLoading && (
+          <StatusMessage kind="loading" className="graph-overlay__state">
+            Loading graph…
+          </StatusMessage>
+        )}
         {isError && (
-          <div className="graph-overlay__state graph-overlay__state--error">
+          <StatusMessage kind="error" className="graph-overlay__state">
             Failed to load graph.
-          </div>
+          </StatusMessage>
         )}
         {data && (
           <ForceGraph2D
@@ -182,7 +182,7 @@ export function KnowledgeGraph({ projectId, onOpenDocument, onClose }: Props) {
       </div>
 
       <div className="graph-overlay__legend">
-        {Object.entries(TYPE_COLOURS).map(([type, colour]) => (
+        {Object.entries(DOCUMENT_TYPE_COLORS).map(([type, colour]) => (
           <span key={type} className="graph-overlay__legend-item">
             <span
               className="graph-overlay__legend-dot"

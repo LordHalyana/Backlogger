@@ -1,10 +1,14 @@
 import { useMemo, useState } from 'react';
 import type { DocumentSummary } from '@backlogger/shared';
+import { FolderPathSchema } from '@backlogger/shared';
 import { useDocuments } from '../lib/documents.js';
 import { useFilteredDocuments } from '../lib/tags.js';
 import { useFolders, useCreateFolder, useDeleteFolder } from '../lib/folders.js';
+import { useDialog } from '../lib/dialog.js';
 import { TagChip } from './TagChip.js';
 import { NewDocumentDialog } from './NewDocumentDialog.js';
+import { StatusMessage } from './StatusMessage.js';
+import { FolderTreeGroup } from './FolderTreeGroup.js';
 
 /** True if any ancestor folder (not self) is in the collapsed set. */
 function isAncestorCollapsed(folder: string, collapsed: ReadonlySet<string>): boolean {
@@ -45,6 +49,7 @@ export function ProjectTree({
   const folders = useFolders(projectId);
   const createFolder = useCreateFolder();
   const deleteFolder = useDeleteFolder();
+  const dialog = useDialog();
   const [showNew, setShowNew] = useState(false);
   const [manageFolders, setManageFolders] = useState(false);
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
@@ -86,28 +91,48 @@ export function ProjectTree({
 
   const rootDocs = grouped.get('') ?? [];
 
-  const addFolder = (): void => {
-    const name = window.prompt('New folder path (e.g. phases/p3/blocks):')?.trim();
+  const addFolder = async (): Promise<void> => {
+    const name = await dialog.prompt({
+      title: 'New Folder',
+      message: 'Enter a folder path:',
+      placeholder: 'e.g. phases/p3/blocks',
+      validate: (v) => {
+        const result = FolderPathSchema.safeParse(v.trim());
+        return result.success ? null : 'Invalid path — use lowercase letters, numbers, hyphens, and forward slashes only.';
+      },
+    });
     if (!name) return;
     createFolder.mutate(
-      { projectId, folder: name },
+      { projectId, folder: name.trim() },
       {
-        onError: (e) => window.alert(`Failed to create folder: ${e.message}`),
+        onError: (e) => dialog.toast(`Failed to create folder: ${e.message}`, { kind: 'error' }),
       },
     );
   };
 
-  const removeFolder = (folder: string): void => {
+  const removeFolder = async (folder: string): Promise<void> => {
     const docs = grouped.get(folder) ?? [];
     if (docs.length > 0) {
-      window.alert(`Folder "${folder}" is not empty.`);
+      await dialog.confirm({
+        title: 'Folder not empty',
+        message: `Folder "${folder}" still contains documents and cannot be deleted.`,
+        confirmLabel: 'OK',
+        cancelLabel: '',
+      });
       return;
     }
-    if (!window.confirm(`Delete folder "${folder}"?`)) return;
+    const ok = await dialog.confirm({
+      title: 'Delete folder',
+      message: `Delete folder "${folder}"? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel',
+      danger: true,
+    });
+    if (!ok) return;
     deleteFolder.mutate(
       { projectId, folder },
       {
-        onError: (e) => window.alert(`Failed to delete folder: ${e.message}`),
+        onError: (e) => dialog.toast(`Failed to delete folder: ${e.message}`, { kind: 'error' }),
       },
     );
   };
@@ -134,56 +159,18 @@ export function ProjectTree({
   const renderFolder = (folder: string): JSX.Element | null => {
     if (isAncestorCollapsed(folder, collapsed)) return null;
     const items = grouped.get(folder) ?? [];
-    const isCollapsed = collapsed.has(folder);
-    const depth = folder.split('/').length - 1;
-    // Show only the last path segment as the label
-    const displayName = folder.split('/').pop() ?? folder;
     return (
-      <li
+      <FolderTreeGroup
         key={folder}
-        className={'tree-group' + (isCollapsed ? ' collapsed' : '')}
-        style={{ '--folder-depth': depth } as React.CSSProperties}
-      >
-        <div className="tree-group-label folder-row">
-          <button
-            type="button"
-            className="folder-toggle"
-            onClick={() => toggleCollapsed(folder)}
-            aria-expanded={!isCollapsed}
-            aria-label={(isCollapsed ? 'Expand' : 'Collapse') + ' folder ' + folder}
-            title={folder}
-          >
-            <span className="folder-caret" aria-hidden="true">
-              {isCollapsed ? '▸' : '▾'}
-            </span>
-            <span className="folder-name" title={folder}>
-              {displayName}
-            </span>
-            {items.length > 0 && (
-              <span className="folder-count" aria-hidden="true">
-                {items.length}
-              </span>
-            )}
-          </button>
-          {manageFolders && (
-            <button
-              type="button"
-              className="folder-delete-btn"
-              onClick={() => removeFolder(folder)}
-              aria-label={`Delete folder ${folder}`}
-              title={
-                items.length > 0
-                  ? `Folder not empty (${items.length})`
-                  : 'Delete folder'
-              }
-              disabled={items.length > 0}
-            >
-              ×
-            </button>
-          )}
-        </div>
-        {!isCollapsed && items.length > 0 && <ul>{items.map(renderItem)}</ul>}
-      </li>
+        folder={folder}
+        items={items}
+        collapsed={collapsed.has(folder)}
+        depth={folder.split('/').length - 1}
+        manageFolders={manageFolders}
+        onToggle={toggleCollapsed}
+        onDelete={removeFolder}
+        renderItem={renderItem}
+      />
     );
   };
 
@@ -227,10 +214,12 @@ export function ProjectTree({
           </button>
         </div>
       )}
-      {isLoading && <p className="muted">Loading…</p>}
-      {isError && <p className="error">Failed to load: {error?.message}</p>}
+      {isLoading && <StatusMessage kind="loading">Loading…</StatusMessage>}
+      {isError && (
+        <StatusMessage kind="error">Failed to load: {error?.message}</StatusMessage>
+      )}
       {!isLoading && !isError && (data?.length ?? 0) === 0 && activeFolders.length === 0 && archivedFolders.length === 0 && (
-        <p className="muted">No documents yet. Click &ldquo;+ New&rdquo; to create one.</p>
+        <StatusMessage kind="empty">No documents yet. Click &ldquo;+ New&rdquo; to create one.</StatusMessage>
       )}
       <ul className="tree-groups">
         {activeFolders.map(renderFolder)}

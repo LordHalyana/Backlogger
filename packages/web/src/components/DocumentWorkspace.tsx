@@ -15,6 +15,7 @@ import { useTitles } from '../lib/links.js';
 import type { Theme } from '../lib/theme.js';
 import { DocumentPreview } from './DocumentPreview.js';
 import { MetadataPanel, type MetadataPanelValue } from './MetadataPanel.js';
+import { StatusMessage } from './StatusMessage.js';
 
 const DocumentEditor = lazy(() =>
   import('./DocumentEditor.js').then((m) => ({ default: m.DocumentEditor })),
@@ -196,7 +197,11 @@ export function DocumentWorkspace({
   if (isLoading || !doc || !buffer) {
     return (
       <div className="workspace-empty">
-        {isError ? <p className="error">Failed to load: {error?.message}</p> : <p>Loading…</p>}
+        {isError ? (
+          <StatusMessage kind="error">Failed to load: {error?.message}</StatusMessage>
+        ) : (
+          <StatusMessage kind="loading">Loading…</StatusMessage>
+        )}
       </div>
     );
   }

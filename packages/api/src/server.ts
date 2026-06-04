@@ -13,6 +13,7 @@ import {
   userTemplatesDir,
 } from './templates/registry.js';
 import { ensureUserTemplatesDir, watchUserTemplates } from './templates/watcher.js';
+import { watchProjectFiles } from './fs/project-watcher.js';
 
 // Load .env from the repository root (this file is packages/api/src/server.ts → 4 ups).
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
@@ -43,6 +44,10 @@ const ctx = buildContext({ db, dataDir, templates, builtinTemplatesDir: builtinD
 await ctx.fs.ensureRoot();
 
 const stopWatcher = watchUserTemplates({ builtinDir, userDir, registry: templates });
+const stopProjectWatcher = watchProjectFiles({
+  projectsRoot: ctx.resolver.projectsRoot,
+  reindexService: ctx.reindexService,
+});
 
 // Auto-discover project folders (or symlinks) that exist on disk but have
 // no DB row yet. This handles Docker volume mounts and manual folder drops:
@@ -93,6 +98,7 @@ const shutdown = (): void => {
   // eslint-disable-next-line no-console
   console.log('[backlogger] shutting down');
   stopWatcher();
+  stopProjectWatcher();
   db.close();
   process.exit(0);
 };

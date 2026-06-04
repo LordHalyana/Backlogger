@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { type DocumentStatus, TagSchema, normalizeTags } from '@backlogger/shared';
 import { useBacklinks } from '../lib/links.js';
 import { TagChip } from './TagChip.js';
+import { DOCUMENT_STATUS_LABELS } from '../lib/display.js';
 
 export interface MetadataPanelValue {
   title: string;
@@ -20,7 +21,6 @@ interface MetadataPanelProps {
   onOpenDocument?: (projectId: string, documentId: string) => void;
 }
 
-const STATUS_OPTIONS: DocumentStatus[] = ['draft', 'active', 'archived'];
 
 export function MetadataPanel({
   value,
@@ -71,11 +71,13 @@ export function MetadataPanel({
           value={value.status}
           onChange={(e) => onChange({ ...value, status: e.target.value as DocumentStatus })}
         >
-          {STATUS_OPTIONS.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
+          {(Object.entries(DOCUMENT_STATUS_LABELS) as Array<[DocumentStatus, string]>).map(
+            ([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ),
+          )}
         </select>
       </label>
       <label>

@@ -6,6 +6,10 @@ type StateInline = Parameters<Parameters<MarkdownIt['inline']['ruler']['before']
 // Single shared markdown-it instance configured for both server and client.
 // Phase 1: GitHub-style line breaks, autolinks, HTML disabled for safety.
 // Phase 2: wiki-link inline rule emits `<a class="wiki-link" data-title="…">`.
+//
+// SECURITY: html must remain false to prevent XSS via dangerouslySetInnerHTML.
+// See packages/web/src/components/DocumentPreview.tsx and HelpDrawer.tsx.
+// Do not enable raw HTML without a sanitization pass (e.g., DOMPurify).
 const md = new MarkdownIt({
   html: false,
   linkify: true,

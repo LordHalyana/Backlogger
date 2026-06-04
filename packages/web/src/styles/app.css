@@ -82,19 +82,64 @@ a {
   gap: 12px;
 }
 
-.theme-toggle {
-  background: transparent;
+/* ── Shared button system ──────────────────────────────────────────
+   Base class hierarchy:
+     .btn              — base styles
+     .btn + .topbar-action  — compact topbar variant
+     .btn--ghost       — transparent until hover
+     .btn--danger      — destructive action
+   ──────────────────────────────────────────────────────────────── */
+.btn {
+  background: var(--bg-panel);
   color: var(--fg);
   border: 1px solid var(--border);
   border-radius: 4px;
-  padding: 2px 8px;
-  font-size: 14px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 0.875rem;
   cursor: pointer;
-  line-height: 1.4;
+  line-height: 1;
+  transition: border-color 0.15s, background 0.15s;
+}
+.btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--hover);
+}
+.btn:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
-.theme-toggle:hover {
+.btn--ghost {
+  background: transparent;
+  border-color: transparent;
+}
+.btn--ghost:hover:not(:disabled) {
+  background: var(--hover);
+  border-color: var(--border);
+}
+
+.btn--danger {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.btn--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+
+/* Topbar compact variant */
+.topbar-action {
+  padding: 4px 10px;
+  font-size: 0.8125rem;
+}
+
+.topbar-action--active {
   border-color: var(--accent);
+  background: var(--selected);
 }
 
 /* 3-pane project layout: sidebar | (editor + metadata workspace). */
@@ -318,7 +363,7 @@ a {
 }
 
 .folder-delete-btn:hover:not(:disabled) {
-  color: #e06c75;
+  color: var(--danger);
 }
 
 .folder-delete-btn:disabled {
@@ -744,11 +789,28 @@ a.download-button {
   padding: 20px;
   width: min(420px, 90vw);
   box-shadow: var(--shadow);
+  max-height: calc(100vh - 64px);
+  overflow-y: auto;
 }
 
-.modal h2 {
-  margin: 0 0 12px;
+.modal--wide {
+  width: min(680px, 90vw);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.modal-title {
+  margin: 0;
   font-size: 16px;
+}
+
+.modal-body {
+  display: contents;
 }
 
 .modal form {
@@ -822,6 +884,17 @@ a.download-button {
   color: var(--danger);
 }
 
+/* Status messages */
+.status-message {
+  padding: 1rem;
+  font-size: 0.875rem;
+  text-align: center;
+}
+
+.status-message--loading { color: var(--fg-muted); }
+.status-message--empty   { color: var(--fg-muted); }
+.status-message--error   { color: var(--danger); }
+
 /* Error boundary */
 .error-boundary {
   margin: 32px auto;
@@ -864,38 +937,11 @@ a.download-button {
   cursor: pointer;
 }
 
-/* Topbar settings button */
-.topbar-right .settings-button {
-  background: var(--bg-panel);
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 4px 10px;
-  font-size: 14px;
-  cursor: pointer;
-  line-height: 1;
-}
-
-.topbar-right .settings-button:hover {
-  border-color: var(--accent);
-}
-
-/* Topbar search button */
+/* Search button: unique layout rules only (flex row for kbd chip) */
 .topbar-right .search-button {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  background: var(--bg-panel);
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 4px 10px;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.topbar-right .search-button:hover {
-  border-color: var(--accent);
 }
 
 .topbar-right .search-button kbd {
@@ -908,47 +954,9 @@ a.download-button {
   color: var(--fg-muted);
 }
 
-.topbar-right .import-button {
-  background: var(--bg-panel);
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 4px 10px;
-  font-size: 12px;
-  cursor: pointer;
-}
-.topbar-right .import-button:hover {
-  border-color: var(--accent);
-}
-
-.topbar-right .reload-button {
-  background: var(--bg-panel);
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 4px 10px;
-  font-size: 12px;
-  cursor: pointer;
-}
-.topbar-right .reload-button:hover:not(:disabled) {
-  border-color: var(--accent);
-}
+/* Reload button: show progress cursor while pending */
 .topbar-right .reload-button:disabled {
-  opacity: 0.6;
   cursor: progress;
-}
-
-.topbar-right .graph-button {
-  background: var(--bg-panel);
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 4px 10px;
-  font-size: 12px;
-  cursor: pointer;
-}
-.topbar-right .graph-button:hover {
-  border-color: var(--accent);
 }
 
 /* ── Knowledge Graph overlay ─────────────────────────────────────── */
@@ -1021,7 +1029,7 @@ a.download-button {
   color: var(--fg-muted, #94a3b8);
 }
 .graph-overlay__state--error {
-  color: #f87171;
+  color: var(--danger);
 }
 
 .graph-overlay__legend {
@@ -1063,8 +1071,9 @@ a.download-button {
   color: var(--fg);
 }
 .app-toast.err {
-  background: #5a1f1f;
-  color: #ffd9d9;
+  background: color-mix(in srgb, var(--danger) 12%, var(--bg-panel));
+  color: var(--danger);
+  border-left: 2px solid var(--danger);
 }
 
 .import-file-list {
@@ -1433,17 +1442,6 @@ a.download-button {
   max-width: 95vw;
 }
 
-.settings-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 16px;
-}
-
-.settings-header h2 {
-  margin: 0;
-}
-
 .modal-close {
   background: transparent;
   border: none;
@@ -1532,15 +1530,8 @@ a.download-button {
   border-color: var(--accent);
 }
 
-/* Topbar help button */
+/* Topbar help button: unique line-height only */
 .topbar-right .help-button {
-  background: var(--bg-panel);
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 4px 10px;
-  font-size: 14px;
-  cursor: pointer;
   line-height: 1;
 }
 

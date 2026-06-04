@@ -12,6 +12,11 @@
   --danger: #ff6b6b;
   --ok: #5ad19a;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  /* Interaction states */
+  --focus:    #4f8ef7;
+  --hover:    rgba(255, 255, 255, 0.05);
+  --selected: rgba(255, 255, 255, 0.08);
+  --warning:  #f59e0b;
 }
 
 [data-theme='light'] {
@@ -26,4 +31,9 @@
   --danger: #d1242f;
   --ok: #1a7f37;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  /* Interaction states */
+  --focus:    #2f6feb;
+  --hover:    rgba(0, 0, 0, 0.05);
+  --selected: rgba(0, 0, 0, 0.08);
+  --warning:  #d97706;
 }

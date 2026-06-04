@@ -135,6 +135,7 @@ export function projectsRouter(
     }
   });
 
+  // See docs/design/folder-invariants.md for the rules governing folder deletion.
   router.delete('/:id/folders/*', async (req, res, next) => {
     try {
       const id = parseId(req.params.id);

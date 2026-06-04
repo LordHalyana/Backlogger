@@ -249,6 +249,20 @@ export class DocumentService {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Archive invariant
+// ---------------------------------------------------------------------------
+// 1. A document with status "archived" MUST be stored under
+//    <project-root>/archived/<original-path>.
+// 2. A document with status "active" or "draft" MUST NOT be stored under
+//    <project-root>/archived/<...>.
+// 3. If a mismatch is detected during reindex, the filesystem path wins:
+//    - file under archived/  →  status set to "archived"
+//    - file not under archived/ + status "archived" in frontmatter
+//      →  status corrected to "active"
+// See docs/design/archive-invariants.md for the full rationale.
+// ---------------------------------------------------------------------------
+
 /**
  * Insert an `archived` segment immediately after the project-id in a
  * project-relative path.

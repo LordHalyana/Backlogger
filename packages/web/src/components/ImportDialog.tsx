@@ -6,6 +6,7 @@ import type {
 } from '@backlogger/shared';
 import { useImportFiles } from '../lib/documents.js';
 import { ApiError } from '../lib/api.js';
+import { Modal } from './Modal.js';
 
 interface ImportDialogProps {
   projectId: string;
@@ -92,16 +93,8 @@ export function ImportDialog({
       : importMutation.error?.message;
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div
-        className="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="import-dialog-title"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 id="import-dialog-title">Import Markdown</h2>
-        <form onSubmit={submit}>
+    <Modal title="Import Markdown" onClose={onClose}>
+      <form onSubmit={submit}>
           <label>
             Files (.md, up to 20, 1 MiB each)
             <input
@@ -193,7 +186,6 @@ export function ImportDialog({
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </Modal>
   );
 }

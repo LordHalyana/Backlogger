@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { HealthStatus } from '@backlogger/shared';
 import { ProjectSwitcher } from './components/ProjectSwitcher.js';
@@ -9,11 +9,14 @@ import { ImportDialog } from './components/ImportDialog.js';
 import { SettingsDialog } from './components/SettingsDialog.js';
 import { HelpDrawer } from './components/HelpDrawer.js';
 import { KnowledgeGraph } from './components/KnowledgeGraph.js';
+import { TopbarAction } from './components/TopbarAction.js';
+import { TagExplorer } from './components/TagExplorer.js';
 import { readHelpSlugFromUrl } from './lib/help-link.js';
 import { useTheme } from './lib/theme.js';
-import { useTitles, type TitleRow } from './lib/links.js';
-import { useReloadProject } from './lib/projects.js';
-import { TagExplorer } from './components/TagExplorer.js';
+import { useWikiLinkNavigation } from './hooks/useWikiLinkNavigation.js';
+import { useGlobalShortcuts } from './hooks/useGlobalShortcuts.js';
+import { useReloadToast } from './hooks/useReloadToast.js';
+import { useProjectSelectionReset } from './hooks/useProjectSelectionReset.js';
 
 async function fetchHealth(): Promise<HealthStatus> {
   const res = await fetch('/health');
@@ -31,96 +34,60 @@ export function App(): JSX.Element {
   const [graphOpen, setGraphOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState<boolean>(() => readHelpSlugFromUrl() !== null);
   const [helpSlug, setHelpSlug] = useState<string | null>(() => readHelpSlugFromUrl());
-  const [toast, setToast] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
-  const reload = useReloadProject();
   const { theme, toggle: toggleTheme } = useTheme();
   const qc = useQueryClient();
-  const titlesQuery = useTitles(selectedProjectId);
-  const titlesRef = useRef<readonly TitleRow[]>([]);
-  useEffect(() => {
-    titlesRef.current = titlesQuery.data ?? [];
-  }, [titlesQuery.data]);
   const { data, isLoading, isError } = useQuery({
     queryKey: ['health'],
     queryFn: fetchHealth,
     refetchInterval: 10_000,
   });
 
-  // Clear the selected document and tag filter whenever the project changes.
-  useEffect(() => {
-    setSelectedDocumentId(null);
-    setSelectedTags([]);
-  }, [selectedProjectId]);
+  const openDocumentFromSearch = useCallback(
+    (projectId: string, documentId: string): void => {
+      setSelectedProjectId(projectId);
+      setTimeout(() => setSelectedDocumentId(documentId), 0);
+    },
+    [],
+  );
+
+  useProjectSelectionReset({
+    projectId: selectedProjectId,
+    onReset: useCallback(() => {
+      setSelectedDocumentId(null);
+      setSelectedTags([]);
+    }, []),
+  });
+
+  useGlobalShortcuts({
+    onToggleCommandPalette: useCallback(() => setPaletteOpen((open) => !open), []),
+    onToggleHelp: useCallback(() => {
+      setHelpSlug(null);
+      setHelpOpen((open) => !open);
+    }, []),
+  });
+
+  useWikiLinkNavigation({
+    projectId: selectedProjectId,
+    onNavigate: openDocumentFromSearch,
+  });
+
+  const reload = useReloadToast({
+    projectId: selectedProjectId,
+    onRemovedIds: useCallback(
+      (ids: string[]) => {
+        if (selectedDocumentId && ids.includes(selectedDocumentId)) {
+          setSelectedDocumentId(null);
+        }
+      },
+      [selectedDocumentId],
+    ),
+  });
 
   const toggleTag = (tag: string): void => {
     setSelectedTags((prev) =>
       prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag],
     );
   };
-
-  // Global Ctrl/Cmd+K toggles the command palette.
-  useEffect(() => {
-    const handler = (event: KeyboardEvent): void => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
-        event.preventDefault();
-        setPaletteOpen((open) => !open);
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, []);
-
-  // Global `?` (Shift+/) opens the help drawer when no input is focused.
-  useEffect(() => {
-    const handler = (event: KeyboardEvent): void => {
-      if (event.key !== '?') return;
-      const t = event.target as HTMLElement | null;
-      if (
-        t &&
-        (t.tagName === 'INPUT' ||
-          t.tagName === 'TEXTAREA' ||
-          t.isContentEditable)
-      ) {
-        return;
-      }
-      event.preventDefault();
-      setHelpSlug(null);
-      setHelpOpen((open) => !open);
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, []);
-
-  const openDocumentFromSearch = (projectId: string, documentId: string): void => {
-    setSelectedProjectId(projectId);
-    // setSelectedProjectId's effect clears the doc id; schedule selection after it lands.
-    setTimeout(() => setSelectedDocumentId(documentId), 0);
-  };
-
-  // Delegated click handler for rendered `.wiki-link` anchors in the preview.
-  // Resolves the title against the cached project titles list and navigates.
-  useEffect(() => {
-    const onClick = (event: MouseEvent): void => {
-      const target = event.target;
-      if (!(target instanceof Element)) return;
-      const anchor = target.closest<HTMLElement>('a.wiki-link');
-      if (!anchor) return;
-      event.preventDefault();
-      const title = anchor.getAttribute('data-title');
-      if (!title) return;
-      const norm = title.trim().toLowerCase();
-      const hit = titlesRef.current.find((t) => t.title.trim().toLowerCase() === norm);
-      if (hit) {
-        // Invalidate backlinks/titles for freshness when navigating.
-        void qc.invalidateQueries({ queryKey: ['titles'] });
-        openDocumentFromSearch(hit.project_id, hit.id);
-      } else {
-        anchor.classList.add('broken');
-      }
-    };
-    window.addEventListener('click', onClick);
-    return () => window.removeEventListener('click', onClick);
-  }, [qc]);
 
   const cls = isError ? 'health err' : data ? 'health ok' : 'health';
   const label = isLoading
@@ -135,96 +102,66 @@ export function App(): JSX.Element {
         <h1>Backlogger</h1>
         <ProjectSwitcher selectedId={selectedProjectId} onSelect={setSelectedProjectId} />
         <div className="topbar-right">
-          <button
-            type="button"
-            className="search-button"
+          <TopbarAction
+            label="Search"
             onClick={() => setPaletteOpen(true)}
             title="Search documents (Ctrl/Cmd+K)"
+            className="search-button"
           >
             <span>Search</span>
             <kbd>{navigator.platform.toLowerCase().includes('mac') ? '\u2318' : 'Ctrl'}+K</kbd>
-          </button>
+          </TopbarAction>
           {selectedProjectId && (
-            <button
-              type="button"
-              className="import-button"
+            <TopbarAction
+              label="Import"
               onClick={() => setImportOpen(true)}
               title="Import Markdown files into this project"
-            >
-              Import
-            </button>
+              className="import-button"
+            />
           )}
           {selectedProjectId && (
-            <button
-              type="button"
-              className="reload-button"
+            <TopbarAction
+              label={reload.isPending ? 'Reloading\u2026' : 'Reload'}
               disabled={reload.isPending}
-              onClick={() => {
-                const pid = selectedProjectId;
-                reload.mutate(pid, {
-                  onSuccess: (r) => {
-                    setToast({
-                      kind: 'ok',
-                      text: `Reloaded ${pid}: +${r.added}/~${r.updated}/-${r.removed} in ${r.durationMs} ms`,
-                    });
-                    if (selectedDocumentId && r.removedIds.includes(selectedDocumentId)) {
-                      setSelectedDocumentId(null);
-                    }
-                    window.setTimeout(() => setToast(null), 4000);
-                  },
-                  onError: (err) => {
-                    setToast({ kind: 'err', text: `Reload failed: ${err.message}` });
-                    window.setTimeout(() => setToast(null), 4000);
-                  },
-                });
-              }}
+              onClick={reload.trigger}
               title="Re-sync this project from disk"
-            >
-              {reload.isPending ? 'Reloading\u2026' : 'Reload'}
-            </button>
+              className="reload-button"
+            />
           )}
           {selectedProjectId && (
-            <button
-              type="button"
-              className="graph-button"
+            <TopbarAction
+              label="Graph"
               onClick={() => setGraphOpen(true)}
+              active={graphOpen}
               title="View knowledge graph"
-            >
-              Graph
-            </button>
+              className="graph-button"
+            />
           )}
           <span className={cls}>
             <span className="dot" />
             {label}
           </span>
-          <button
-            type="button"
-            className="help-button"
+          <TopbarAction
+            label="?"
             onClick={() => {
               setHelpSlug(null);
               setHelpOpen(true);
             }}
+            active={helpOpen}
             title="Help (?)"
             aria-label="Help"
-          >
-            ?
-          </button>
-          <button
-            type="button"
-            className="settings-button"
+            className="help-button"
+          />
+          <TopbarAction
+            label="⚙"
             onClick={() => setSettingsOpen(true)}
+            active={settingsOpen}
             title="Settings"
             aria-label="Settings"
-          >
-            ⚙
-          </button>
+            className="settings-button"
+          />
         </div>
       </header>
-      {toast && (
-        <div className={`app-toast ${toast.kind}`} role="status">
-          {toast.text}
-        </div>
-      )}
       <main className="content">
         {selectedProjectId ? (
           <div className="project-layout">

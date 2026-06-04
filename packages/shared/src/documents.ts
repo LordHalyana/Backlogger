@@ -15,7 +15,15 @@ export type DocumentType = z.infer<typeof DocumentTypeSchema>;
 export const DocumentStatusSchema = z.enum(['draft', 'active', 'archived']);
 export type DocumentStatus = z.infer<typeof DocumentStatusSchema>;
 
-/** Mapping from document type to the on-disk subfolder under a project. */
+/**
+ * Legacy compatibility default: maps document type to a subfolder path.
+ * Used when no explicit folder is supplied at document creation time.
+ * This behavior is preserved for backwards compatibility with existing
+ * projects. New UI flows should prefer explicit folder selection.
+ *
+ * @see `packages/web/src/components/NewDocumentDialog.tsx` — the folder
+ *   field leaves this blank by default, triggering this fallback in the API.
+ */
 export const DOCUMENT_TYPE_TO_SUBDIR: Record<DocumentType, string> = {
   idea: 'ideas',
   note: 'notes',
