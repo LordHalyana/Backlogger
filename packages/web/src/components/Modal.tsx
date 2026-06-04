@@ -50,7 +50,7 @@ export function Modal({
             onClick={onClose}
             aria-label="Close"
           >
-            ×
+            x
           </button>
         </div>
         <div className="modal-body">{children}</div>

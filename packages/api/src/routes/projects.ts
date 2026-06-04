@@ -5,7 +5,7 @@ import {
   ProjectIdSchema,
   UpdateProjectRequestSchema,
 } from '@backlogger/shared';
-import { BadRequestError, ConflictError, NotFoundError } from '../errors.js';
+import { BadRequestError, ConflictError, HttpError, NotFoundError } from '../errors.js';
 import type { ProjectService } from '../services/project-service.js';
 import type { LinkService } from '../services/link-service.js';
 import { ReloadInProgressError, type ReindexService } from '../services/reindex-service.js';
@@ -176,8 +176,7 @@ export function projectsRouter(
     try {
       const id = parseId(req.params.id);
       if (!graphService) {
-        res.status(503).json({ error: 'Graph service not available' });
-        return;
+        throw new HttpError(503, 'GRAPH_UNAVAILABLE', 'Graph service not available');
       }
       const payload = graphService.getGraph(id);
       res.json(payload);

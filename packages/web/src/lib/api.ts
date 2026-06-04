@@ -24,7 +24,12 @@ export async function apiFetch<T>(input: string, init?: RequestInit): Promise<T>
     return undefined as T;
   }
   const text = await res.text();
-  const body = text ? (JSON.parse(text) as unknown) : undefined;
+  let body: unknown;
+  try {
+    body = text ? (JSON.parse(text) as unknown) : undefined;
+  } catch {
+    throw new ApiError(res.status, 'INVALID_JSON', `Response was not valid JSON: ${res.status}`);
+  }
   if (!res.ok) {
     const errBody = body as ApiErrorBody | undefined;
     const code = errBody?.error?.code ?? 'HTTP_ERROR';

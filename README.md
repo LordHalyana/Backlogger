@@ -2,21 +2,21 @@
 
 Self-hosted Markdown workspace for ideas, design documents, implementation plans, and backlogs.
 
-> Status: Phase 5 complete. See [docs/README.md](docs/README.md) for the full roadmap.
+> Status: Phase 5 complete. See [docs/design/roadmap.md](docs/design/roadmap.md) for the full roadmap.
 
 ## Features
 
-**Full-text Search** — Press `Ctrl/Cmd+K` to open the command palette. Type any word or phrase to search across all documents in real time. Results show ranked snippets; pressing Enter or clicking opens the document.
+**Full-text Search** - Press `Ctrl/Cmd+K` to open the command palette. Type any word or phrase to search across all documents in real time. Results show ranked snippets; pressing Enter or clicking opens the document.
 
-**Document Linking** — Type `[[Document Title]]` in any editor to create a wiki-style link. Links resolve on save; the linked document's sidebar shows a live Backlinks panel listing every document that points to it.
+**Document Linking** - Type `[[Document Title]]` in any editor to create a wiki-style link. Links resolve on save; the linked document's sidebar shows a live Backlinks panel listing every document that points to it.
 
-**Tag Explorer** — Add comma- or Enter-separated tags on any document's metadata panel. Tags appear in the sidebar with counts; click a tag to filter the document tree. Multiple active tags use AND semantics. A filter bar above the tree shows active tags with remove chips and a Clear button.
+**Tag Explorer** - Add comma- or Enter-separated tags on any document's metadata panel. Tags appear in the sidebar with counts; click a tag to filter the document tree. Multiple active tags use AND semantics. A filter bar above the tree shows active tags with remove chips and a Clear button.
 
-**User-defined Templates** — Drop a Markdown file with `template_id:` / `template_name:` frontmatter into `data/templates/`. Open Settings (⚙ in the topbar), click **Reload**, and the template appears in the New Document dialog with a "user" badge — no restart needed.
+**User-defined Templates** - Drop a Markdown file with `template_id:` / `template_name:` frontmatter into `data/templates/`. Open Settings in the topbar, click **Reload**, and the template appears in the New Document dialog with a "user" badge - no restart needed.
 
-**Folder Management** — Organise documents into collapsible nested folders directly from the project tree. Drag or rename via right-click context menu; the folder hierarchy persists across reloads.
+**Folder Management** - Organize documents into collapsible nested folders from the project tree. Add folders, delete empty folders from manage mode, and choose a folder when creating a document; the hierarchy persists across reloads.
 
-**Knowledge Graph** — Click **Graph** in the topbar to open an interactive canvas overlay showing every document as a node and every wiki-link as a directed edge. Filter by title or tag, hover to highlight neighbours, click a node to open the document. Broken links (targets that don't exist yet) appear as red sink nodes.
+**Knowledge Graph** - Click **Graph** in the topbar to open an interactive canvas overlay showing every document as a node and every wiki-link as a directed edge. Filter by title or tag, hover to highlight neighbors, click a node to open the document. Broken links (targets that don't exist yet) appear as red sink nodes.
 
 ## Quickstart
 
@@ -57,7 +57,7 @@ docker run -d \
   backlogger
 ```
 
-Any folder (or symlink) placed under `/app/data/projects/` is auto-discovered and registered on startup — no manual import needed. The folder name becomes the project ID.
+Any folder (or symlink) placed under `/app/data/projects/` is auto-discovered and registered on startup - no manual import needed. The folder name becomes the project ID.
 
 **Build the image locally:**
 
@@ -65,7 +65,7 @@ Any folder (or symlink) placed under `/app/data/projects/` is auto-discovered an
 docker build -t backlogger .
 ```
 
-**Environment variables in Docker** — pass them with `-e` or via the `environment:` key in `docker-compose.yml`:
+**Environment variables in Docker** - pass them with `-e` or via the `environment:` key in `docker-compose.yml`:
 
 | Variable | Docker default | Purpose |
 |----------|---------------|---------|
@@ -89,7 +89,7 @@ docker build -t backlogger .
 | `npm run reindex`  | One-shot CLI: rescans `data/` and rebuilds metadata. |
 | `npm run bench`    | Search latency bench (p50/p95/p99 on 1 k docs). |
 | `npm run bench:graph` | Knowledge-graph latency bench (p50/p95/p99 on 1 k docs / 5 k links). |
-| `npm run bundle-audit` | Verify initial JS gzip ≤ 220 kB.    |
+| `npm run bundle-audit` | Verify initial JS gzip <= 220 kB.    |
 
 ## Environment variables
 
@@ -108,10 +108,10 @@ docker build -t backlogger .
 
 ```text
 packages/
-├── shared/   # zod schemas, types, markdown utils (shared FE/BE)
-├── api/      # Express server
-└── web/      # React + Vite app
-data/         # runtime data (gitignored) — filesystem source of truth
+|-- shared/   # zod schemas, types, markdown utils (shared FE/BE)
+|-- api/      # Express server
+`-- web/      # React + Vite app
+data/         # runtime data (gitignored) - filesystem source of truth
 docs/         # design + implementation plans
 Dockerfile
 docker-compose.yml
@@ -119,7 +119,7 @@ docker-compose.yml
 
 ## Theme
 
-The UI defaults to a dark theme. A toggle ships in Block 3; the choice is persisted in `localStorage` and applied before React mounts to avoid a flash of light content.
+The UI defaults to a dark theme. The choice is persisted in `localStorage` and applied before React mounts to avoid a flash of light content.
 
 ## Backup
 

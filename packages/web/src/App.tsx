@@ -91,10 +91,10 @@ export function App(): JSX.Element {
 
   const cls = isError ? 'health err' : data ? 'health ok' : 'health';
   const label = isLoading
-    ? 'checking\u2026'
+    ? 'checking...'
     : isError
       ? 'api unreachable'
-      : `api ok \u00b7 v${data!.version} \u00b7 up ${Math.floor(data!.uptime)}s`;
+      : `api ok - v${data!.version} - up ${Math.floor(data!.uptime)}s`;
 
   return (
     <div className="app-shell">
@@ -109,7 +109,7 @@ export function App(): JSX.Element {
             className="search-button"
           >
             <span>Search</span>
-            <kbd>{navigator.platform.toLowerCase().includes('mac') ? '\u2318' : 'Ctrl'}+K</kbd>
+            <kbd>{navigator.platform.toLowerCase().includes('mac') ? 'Cmd' : 'Ctrl'}+K</kbd>
           </TopbarAction>
           {selectedProjectId && (
             <TopbarAction
@@ -121,7 +121,7 @@ export function App(): JSX.Element {
           )}
           {selectedProjectId && (
             <TopbarAction
-              label={reload.isPending ? 'Reloading\u2026' : 'Reload'}
+              label={reload.isPending ? 'Reloading...' : 'Reload'}
               disabled={reload.isPending}
               onClick={reload.trigger}
               title="Re-sync this project from disk"
@@ -153,7 +153,7 @@ export function App(): JSX.Element {
             className="help-button"
           />
           <TopbarAction
-            label="⚙"
+            label="Settings"
             onClick={() => setSettingsOpen(true)}
             active={settingsOpen}
             title="Settings"

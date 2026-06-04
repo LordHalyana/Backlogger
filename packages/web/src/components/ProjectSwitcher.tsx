@@ -3,6 +3,7 @@ import type { Project } from '@backlogger/shared';
 import { useCreateProject, useDeleteProject, useProjects } from '../lib/projects.js';
 import { ApiError } from '../lib/api.js';
 import { useDialog } from '../lib/dialog.js';
+import { Modal } from './Modal.js';
 
 interface ProjectSwitcherProps {
   selectedId: string | null;
@@ -26,10 +27,10 @@ export function ProjectSwitcher({ selectedId, onSelect }: ProjectSwitcherProps):
       >
         <option value="">
           {projects.isLoading
-            ? 'Loading…'
+            ? 'Loading...'
             : (projects.data?.length ?? 0) === 0
               ? 'No projects'
-              : 'Select a project…'}
+              : 'Select a project...'}
         </option>
         {projects.data?.map((p) => (
           <option key={p.id} value={p.id}>
@@ -86,52 +87,49 @@ function NewProjectDialog({ onClose, onCreated }: NewProjectDialogProps): JSX.El
   const err = create.error instanceof ApiError ? create.error.message : create.error?.message;
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-        <h2>New Project</h2>
-        <form onSubmit={submit}>
-          <label>
-            ID
-            <input
-              type="text"
-              value={id}
-              onChange={(e) => setId(e.target.value)}
-              placeholder="home-system"
-              autoFocus
-              required
-            />
-            <small>kebab-case, used as the folder name on disk</small>
-          </label>
-          <label>
-            Name
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Home System"
-              required
-            />
-          </label>
-          <label>
-            Description (optional)
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={3}
-            />
-          </label>
-          {err && <p className="error">{err}</p>}
-          <div className="modal-actions">
-            <button type="button" onClick={onClose}>
-              Cancel
-            </button>
-            <button type="submit" disabled={create.isPending || !id || !name}>
-              {create.isPending ? 'Creating…' : 'Create'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+    <Modal title="New Project" onClose={onClose}>
+      <form onSubmit={submit}>
+        <label>
+          ID
+          <input
+            type="text"
+            value={id}
+            onChange={(e) => setId(e.target.value)}
+            placeholder="home-system"
+            autoFocus
+            required
+          />
+          <small>kebab-case, used as the folder name on disk</small>
+        </label>
+        <label>
+          Name
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Home System"
+            required
+          />
+        </label>
+        <label>
+          Description (optional)
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows={3}
+          />
+        </label>
+        {err && <p className="error">{err}</p>}
+        <div className="modal-actions">
+          <button type="button" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" disabled={create.isPending || !id || !name}>
+            {create.isPending ? 'Creating...' : 'Create'}
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 

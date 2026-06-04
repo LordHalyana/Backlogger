@@ -53,7 +53,6 @@ export function ProjectTree({
   const [showNew, setShowNew] = useState(false);
   const [manageFolders, setManageFolders] = useState(false);
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
-  // Archived section is collapsed by default
   const [archiveSectionCollapsed, setArchiveSectionCollapsed] = useState(true);
 
   const toggleCollapsed = (folder: string): void => {
@@ -98,7 +97,7 @@ export function ProjectTree({
       placeholder: 'e.g. phases/p3/blocks',
       validate: (v) => {
         const result = FolderPathSchema.safeParse(v.trim());
-        return result.success ? null : 'Invalid path — use lowercase letters, numbers, hyphens, and forward slashes only.';
+        return result.success ? null : 'Invalid path - use lowercase letters, numbers, hyphens, and forward slashes only.';
       },
     });
     if (!name) return;
@@ -214,12 +213,12 @@ export function ProjectTree({
           </button>
         </div>
       )}
-      {isLoading && <StatusMessage kind="loading">Loading…</StatusMessage>}
+      {isLoading && <StatusMessage kind="loading">Loading...</StatusMessage>}
       {isError && (
         <StatusMessage kind="error">Failed to load: {error?.message}</StatusMessage>
       )}
       {!isLoading && !isError && (data?.length ?? 0) === 0 && activeFolders.length === 0 && archivedFolders.length === 0 && (
-        <StatusMessage kind="empty">No documents yet. Click &ldquo;+ New&rdquo; to create one.</StatusMessage>
+        <StatusMessage kind="empty">No documents yet. Click "+ New" to create one.</StatusMessage>
       )}
       <ul className="tree-groups">
         {activeFolders.map(renderFolder)}
@@ -235,7 +234,7 @@ export function ProjectTree({
                 title={collapsed.has('') ? 'Expand' : 'Collapse'}
               >
                 <span className="folder-caret" aria-hidden="true">
-                  {collapsed.has('') ? '▸' : '▾'}
+                  {collapsed.has('') ? '>' : 'v'}
                 </span>
                 <span className="folder-name muted">(root)</span>
                 <span className="folder-count" aria-hidden="true">
@@ -257,7 +256,7 @@ export function ProjectTree({
               aria-expanded={!archiveSectionCollapsed}
             >
               <span className="folder-caret" aria-hidden="true">
-                {archiveSectionCollapsed ? '▸' : '▾'}
+                {archiveSectionCollapsed ? '>' : 'v'}
               </span>
               Archived
             </button>
