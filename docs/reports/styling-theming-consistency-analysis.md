@@ -1,3 +1,14 @@
+---
+id: b7ac0e97-2478-49cd-8102-cb5f57d6b3bd
+title: Styling And Theming Consistency Analysis
+project: backlogger-docs
+type: finding
+status: active
+created_at: '2026-06-04T00:00:00.000Z'
+updated_at: '2026-06-08T00:00:00.000Z'
+tags: []
+---
+
 # Styling and Theming Consistency Analysis
 
 Date: 2026-06-04
@@ -98,7 +109,13 @@ Keep primitive color tokens too, but use semantic tokens in components.
 
 ### 4. Raw glyph risk is reduced but not eliminated
 
-Priority: Low
+Priority: Completed
+
+> **Resolved (verify-only):** The high-visibility glyph/mojibake defects were fixed in the
+> quick-win pass, and the standing convention is now documented in the "Encoding" section of
+> `docs/design/ui-conventions.md` (prefer ASCII, verify any Unicode in source/browser/docs,
+> search for mojibake before release). Future symbols are governed by that convention rather
+> than fixed case-by-case.
 
 Evidence:
 
@@ -143,7 +160,14 @@ Migrate new forms first. Do not rewrite every component at once.
 
 ### 6. Layout responsiveness needs explicit review
 
-Priority: Medium
+Priority: Completed
+
+> **Resolved (ST-6):** Took the documented-scope path. `docs/design/ui-conventions.md` now
+> states that Backlogger is desktop-first, mobile/touch is explicitly out of scope for the
+> current single-user assignment, the **minimum supported width is 1024px**, split view is most
+> comfortable at **≥1280px**, and it records the responsive plan (collapse sidebar, move
+> metadata to a tab/drawer, reduce topbar health text) to follow if mobile becomes a
+> requirement. No speculative responsive CSS was added.
 
 Evidence:
 
@@ -168,7 +192,14 @@ If mobile is not in scope, document minimum supported width.
 
 ### 7. Markdown preview styling is intentionally minimal but lacks theme depth
 
-Priority: Low
+Priority: Completed
+
+> **Resolved (ST-7):** Added compact, token-based `.markdown-body` styles for tables (bordered
+> cells, panel-background header), blockquotes (left rule + muted text), images
+> (`max-width: 100%`, rounded), unordered/ordered lists and task-list checkboxes, and horizontal
+> rules. Also fixed `pre > code` so fenced code blocks no longer inherit the inline-chip
+> padding/background. All colors use existing theme tokens, so dark/light themes are respected.
+> Build verified; typography kept compact per the workspace direction.
 
 Evidence:
 
@@ -196,9 +227,9 @@ Keep typography compact; this is a workspace, not a marketing site.
 1. Add button/control CSS variants and apply them to new/changed components.
 2. Split `app.css` by responsibility.
 3. Add semantic theme tokens for overlays, controls, and banners.
-4. Review responsive behavior and document target viewport support.
-5. Improve Markdown preview styling.
-6. Continue cleanup of corrupted comments/docs.
+4. ~~Review responsive behavior and document target viewport support.~~ (done — ST-6)
+5. ~~Improve Markdown preview styling.~~ (done — ST-7)
+6. ~~Continue cleanup of corrupted comments/docs.~~ (done — QW-6/7 + ui-conventions Encoding)
 
 ## Principle Check
 

@@ -1376,4 +1376,50 @@ describe('Knowledge Graph API', () => {
     expect(edges).toHaveLength(1);
     expect(edges[0]!.targetId).toBe(broken!.id);
   });
+
+  it('reflects document deletion after the graph was cached', async () => {
+    const a = await request(h.app)
+      .post('/api/projects/gp/documents')
+      .send({ title: 'Alpha', type: 'note' });
+    await request(h.app)
+      .post('/api/projects/gp/documents')
+      .send({ title: 'Beta', type: 'idea' });
+
+    // Prime the graph cache (10s TTL) so a stale entry would otherwise be served.
+    const before = await request(h.app).get('/api/projects/gp/graph');
+    expect(before.body.nodes).toHaveLength(2);
+
+    // Delete one document through the service — the only sanctioned write path.
+    const del = await request(h.app).delete(`/api/documents/${a.body.id}`);
+    expect(del.status).toBe(204);
+
+    // DocumentService.delete must invalidate the graph cache → deletion is visible.
+    const after = await request(h.app).get('/api/projects/gp/graph');
+    expect(after.body.nodes).toHaveLength(1);
+    expect((after.body.nodes as Array<{ title: string }>)[0]!.title).toBe('Beta');
+  });
+
+  it('reflects a reload that removes a file, even after the graph was cached', async () => {
+    const a = await request(h.app)
+      .post('/api/projects/gp/documents')
+      .send({ title: 'Alpha', type: 'note' });
+    await request(h.app)
+      .post('/api/projects/gp/documents')
+      .send({ title: 'Beta', type: 'idea' });
+
+    // Prime the graph cache so a stale entry would otherwise survive the reload.
+    const before = await request(h.app).get('/api/projects/gp/graph');
+    expect(before.body.nodes).toHaveLength(2);
+
+    // Remove one file out-of-band, then reload the project from disk.
+    await fs.unlink(path.join(h.dataDir, 'projects', a.body.path));
+    const reload = await request(h.app).post('/api/projects/gp/reload').send();
+    expect(reload.status).toBe(200);
+    expect(reload.body.removed).toBe(1);
+
+    // Reload must invalidate the graph cache → the removed node is gone.
+    const after = await request(h.app).get('/api/projects/gp/graph');
+    expect(after.body.nodes).toHaveLength(1);
+    expect((after.body.nodes as Array<{ title: string }>)[0]!.title).toBe('Beta');
+  });
 });

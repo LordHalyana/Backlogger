@@ -1,3 +1,14 @@
+---
+id: 4fdc81ce-2364-4be2-941b-abca982f0311
+title: API Reference
+project: backlogger-docs
+type: note
+status: active
+created_at: '2026-06-04T00:00:00.000Z'
+updated_at: '2026-06-04T00:00:00.000Z'
+tags: []
+---
+
 # Backlogger API Reference
 
 Date: 2026-06-04

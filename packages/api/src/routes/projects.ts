@@ -1,11 +1,12 @@
-import { Router, type Request, type Response, type NextFunction } from 'express';
+import { Router } from 'express';
 import {
   CreateProjectRequestSchema,
   FolderPathSchema,
   ProjectIdSchema,
   UpdateProjectRequestSchema,
 } from '@backlogger/shared';
-import { BadRequestError, ConflictError, HttpError, NotFoundError } from '../errors.js';
+import { BadRequestError, ConflictError, NotFoundError } from '../errors.js';
+import { asyncRoute, validateBody } from './util.js';
 import type { ProjectService } from '../services/project-service.js';
 import type { LinkService } from '../services/link-service.js';
 import { ReloadInProgressError, type ReindexService } from '../services/reindex-service.js';
@@ -14,10 +15,10 @@ import type { GraphService } from '../services/graph-service.js';
 
 export function projectsRouter(
   service: ProjectService,
-  linkService?: LinkService,
-  reindexService?: ReindexService,
-  fs?: FsRepository,
-  graphService?: GraphService,
+  linkService: LinkService,
+  reindexService: ReindexService,
+  fs: FsRepository,
+  graphService: GraphService,
 ): Router {
   const router = Router();
 
@@ -30,160 +31,121 @@ export function projectsRouter(
     res.json(service.get(id));
   });
 
-  router.get('/:id/titles', (req, res, next) => {
-    try {
+  router.get(
+    '/:id/titles',
+    asyncRoute(async (req, res) => {
       const id = parseId(req.params.id);
-      const rows = linkService?.titles(id) ?? [];
+      const rows = linkService.titles(id);
       res.json(rows);
-    } catch (err) {
-      next(err);
-    }
-  });
+    }),
+  );
 
-  router.post('/', async (req, res, next: NextFunction) => {
-    try {
-      const parsed = CreateProjectRequestSchema.safeParse(req.body);
-      if (!parsed.success) {
-        throw new BadRequestError('VALIDATION_FAILED', 'Invalid request body', parsed.error.format());
-      }
-      const project = await service.create(parsed.data);
+  router.post(
+    '/',
+    asyncRoute(async (req, res) => {
+      const input = validateBody(CreateProjectRequestSchema, req.body);
+      const project = await service.create(input);
       res.status(201).json(project);
-    } catch (err) {
-      next(err);
-    }
-  });
+    }),
+  );
 
-  router.put('/:id', (req, res, next) => {
-    try {
+  router.put(
+    '/:id',
+    asyncRoute(async (req, res) => {
       const id = parseId(req.params.id);
-      const parsed = UpdateProjectRequestSchema.safeParse(req.body);
-      if (!parsed.success) {
-        throw new BadRequestError('VALIDATION_FAILED', 'Invalid request body', parsed.error.format());
-      }
-      res.json(service.update(id, parsed.data));
-    } catch (err) {
-      next(err);
-    }
-  });
+      const input = validateBody(UpdateProjectRequestSchema, req.body);
+      res.json(service.update(id, input));
+    }),
+  );
 
-  router.delete('/:id', async (req, res, next) => {
-    try {
+  router.delete(
+    '/:id',
+    asyncRoute(async (req, res) => {
       const id = parseId(req.params.id);
       await service.delete(id);
       res.status(204).send();
-    } catch (err) {
-      next(err);
-    }
-  });
+    }),
+  );
 
-  router.post('/:id/reload', async (req, res, next) => {
-    try {
+  router.post(
+    '/:id/reload',
+    asyncRoute(async (req, res) => {
       const id = parseId(req.params.id);
       // 404 if the project is unknown (mirrors GET /:id behavior).
       service.get(id);
-      if (!reindexService) {
-        throw new BadRequestError('RELOAD_UNAVAILABLE', 'Reindex service not configured');
-      }
-      const report = await reindexService.runProject(id);
-      res.json(report);
-    } catch (err) {
-      if (err instanceof ReloadInProgressError) {
-        next(
-          new ConflictError(
+      try {
+        const report = await reindexService.runProject(id);
+        res.json(report);
+      } catch (err) {
+        // Translate the concurrency guard into a 409 for the client.
+        if (err instanceof ReloadInProgressError) {
+          throw new ConflictError(
             'RELOAD_IN_PROGRESS',
             `Reload already in progress for project: ${err.projectId}`,
-          ),
-        );
-        return;
+          );
+        }
+        throw err;
       }
-      next(err);
-    }
-  });
+    }),
+  );
 
   // ----- Folder management ----------------------------------------------
 
-  router.get('/:id/folders', async (req, res, next) => {
-    try {
+  router.get(
+    '/:id/folders',
+    asyncRoute(async (req, res) => {
       const id = parseId(req.params.id);
       service.get(id); // 404 if unknown
-      if (!fs) throw new BadRequestError('FOLDERS_UNAVAILABLE', 'Filesystem repo not configured');
       const folders = await fs.listFolders(id);
       res.json(folders);
-    } catch (err) {
-      next(err);
-    }
-  });
+    }),
+  );
 
-  router.post('/:id/folders', async (req, res, next) => {
-    try {
+  router.post(
+    '/:id/folders',
+    asyncRoute(async (req, res) => {
       const id = parseId(req.params.id);
       service.get(id);
-      if (!fs) throw new BadRequestError('FOLDERS_UNAVAILABLE', 'Filesystem repo not configured');
       const body = req.body as { folder?: unknown } | undefined;
-      const parsed = FolderPathSchema.safeParse(body?.folder);
-      if (!parsed.success) {
-        throw new BadRequestError(
-          'VALIDATION_FAILED',
-          'Invalid folder path',
-          parsed.error.format(),
-        );
-      }
-      const folder = await fs.createFolder(id, parsed.data);
+      const folder = await fs.createFolder(id, validateBody(FolderPathSchema, body?.folder));
       res.status(201).json({ folder });
-    } catch (err) {
-      next(err);
-    }
-  });
+    }),
+  );
 
   // See docs/design/folder-invariants.md for the rules governing folder deletion.
-  router.delete('/:id/folders/*', async (req, res, next) => {
-    try {
+  router.delete(
+    '/:id/folders/*',
+    asyncRoute(async (req, res) => {
       const id = parseId(req.params.id);
       service.get(id);
-      if (!fs) throw new BadRequestError('FOLDERS_UNAVAILABLE', 'Filesystem repo not configured');
       // Express captures the wildcard rest in params[0].
       const raw = (req.params as { 0?: string })[0] ?? '';
-      const folder = decodeURIComponent(raw);
-      const parsed = FolderPathSchema.safeParse(folder);
-      if (!parsed.success) {
-        throw new BadRequestError('VALIDATION_FAILED', 'Invalid folder path');
-      }
+      const folder = validateBody(FolderPathSchema, decodeURIComponent(raw));
       // Refuse to remove a non-empty folder (any files anywhere under it).
       const existing = await fs.listFolders(id);
-      if (!existing.includes(parsed.data)) {
-        throw new NotFoundError('FOLDER_NOT_FOUND', `Folder not found: ${parsed.data}`);
+      if (!existing.includes(folder)) {
+        throw new NotFoundError('FOLDER_NOT_FOUND', `Folder not found: ${folder}`);
       }
       const files = await fs.listProjectFiles(id);
-      const prefix = `${id}/${parsed.data}/`;
+      const prefix = `${id}/${folder}/`;
       const occupied = files.some((p) => p.startsWith(prefix));
-      const hasSubfolder = existing.some(
-        (f) => f.startsWith(`${parsed.data}/`),
-      );
+      const hasSubfolder = existing.some((f) => f.startsWith(`${folder}/`));
       if (occupied || hasSubfolder) {
-        throw new ConflictError(
-          'FOLDER_NOT_EMPTY',
-          `Folder not empty: ${parsed.data}`,
-        );
+        throw new ConflictError('FOLDER_NOT_EMPTY', `Folder not empty: ${folder}`);
       }
-      await fs.removeFolder(id, parsed.data);
+      await fs.removeFolder(id, folder);
       res.status(204).send();
-    } catch (err) {
-      next(err);
-    }
-  });
+    }),
+  );
 
-  router.get('/:id/graph', async (req, res, next) => {
-    try {
+  router.get(
+    '/:id/graph',
+    asyncRoute(async (req, res) => {
       const id = parseId(req.params.id);
-      if (!graphService) {
-        throw new HttpError(503, 'GRAPH_UNAVAILABLE', 'Graph service not available');
-      }
       const payload = graphService.getGraph(id);
       res.json(payload);
-    } catch (err) {
-      next(err);
-    }
-  });
+    }),
+  );
 
   return router;
 }

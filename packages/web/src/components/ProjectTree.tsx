@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { DocumentSummary } from '@backlogger/shared';
-import { FolderPathSchema } from '@backlogger/shared';
+import { FolderPathSchema, folderFromDocumentPath, isArchivedFolder } from '@backlogger/shared';
 import { useDocuments } from '../lib/documents.js';
 import { useFilteredDocuments } from '../lib/tags.js';
 import { useFolders, useCreateFolder, useDeleteFolder } from '../lib/folders.js';
@@ -29,9 +29,7 @@ interface ProjectTreeProps {
 }
 
 function folderOf(projectId: string, path: string): string {
-  const rest = path.startsWith(`${projectId}/`) ? path.slice(projectId.length + 1) : path;
-  const idx = rest.lastIndexOf('/');
-  return idx >= 0 ? rest.slice(0, idx) : '';
+  return folderFromDocumentPath(projectId, path);
 }
 
 export function ProjectTree({
@@ -82,7 +80,7 @@ export function ProjectTree({
     const active: string[] = [];
     const archived: string[] = [];
     for (const f of [...s].sort()) {
-      if (f === 'archived' || f.startsWith('archived/')) archived.push(f);
+      if (isArchivedFolder(f)) archived.push(f);
       else active.push(f);
     }
     return { activeFolders: active, archivedFolders: archived };

@@ -1,3 +1,14 @@
+---
+id: f0402945-c5cf-488a-83ed-637759cda499
+title: Missing Docs Improvements Analysis
+project: backlogger-docs
+type: finding
+status: active
+created_at: '2026-06-04T00:00:00.000Z'
+updated_at: '2026-06-08T00:00:00.000Z'
+tags: []
+---
+
 # Missing Docs and Documentation Improvements Analysis
 
 Date: 2026-06-04
@@ -54,6 +65,11 @@ Created `docs/design/derived-data.md` covering:
 - Derived caches: graph service and React Query caches.
 - Required refresh behavior for create/update/delete/import/reload/archive.
 - Recovery path: reload project or full reindex.
+
+> **Update (MD-2):** The remaining implementation-alignment item is now closed. Graph cache
+> invalidation during reload/reindex is wired (`ReindexService` calls `invalidate(projectId)`
+> on project reload and `invalidate()` on full reindex — DF-F2), and `derived-data.md` now
+> documents that contract instead of flagging it as a gap.
 
 Remaining work is implementation alignment, especially graph cache invalidation during reindex/reload.
 
@@ -122,7 +138,15 @@ This avoids false security assumptions.
 
 ### 6. Feature docs still need current/future separation
 
-Priority: High
+Priority: Completed
+
+> **Resolved (MD-6):** Current vs. historical scope is now clearly separated. README was
+> corrected to claim only implemented workflows (QW-8). `overview.md` carries "Historical note"
+> callouts on both the Non-Goals (MVP) and Phase 1 Scope sections — explicitly flagging that
+> search indexing is now implemented and pointing to the current architecture doc. `roadmap.md`
+> (the original Phase 1 implementation plan) now opens with a "Historical note" banner stating
+> it does not describe current behavior and redirecting to `architecture.md`, `derived-data.md`,
+> and the API reference. Current behavior lives in the `docs/design/` + `docs/api.md` set.
 
 Current state:
 
@@ -180,13 +204,24 @@ Created `docs/testing.md` covering:
 
 ### Encoding corruption
 
-Priority: High
+Priority: Completed
+
+> **Resolved (QW-6/7 + verify):** A repo-wide scan of `docs/**/*.md` for the common
+> UTF-8-as-Latin-1 mojibake sequences (`â€™`, `â€œ`, `â€”`, `Ã©`, stray `Â`, `�`, …) returns no
+> matches. The visible UI/comment corruption was fixed in the quick-win pass; the remaining
+> non-ASCII characters in docs are intentional Unicode (em-dashes, box-drawing in code trees),
+> not corruption. The ASCII-first convention is recorded in `ui-conventions.md`.
 
 Many docs contain mojibake characters. Fixing this is a documentation quality requirement, not a cosmetic preference.
 
 ### Duplicate phase narratives
 
-Priority: Medium
+Priority: Completed
+
+> **Resolved (MD-6):** The historical phase narratives in `overview.md` and `roadmap.md` are
+> now explicitly labeled as historical and redirect to the current docs, so phase progress has
+> a single historical source while the current docs describe current behavior. Older phase
+> material remains available under `docs/archived/` with its own "Historical archive" banner.
 
 Phase progress appears in multiple docs. Keep one history/changelog source and let current docs describe current behavior.
 
@@ -221,8 +256,8 @@ Recommended active docs:
 
 ## Suggested Cleanup Order
 
-1. Mark historical docs clearly or move old roadmap content under archive.
-2. Clean remaining mojibake in old docs/comments.
+1. ~~Mark historical docs clearly or move old roadmap content under archive.~~ (done — MD-6)
+2. ~~Clean remaining mojibake in old docs/comments.~~ (done — QW-6/7, none remain)
 3. Keep new current docs updated as implementation changes.
 4. Add focused implementation docs only when new complexity appears.
 

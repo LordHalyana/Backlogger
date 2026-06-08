@@ -4,6 +4,7 @@ import type { ProjectsRepo } from '../db/projects-repo.js';
 import type { FsRepository } from '../fs/index.js';
 import type { LinkService } from './link-service.js';
 import type { TagsService } from './tags-service.js';
+import type { GraphService } from './graph-service.js';
 
 export interface ReindexReport {
   scanned: number;
@@ -33,8 +34,9 @@ export interface ReindexServiceDeps {
   documentsRepo: DocumentsRepo;
   projectsRepo: ProjectsRepo;
   fs: FsRepository;
-  linkService?: LinkService;
-  tagsService?: TagsService;
+  linkService: LinkService;
+  tagsService: TagsService;
+  graphService: GraphService;
 }
 
 /**
@@ -46,8 +48,9 @@ export class ReindexService {
   private readonly documentsRepo: DocumentsRepo;
   private readonly projectsRepo: ProjectsRepo;
   private readonly fs: FsRepository;
-  private readonly linkService: LinkService | undefined;
-  private readonly tagsService: TagsService | undefined;
+  private readonly linkService: LinkService;
+  private readonly tagsService: TagsService;
+  private readonly graphService: GraphService;
   private readonly inFlight = new Set<string>();
 
   constructor(deps: ReindexServiceDeps) {
@@ -56,13 +59,14 @@ export class ReindexService {
     this.fs = deps.fs;
     this.linkService = deps.linkService;
     this.tagsService = deps.tagsService;
+    this.graphService = deps.graphService;
   }
 
   async run(): Promise<ReindexReport> {
     const report: ReindexReport = { scanned: 0, inserted: 0, skipped: [] };
     this.documentsRepo.truncate();
-    this.linkService?.truncate();
-    this.tagsService?.truncate();
+    this.linkService.truncate();
+    this.tagsService.truncate();
 
     for await (const doc of this.fs.walk()) {
       report.scanned += 1;
@@ -93,10 +97,12 @@ export class ReindexService {
         created_at: fm.created_at,
         updated_at: fm.updated_at,
       });
-      this.linkService?.rebuildForDocument(fm.id, fm.title, doc.body);
-      this.tagsService?.rebuildForDocument(fm.id, fm.tags);
+      this.linkService.rebuildForDocument(fm.id, fm.title, doc.body);
+      this.tagsService.rebuildForDocument(fm.id, fm.tags);
       report.inserted += 1;
     }
+    // Full reindex rewrote every project's links/tags → drop all graph caches.
+    this.graphService.invalidate();
     return report;
   }
 
@@ -151,8 +157,8 @@ export class ReindexService {
           created_at: fm.created_at,
           updated_at: fm.updated_at,
         });
-        this.linkService?.rebuildForDocument(fm.id, fm.title, doc.body);
-        this.tagsService?.rebuildForDocument(fm.id, fm.tags);
+        this.linkService.rebuildForDocument(fm.id, fm.title, doc.body);
+        this.tagsService.rebuildForDocument(fm.id, fm.tags);
         if (wasPresent) report.updated += 1;
         else report.added += 1;
         existing.delete(fm.id);
@@ -161,10 +167,14 @@ export class ReindexService {
       // Anything still in `existing` lost its backing file → purge.
       for (const [id] of existing) {
         this.documentsRepo.delete(id);
-        this.linkService?.onDocumentDeleted(id);
+        this.linkService.onDocumentDeleted(id);
         report.removedIds.push(id);
         report.removed += 1;
       }
+
+      // Documents/links/tags for this project changed → drop its graph cache so
+      // GET /:id/graph rebuilds instead of serving a stale (TTL-cached) payload.
+      this.graphService.invalidate(projectId);
 
       report.durationMs = Date.now() - started;
       return report;

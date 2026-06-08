@@ -1,3 +1,14 @@
+---
+id: b52dc415-e6d7-4534-82d0-65027aec5da9
+title: Derived Data
+project: backlogger-docs
+type: design_doc
+status: active
+created_at: '2026-06-04T00:00:00.000Z'
+updated_at: '2026-06-08T00:00:00.000Z'
+tags: []
+---
+
 # Derived Data Contract
 
 Date: 2026-06-04
@@ -112,11 +123,14 @@ Required updates:
 - Rebuild links and tags for each present file.
 - Delete database rows whose backing files disappeared.
 - Remove deleted document link state.
+- Invalidate graph cache for the project.
 - Return removed ids so the frontend can clear stale document buffers.
 
-Current gap:
+Graph cache contract:
 
-- Graph cache invalidation is not directly wired in `ReindexService`. Project reload callers should ensure graph data is refreshed or `ReindexService` should receive `GraphService`.
+- `ReindexService` holds a `GraphService` reference and calls `invalidate(projectId)`
+  after the project is re-scanned, so a reload that adds/removes files is reflected
+  immediately instead of waiting for the in-memory graph cache TTL to expire.
 
 ### Full Reindex
 
@@ -133,10 +147,12 @@ Required updates:
 - Walk all projects.
 - Reinsert valid documents.
 - Rebuild links and tags.
+- Invalidate the entire graph cache.
 
-Current gap:
+Graph cache contract:
 
-- Full reindex should also invalidate graph cache if graph caching is active.
+- Full reindex calls `GraphService.invalidate()` with no argument, clearing every
+  cached project graph since all derived data was rebuilt.
 
 ## Frontend Cache Rules
 

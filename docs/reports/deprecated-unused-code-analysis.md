@@ -1,3 +1,14 @@
+---
+id: 59cbe867-1c3c-4529-80bb-48db31eb8fbd
+title: Deprecated And Unused Code Analysis
+project: backlogger-docs
+type: finding
+status: active
+created_at: '2026-06-04T00:00:00.000Z'
+updated_at: '2026-06-08T00:00:00.000Z'
+tags: []
+---
+
 # Deprecated and Unused Code Analysis
 
 Date: 2026-06-04
@@ -47,7 +58,10 @@ If drag/drop or rename is still desired, track it as future work, not a shipped 
 
 ### 3. Design docs mix MVP, completed phases, future phases, and old non-goals
 
-Priority: Medium
+Priority: Completed
+
+> **Resolved (QW-8):** `Historical note` callouts added to the Non-Goals (MVP) and Phase 1
+> Scope sections in `docs/design/overview.md`.
 
 Evidence:
 
@@ -71,7 +85,14 @@ Do not keep old non-goals beside completed features without labeling them histor
 
 ### 4. Legacy document type to subdirectory mapping is active compatibility code
 
-Priority: Low
+Priority: Completed
+
+> **Resolved (verify-only):** Kept as active compatibility code per the recommendation. The
+> behavior is now clearly documented at the source: `DOCUMENT_TYPE_TO_SUBDIR` in
+> `packages/shared/src/documents.ts` carries a "Legacy compatibility default" doc comment
+> explaining that it is the fallback used when no explicit folder is supplied, that new UI
+> flows should prefer explicit folder selection, and pointing to `NewDocumentDialog.tsx`. No
+> deprecation until a migration plan exists.
 
 Evidence:
 
@@ -88,7 +109,15 @@ Keep it for now. If arbitrary folder placement is now the main model, document t
 
 ### 5. Optional service fallbacks can hide missing configuration
 
-Priority: Medium
+Priority: Completed
+
+> **Resolved (DUC-5):** All optional-service runtime fallbacks were removed. `linkService`,
+> `tagsService`, and `graphService` are now required dependencies of `DocumentService`,
+> `ReindexService`, `projectsRouter`, and `documentsRouter`, constructed only via
+> `buildContext`. The backlinks route now calls `linkService.backlinksFor(id)` and the titles
+> route `linkService.titles(id)` directly (no `?? []`). A missing dependency is now a
+> startup/type error instead of a feature that silently appears empty. (Same fix tracked as
+> bad-practices BP-3 and design-flaws DF-F2/DF-F3; verified by the backlinks integration tests.)
 
 Evidence:
 
@@ -106,7 +135,10 @@ Treat these dependencies as required in app construction. Use test doubles in te
 
 ### 6. Type-only re-export in `projects.ts` looks unnecessary
 
-Priority: Low
+Priority: Completed
+
+> **Resolved (QW-4):** Confirmed no consumer imports `Request` or `Response` from
+> `routes/projects.ts`. Import and re-export removed.
 
 Evidence:
 
@@ -139,7 +171,12 @@ Keep `docs/operations/scripts.md` updated when adding or changing scripts.
 
 ### 8. Archived roadmap and historical reports may be useful but need clear labeling
 
-Priority: Low
+Priority: Completed
+
+> **Resolved (verify-only):** `docs/archived/README.md` already opens with a blockquoted
+> "Historical archive" callout stating the folder is not current guidance and pointing readers
+> to `docs/design/`, `docs/reports/`, and `docs/operations/`. The labeling the finding asked
+> for is in place.
 
 Evidence:
 
@@ -166,9 +203,9 @@ rg "from './routes/projects|from '../routes/projects" packages
 
 ## Suggested Cleanup Order
 
-1. Label or reorganize current vs historical design docs.
-2. Decide whether optional service fallbacks should become required dependencies.
-3. Audit type-only exports and script ownership.
+1. ~~Label or reorganize current vs historical design docs.~~ (done — QW-8 / archived README)
+2. ~~Decide whether optional service fallbacks should become required dependencies.~~ (done — DUC-5)
+3. ~~Audit type-only exports and script ownership.~~ (done — QW-4 / scripts.md)
 4. Leave legacy type-to-subdir behavior until a migration plan exists.
 
 ## Principle Check

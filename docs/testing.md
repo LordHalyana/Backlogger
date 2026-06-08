@@ -1,3 +1,14 @@
+---
+id: 4192f9f9-d854-4601-993c-1af8e7484095
+title: Testing
+project: backlogger-docs
+type: note
+status: active
+created_at: '2026-06-04T00:00:00.000Z'
+updated_at: '2026-06-04T00:00:00.000Z'
+tags: []
+---
+
 # Testing
 
 Date: 2026-06-04
@@ -78,6 +89,7 @@ Shared logic:
 Web components:
 
 - `packages/web/src/components/*.test.tsx`
+- `packages/web/src/lib/*.test.ts`
 - `packages/web/src/lib/*.test.tsx`
 
 E2E:

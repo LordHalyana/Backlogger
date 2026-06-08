@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { queryKeys } from './query-keys.js';
 
 export interface GraphNode {
   id: string;
@@ -31,7 +32,7 @@ async function fetchGraph(projectId: string): Promise<GraphPayload> {
 
 export function useGraph(projectId: string | null) {
   return useQuery({
-    queryKey: ['graph', projectId],
+    queryKey: queryKeys.graph(projectId ?? '__none__'),
     queryFn: () => fetchGraph(projectId!),
     enabled: projectId !== null,
     staleTime: 10_000,

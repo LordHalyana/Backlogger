@@ -1,8 +1,10 @@
 import { v4 as uuidv4 } from 'uuid';
 import {
+  archivePath,
   CreateDocumentRequestSchema,
   DOCUMENT_TYPE_TO_SUBDIR,
   FrontmatterSchema,
+  unarchivePath,
   type CreateDocumentRequest,
   type Document,
   type DocumentSummary,
@@ -22,10 +24,10 @@ export interface DocumentServiceDeps {
   documentsRepo: DocumentsRepo;
   projectsRepo: ProjectsRepo;
   fs: FsRepository;
-  templates?: TemplateRegistry;
-  linkService?: LinkService;
-  tagsService?: TagsService;
-  graphService?: GraphService;
+  templates: TemplateRegistry;
+  linkService: LinkService;
+  tagsService: TagsService;
+  graphService: GraphService;
   now?: () => string;
   newId?: () => string;
 }
@@ -34,10 +36,10 @@ export class DocumentService {
   private readonly documentsRepo: DocumentsRepo;
   private readonly projectsRepo: ProjectsRepo;
   private readonly fs: FsRepository;
-  private readonly templates: TemplateRegistry | undefined;
-  private readonly linkService: LinkService | undefined;
-  private readonly tagsService: TagsService | undefined;
-  private readonly graphService: GraphService | undefined;
+  private readonly templates: TemplateRegistry;
+  private readonly linkService: LinkService;
+  private readonly tagsService: TagsService;
+  private readonly graphService: GraphService;
   private readonly now: () => string;
   private readonly newId: () => string;
 
@@ -107,7 +109,7 @@ export class DocumentService {
 
     let body = parsed.body ?? '';
     if (parsed.template) {
-      const tpl = this.templates?.getOrThrow(parsed.template);
+      const tpl = this.templates.getOrThrow(parsed.template);
       if (!tpl) {
         throw new NotFoundError(
           'TEMPLATE_NOT_FOUND',
@@ -154,9 +156,9 @@ export class DocumentService {
       throw err;
     }
 
-    this.linkService?.rebuildForDocument(id, frontmatter.title, body);
-    this.tagsService?.rebuildForDocument(id, frontmatter.tags);
-    this.graphService?.invalidate(projectId);
+    this.linkService.rebuildForDocument(id, frontmatter.title, body);
+    this.tagsService.rebuildForDocument(id, frontmatter.tags);
+    this.graphService.invalidate(projectId);
 
     return { ...frontmatter, project_id: projectId, path: relPath, body };
   }
@@ -216,14 +218,14 @@ export class DocumentService {
       updated_at: now,
     });
 
-    this.linkService?.rebuildForDocument(
+    this.linkService.rebuildForDocument(
       summary.id,
       nextFrontmatter.title,
       nextBody,
       summary.title,
     );
-    this.tagsService?.rebuildForDocument(summary.id, nextFrontmatter.tags);
-    this.graphService?.invalidate(summary.project_id);
+    this.tagsService.rebuildForDocument(summary.id, nextFrontmatter.tags);
+    this.graphService.invalidate(summary.project_id);
 
     return {
       ...nextFrontmatter,
@@ -237,8 +239,8 @@ export class DocumentService {
     const summary = this.documentsRepo.find(id);
     if (!summary) throw new NotFoundError('DOCUMENT_NOT_FOUND', `Document not found: ${id}`);
     this.documentsRepo.delete(id);
-    this.linkService?.onDocumentDeleted(id);
-    this.graphService?.invalidate(summary.project_id);
+    this.linkService.onDocumentDeleted(id);
+    this.graphService.invalidate(summary.project_id);
     await this.fs.delete(summary.path).catch(() => undefined);
   }
 
@@ -265,26 +267,25 @@ export class DocumentService {
 
 /**
  * Insert an `archived` segment immediately after the project-id in a
- * project-relative path.
+ * project-relative path. Thin alias over the shared `archivePath` helper,
+ * kept for the service's existing call sites and tests.
  *
  * `my-project/notes/doc-abc.md` → `my-project/archived/notes/doc-abc.md`
  */
 export function toArchivedPath(currentPath: string): string {
-  const parts = currentPath.split('/');
-  return [parts[0], 'archived', ...parts.slice(1)].join('/');
+  return archivePath(currentPath);
 }
 
 /**
- * Remove the `archived` segment from an archived project-relative path.
+ * Remove the `archived` segment from an archived project-relative path. Thin
+ * alias over the shared `unarchivePath` helper.
  *
  * `my-project/archived/notes/doc-abc.md` → `my-project/notes/doc-abc.md`
  *
  * If the path is not under `archived/`, it is returned unchanged.
  */
 export function fromArchivedPath(currentPath: string): string {
-  const parts = currentPath.split('/');
-  if (parts[1] !== 'archived') return currentPath;
-  return [parts[0], ...parts.slice(2)].join('/');
+  return unarchivePath(currentPath);
 }
 
 /**

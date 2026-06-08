@@ -1,3 +1,14 @@
+---
+id: 473e6acc-9313-4e2f-bd30-f1b06ed81377
+title: Deployment
+project: backlogger-docs
+type: note
+status: active
+created_at: '2026-06-04T00:00:00.000Z'
+updated_at: '2026-06-04T00:00:00.000Z'
+tags: []
+---
+
 # Deployment
 
 Date: 2026-06-04

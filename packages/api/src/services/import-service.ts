@@ -1,5 +1,7 @@
 import matter from 'gray-matter';
 import {
+  isDocumentStatus,
+  isDocumentType,
   type DocumentType,
   type ImportFile,
   type ImportPlacement,
@@ -190,21 +192,4 @@ function deriveTitle(
 function firstH1(body: string): string | undefined {
   const m = body.match(/^\s*#\s+(.+?)\s*$/m);
   return m ? m[1] : undefined;
-}
-
-const DOCUMENT_TYPES: readonly DocumentType[] = [
-  'idea',
-  'note',
-  'design_doc',
-  'implementation_plan',
-  'backlog_item',
-  'finding',
-];
-
-function isDocumentType(value: string): value is DocumentType {
-  return (DOCUMENT_TYPES as readonly string[]).includes(value);
-}
-
-function isDocumentStatus(value: string): value is 'draft' | 'active' | 'archived' {
-  return value === 'draft' || value === 'active' || value === 'archived';
 }

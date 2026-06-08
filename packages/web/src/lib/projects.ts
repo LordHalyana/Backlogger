@@ -7,8 +7,9 @@ import {
 } from '@tanstack/react-query';
 import type { CreateProjectRequest, Project, UpdateProjectRequest } from '@backlogger/shared';
 import { apiFetch } from './api.js';
+import { queryKeys, invalidateDocumentDerived, clearDocumentBuffers } from './query-keys.js';
 
-const PROJECTS_KEY = ['projects'] as const;
+const PROJECTS_KEY = queryKeys.projects();
 
 export function useProjects(): UseQueryResult<Project[]> {
   return useQuery({
@@ -66,16 +67,13 @@ export function useReloadProject(): UseMutationResult<ReloadProjectReport, Error
     mutationFn: (id) =>
       apiFetch<ReloadProjectReport>(`/api/projects/${id}/reload`, { method: 'POST' }),
     onSuccess: (report) => {
-      qc.invalidateQueries({ queryKey: ['documents', report.projectId] });
-      qc.invalidateQueries({ queryKey: ['tags', report.projectId] });
-      qc.invalidateQueries({ queryKey: ['titles'] });
-      qc.invalidateQueries({ queryKey: ['backlinks'] });
+      invalidateDocumentDerived(qc, report.projectId);
       // Out-of-band edits don't bump frontmatter `updated_at`, so React
       // Query won't rebuild buffers via updated_at change alone. Drop the
       // cached document queries so any open editor refetches from scratch.
-      qc.removeQueries({ predicate: (q) => q.queryKey[0] === 'document' });
+      clearDocumentBuffers(qc);
       for (const id of report.removedIds) {
-        qc.removeQueries({ queryKey: ['document', id] });
+        qc.removeQueries({ queryKey: queryKeys.document(id) });
       }
     },
   });

@@ -1,3 +1,14 @@
+---
+id: 5dbe92a9-761b-41ca-8314-17a60d9e2021
+title: Duplicated Code Analysis
+project: backlogger-docs
+type: finding
+status: active
+created_at: '2026-06-04T00:00:00.000Z'
+updated_at: '2026-06-05T00:00:00.000Z'
+tags: []
+---
+
 # Duplicated Code Analysis
 
 Date: 2026-06-04
@@ -23,7 +34,16 @@ The main duplication clusters are:
 
 ### 1. API validation and route wrappers repeat across routers
 
-Priority: Medium
+Priority: Completed
+
+> **Partially resolved (QW-9):** `asyncRoute` and `validateBody` utilities created in
+> `packages/api/src/routes/util.ts`. `routes/tags.ts` migrated as proof of concept.
+>
+> **Resolved (MW-F1):** All remaining routers migrated to `asyncRoute` +
+> `validateBody`: `documents.ts`, `projects.ts`, `import.ts`, and `search.ts`.
+> No async handler hand-rolls `try/catch` + `next(err)` anymore, and every body
+> validation goes through the single `VALIDATION_FAILED` path. ID parsers are
+> kept explicit per the recommendation. Verified by the 97-test API suite.
 
 Evidence:
 
@@ -47,7 +67,15 @@ Keep ID parsers explicit unless a third duplicated ID parser appears. Do not int
 
 ### 2. React Query invalidation rules are scattered
 
-Priority: Medium
+Priority: Completed
+
+> **Resolved (MW-1):** Centralized all cache keys in
+> `packages/web/src/lib/query-keys.ts` (`queryKeys` object) plus focused
+> invalidators `invalidateDocumentDerived(qc, projectId)` and
+> `clearDocumentBuffers(qc)`. Migrated every callsite in `lib/documents.ts`,
+> `lib/projects.ts`, `lib/links.ts`, `lib/graph.ts`, `lib/folders.ts`,
+> `lib/reindex.ts`, `hooks/useWikiLinkNavigation.ts`, and `App.tsx`. No raw
+> query-key arrays remain outside the prefix-match invalidations.
 
 Evidence:
 
@@ -90,7 +118,17 @@ Leave `DialogProvider` separate for confirm/prompt. Do not force HelpDrawer into
 
 ### 4. Button and form styling is repeated in CSS
 
-Priority: Medium
+Priority: Partially Completed
+
+> **Partially resolved (MW-F4):** Expanded the shared `.btn` system with
+> `.btn--sm`, `.btn--icon`, and `.btn--link` variants, and made the base `.btn`
+> anchor-friendly (`inline-flex`, `text-decoration: none`) so `<a>` actions can
+> reuse it. Migrated `.download-button` (both the `<button>` and `<a>` forms) to
+> `.btn .btn--sm` and removed its ~35-line duplicate CSS block. Remaining
+> feature-specific buttons (`.folder-add-btn`, `.folder-manage-btn`,
+> `.tag-clear-btn`, `.project-tree-header button`, `.settings-row button`,
+> `.modal button`) are left for opportunistic migration when those components
+> are next touched, per the recommendation to avoid a large CSS rewrite.
 
 Evidence:
 
@@ -121,7 +159,15 @@ Then migrate opportunistically when touching components. Avoid a large CSS rewri
 
 ### 5. Document type and status constants are duplicated
 
-Priority: Medium
+Priority: Completed
+
+> **Resolved (MW-F5):** `packages/shared/src/documents.ts` now exports the
+> canonical `DOCUMENT_TYPES` and `DOCUMENT_STATUSES` tuples plus
+> `isDocumentType` / `isDocumentStatus` guards. `DocumentTypeSchema` and
+> `DocumentStatusSchema` are derived from those tuples, and
+> `import-service.ts` imports the shared guards instead of maintaining its own
+> copy. Adding a new type is now a one-line change in `shared`. Web display
+> labels remain in the web app per the recommendation.
 
 Evidence:
 

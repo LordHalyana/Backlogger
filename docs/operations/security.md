@@ -1,3 +1,14 @@
+---
+id: dc506ee8-2f1b-4399-af83-f2b2d03c66b4
+title: Security
+project: backlogger-docs
+type: note
+status: active
+created_at: '2026-06-04T00:00:00.000Z'
+updated_at: '2026-06-04T00:00:00.000Z'
+tags: []
+---
+
 # Security And Trust Boundaries
 
 Date: 2026-06-04

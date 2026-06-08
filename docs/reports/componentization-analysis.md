@@ -1,3 +1,14 @@
+---
+id: f6a1acb8-00ab-49f6-8ab3-7f478b0daf11
+title: Componentization Analysis
+project: backlogger-docs
+type: finding
+status: active
+created_at: '2026-06-04T00:00:00.000Z'
+updated_at: '2026-06-08T00:00:00.000Z'
+tags: []
+---
+
 # Componentization Analysis
 
 Date: 2026-06-04
@@ -34,7 +45,15 @@ Keep state in hooks rather than adding a global store.
 
 ### 2. `useWorkspaceSelection`
 
-Priority: High
+Priority: Completed
+
+> **Resolved (DF-F1):** Extracted to `packages/web/src/hooks/useWorkspaceSelection.ts`. It owns
+> selected project/document/tags, clears document + tags on project change, handles removed
+> document IDs after reload (`clearDocumentIfRemoved`), and exposes
+> `openDocument(projectId, documentId)` plus `selectProject`/`selectDocument`/tag helpers. The
+> old zero-delay `setTimeout` sequencing and `useProjectSelectionReset` were removed; project +
+> document are now set in a single batched update. Dialog and health state were intentionally
+> left in `App.tsx`. (URL sync added later in DF-F5.)
 
 Current code:
 
@@ -94,7 +113,16 @@ Only introduce a `Button.tsx` if class composition becomes noisy.
 
 ### 5. `SegmentedControl`
 
-Priority: Medium
+Priority: Completed
+
+> **Resolved (CMP-5):** Added `packages/web/src/components/SegmentedControl.tsx`
+> (`value`, `options`, `onChange`, `ariaLabel`, `className`) and adopted it for the document
+> view-mode toggle in `DocumentWorkspace.tsx`. It centralizes the toggle-button ARIA
+> (`role="group"` + `aria-pressed`) and adds arrow-key navigation with wrap-around. The
+> per-toggle CSS was generalized from `.view-mode-*` to reusable `.segmented`/`.segmented-option`
+> classes (`.view-mode-toggle` now only handles positioning). The `size` prop from the original
+> suggestion was omitted per YAGNI — there is a single size today. Covered by
+> `SegmentedControl.test.tsx` (4 tests).
 
 Current code:
 
@@ -137,7 +165,14 @@ Suggested shape:
 
 ### 7. `TagInput`
 
-Priority: Medium
+Priority: Completed
+
+> **Resolved (CMP-7):** Extracted to `packages/web/src/components/TagInput.tsx`
+> (`value`, `onChange`, `disabled?`, `placeholder?`). It owns the chip rendering, input state,
+> keyboard commit (Enter/comma/blur), and validation error display, while validation stays in
+> the shared `TagSchema`/`normalizeTags`. `MetadataPanel.tsx` now renders `<TagInput>` and
+> dropped its local tag state and the `TagChip`/`TagSchema` imports. Covered by
+> `TagInput.test.tsx` (4 tests).
 
 Current code:
 
@@ -194,9 +229,9 @@ CodeMirror setup is inherently imperative. Keep it isolated in one component. Ex
 
 ## Suggested Componentization Order
 
-1. Create `useWorkspaceSelection`.
-2. Add `SegmentedControl` for document view mode.
-3. Extract `TagInput` from `MetadataPanel`.
+1. ~~Create `useWorkspaceSelection`.~~ (done — DF-F1)
+2. ~~Add `SegmentedControl` for document view mode.~~ (done — CMP-5)
+3. ~~Extract `TagInput` from `MetadataPanel`.~~ (done — CMP-7)
 4. Add `InlineError` and `Banner` only when touching dialogs/status flows.
 5. Apply `docs/design/ui-conventions.md` when adding new UI.
 

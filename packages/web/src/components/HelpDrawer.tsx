@@ -104,6 +104,8 @@ export function HelpDrawer({ open, initialSlug, onClose }: HelpDrawerProps): JSX
           <article
             className="help-drawer-content markdown-body"
             // eslint-disable-next-line react/no-danger
+            // Trust boundary: HTML is rendered from bundled help content authored
+            // in this repo. No user-supplied or imported content is rendered here.
             dangerouslySetInnerHTML={{ __html: html }}
           />
         </div>

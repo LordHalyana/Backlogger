@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from './api.js';
 import { useDialog } from './dialog.js';
+import { queryKeys } from './query-keys.js';
 
 interface ReindexResult {
   scanned: number;
@@ -18,7 +19,8 @@ export function useReindex(): {
     mutationFn: () =>
       apiFetch<ReindexResult>('/api/admin/reindex', { method: 'POST' }),
     onSuccess: (result) => {
-      void qc.invalidateQueries({ queryKey: ['projects'] });
+      void qc.invalidateQueries({ queryKey: queryKeys.projects() });
+      // Prefix match: drop every project's document list after a global reindex.
       void qc.invalidateQueries({ queryKey: ['documents'] });
       dialog.toast(
         `Reindex complete: ${result.inserted} of ${result.scanned} documents (${result.skipped.length} skipped)`,

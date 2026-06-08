@@ -5,11 +5,17 @@ project: backlogger-docs
 type: implementation_plan
 status: active
 created_at: "2026-05-30T06:50:27.881Z"
-updated_at: "2026-06-01T02:29:09.816Z"
+updated_at: "2026-06-08T00:00:00.000Z"
 tags: ["design"]
 ---
 
 # Backlogger — Implementation Plan
+
+> **Historical note:** This is the original Phase 1 MVP implementation plan, kept for history.
+> It records the initial build sequence, milestones, ports, and configuration as first planned
+> and is **not** a description of current behavior. For the current system, see
+> [architecture.md](architecture.md), [derived-data.md](derived-data.md), and the
+> [API reference](../api.md). Active analysis lives under [docs/reports/](../reports/).
 
 > Scope: Phase 1 MVP as defined in [overview.md](overview.md).
 > Target stack: Node.js + Express (backend), React + Vite (frontend), SQLite (metadata), filesystem (source of truth).

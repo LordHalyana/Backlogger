@@ -1,3 +1,14 @@
+---
+id: 43c255a7-b6af-4930-8ef9-236acb66095f
+title: Scripts
+project: backlogger-docs
+type: note
+status: active
+created_at: '2026-06-04T00:00:00.000Z'
+updated_at: '2026-06-04T00:00:00.000Z'
+tags: []
+---
+
 # Scripts
 
 Date: 2026-06-04

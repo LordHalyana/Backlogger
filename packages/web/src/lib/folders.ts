@@ -6,8 +6,9 @@ import {
   type UseQueryResult,
 } from '@tanstack/react-query';
 import { apiFetch } from './api.js';
+import { queryKeys } from './query-keys.js';
 
-export const FOLDERS_KEY = (projectId: string) => ['folders', projectId] as const;
+export const FOLDERS_KEY = (projectId: string) => queryKeys.folders(projectId);
 
 export function useFolders(projectId: string | undefined): UseQueryResult<string[]> {
   return useQuery({
@@ -51,7 +52,7 @@ export function useDeleteFolder(): UseMutationResult<
       ),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: FOLDERS_KEY(vars.projectId) });
-      qc.invalidateQueries({ queryKey: ['documents', vars.projectId] });
+      qc.invalidateQueries({ queryKey: queryKeys.documents(vars.projectId) });
     },
   });
 }

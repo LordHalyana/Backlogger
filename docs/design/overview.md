@@ -52,6 +52,9 @@ Backlogger is intentionally focused on documentation and planning rather than pr
 
 # Non-Goals (MVP)
 
+> **Historical note:** This section reflects the original MVP scope. Several items listed
+> below (search indexing, in particular) are now fully implemented. See
+> [[Architecture]] for the current feature set and non-goals.
 - AI agents
 - Multi-user collaboration
 - Real-time editing
@@ -76,6 +79,9 @@ The database only stores metadata and indexing information.
 ---
 
 # Phase 1 Scope
+
+> **Historical note:** This section records the original phased build plan. All blocks
+> below are complete. Current architecture is documented in [[Architecture]].
 
 ## Block 1 — Markdown Storage
 

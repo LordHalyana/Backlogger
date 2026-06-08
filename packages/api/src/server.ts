@@ -56,6 +56,20 @@ const stopProjectWatcher = watchProjectFiles({
 // and is absent from the DB is registered automatically and reindexed.
 await discoverNewProjects(ctx.resolver.projectsRoot, ctx.projectsRepo, ctx.reindexService);
 
+// Sync every already-known project on startup so files added to bind-mounted
+// folders while the container was down are picked up. The file watcher only
+// catches live changes (ignoreInitial: true), so without this a restart after
+// adding docs would leave the new files unindexed until a manual reload.
+for (const project of ctx.projectsRepo.list()) {
+  const report = await ctx.reindexService.runProject(project.id);
+  if (report.added > 0 || report.updated > 0 || report.removed > 0) {
+    // eslint-disable-next-line no-console
+    console.log(
+      `[backlogger] startup sync project="${project.id}" added=${report.added} updated=${report.updated} removed=${report.removed}`,
+    );
+  }
+}
+
 // Auto-reindex on startup if the documents table is empty but the FS has
 // content (e.g. fresh DB after a restore or a manual file drop).
 if (ctx.documentsRepo.count() === 0 && (await hasAnyMarkdown(ctx.resolver.projectsRoot))) {

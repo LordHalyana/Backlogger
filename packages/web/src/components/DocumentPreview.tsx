@@ -83,6 +83,8 @@ export function DocumentPreview({
       className="document-preview markdown-body"
       onClick={handleClick}
       // eslint-disable-next-line react/no-danger
+      // Trust boundary: HTML is produced by the shared markdown renderer from
+      // local Markdown files only. Raw HTML is not accepted from untrusted input.
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );

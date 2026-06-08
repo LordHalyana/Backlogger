@@ -1,7 +1,6 @@
-import { useState } from 'react';
-import { type DocumentStatus, TagSchema, normalizeTags } from '@backlogger/shared';
+import { type DocumentStatus } from '@backlogger/shared';
 import { useBacklinks } from '../lib/links.js';
-import { TagChip } from './TagChip.js';
+import { TagInput } from './TagInput.js';
 import { DOCUMENT_STATUS_LABELS } from '../lib/display.js';
 
 export interface MetadataPanelValue {
@@ -33,26 +32,6 @@ export function MetadataPanel({
   onOpenDocument,
 }: MetadataPanelProps): JSX.Element {
   const backlinks = useBacklinks(documentId);
-  const [tagInput, setTagInput] = useState('');
-  const [tagError, setTagError] = useState<string | null>(null);
-
-  const commitTagInput = (): void => {
-    const raw = tagInput.trim();
-    if (!raw) return;
-    const parsed = TagSchema.safeParse(raw);
-    if (!parsed.success) {
-      setTagError(parsed.error.issues[0]?.message ?? 'Invalid tag');
-      return;
-    }
-    setTagError(null);
-    const next = normalizeTags([...value.tags, parsed.data]);
-    setTagInput('');
-    onChange({ ...value, tags: next });
-  };
-
-  const removeTag = (tag: string): void => {
-    onChange({ ...value, tags: value.tags.filter((t) => t !== tag) });
-  };
 
   return (
     <section className="metadata-panel">
@@ -82,29 +61,7 @@ export function MetadataPanel({
       </label>
       <label>
         Tags
-        <div className="tag-input-row">
-          {value.tags.map((t) => (
-            <TagChip key={t} tag={t} onRemove={removeTag} />
-          ))}
-          <input
-            type="text"
-            className="tag-input"
-            value={tagInput}
-            placeholder="Add tag…"
-            onChange={(e) => {
-              setTagInput(e.target.value);
-              setTagError(null);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ',') {
-                e.preventDefault();
-                commitTagInput();
-              }
-            }}
-            onBlur={commitTagInput}
-          />
-        </div>
-        {tagError && <span className="tag-error">{tagError}</span>}
+        <TagInput value={value.tags} onChange={(tags) => onChange({ ...value, tags })} />
       </label>
       <dl className="metadata-info">
         <dt>Path</dt>

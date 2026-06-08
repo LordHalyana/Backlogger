@@ -13,10 +13,11 @@ import { TopbarAction } from './components/TopbarAction.js';
 import { TagExplorer } from './components/TagExplorer.js';
 import { readHelpSlugFromUrl } from './lib/help-link.js';
 import { useTheme } from './lib/theme.js';
+import { queryKeys } from './lib/query-keys.js';
 import { useWikiLinkNavigation } from './hooks/useWikiLinkNavigation.js';
 import { useGlobalShortcuts } from './hooks/useGlobalShortcuts.js';
 import { useReloadToast } from './hooks/useReloadToast.js';
-import { useProjectSelectionReset } from './hooks/useProjectSelectionReset.js';
+import { useWorkspaceSelection } from './hooks/useWorkspaceSelection.js';
 
 async function fetchHealth(): Promise<HealthStatus> {
   const res = await fetch('/health');
@@ -25,9 +26,18 @@ async function fetchHealth(): Promise<HealthStatus> {
 }
 
 export function App(): JSX.Element {
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
-  const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null);
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const {
+    projectId: selectedProjectId,
+    documentId: selectedDocumentId,
+    tags: selectedTags,
+    selectProject,
+    selectDocument,
+    openDocument,
+    toggleTag,
+    clearTags,
+    removeTag,
+    clearDocumentIfRemoved,
+  } = useWorkspaceSelection();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -42,22 +52,6 @@ export function App(): JSX.Element {
     refetchInterval: 10_000,
   });
 
-  const openDocumentFromSearch = useCallback(
-    (projectId: string, documentId: string): void => {
-      setSelectedProjectId(projectId);
-      setTimeout(() => setSelectedDocumentId(documentId), 0);
-    },
-    [],
-  );
-
-  useProjectSelectionReset({
-    projectId: selectedProjectId,
-    onReset: useCallback(() => {
-      setSelectedDocumentId(null);
-      setSelectedTags([]);
-    }, []),
-  });
-
   useGlobalShortcuts({
     onToggleCommandPalette: useCallback(() => setPaletteOpen((open) => !open), []),
     onToggleHelp: useCallback(() => {
@@ -68,26 +62,13 @@ export function App(): JSX.Element {
 
   useWikiLinkNavigation({
     projectId: selectedProjectId,
-    onNavigate: openDocumentFromSearch,
+    onNavigate: openDocument,
   });
 
   const reload = useReloadToast({
     projectId: selectedProjectId,
-    onRemovedIds: useCallback(
-      (ids: string[]) => {
-        if (selectedDocumentId && ids.includes(selectedDocumentId)) {
-          setSelectedDocumentId(null);
-        }
-      },
-      [selectedDocumentId],
-    ),
+    onRemovedIds: clearDocumentIfRemoved,
   });
-
-  const toggleTag = (tag: string): void => {
-    setSelectedTags((prev) =>
-      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag],
-    );
-  };
 
   const cls = isError ? 'health err' : data ? 'health ok' : 'health';
   const label = isLoading
@@ -100,7 +81,7 @@ export function App(): JSX.Element {
     <div className="app-shell">
       <header className="topbar">
         <h1>Backlogger</h1>
-        <ProjectSwitcher selectedId={selectedProjectId} onSelect={setSelectedProjectId} />
+        <ProjectSwitcher selectedId={selectedProjectId} onSelect={selectProject} />
         <div className="topbar-right">
           <TopbarAction
             label="Search"
@@ -169,10 +150,10 @@ export function App(): JSX.Element {
               <ProjectTree
                 projectId={selectedProjectId}
                 selectedDocumentId={selectedDocumentId}
-                onSelect={setSelectedDocumentId}
+                onSelect={selectDocument}
                 selectedTags={selectedTags}
-                onClearTags={() => setSelectedTags([])}
-                onRemoveTag={(t) => setSelectedTags((prev) => prev.filter((x) => x !== t))}
+                onClearTags={clearTags}
+                onRemoveTag={removeTag}
               />
               <TagExplorer
                 projectId={selectedProjectId}
@@ -185,8 +166,8 @@ export function App(): JSX.Element {
                 projectId={selectedProjectId}
                 documentId={selectedDocumentId}
                 theme={theme}
-                onDeleted={() => setSelectedDocumentId(null)}
-                onOpenDocument={openDocumentFromSearch}
+                onDeleted={() => selectDocument(null)}
+                onOpenDocument={openDocument}
               />
             ) : (
               <div className="workspace-empty">
@@ -201,7 +182,7 @@ export function App(): JSX.Element {
       <CommandPalette
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
-        onOpenDocument={openDocumentFromSearch}
+        onOpenDocument={openDocument}
       />
       {settingsOpen && (
         <SettingsDialog
@@ -225,14 +206,14 @@ export function App(): JSX.Element {
           projectId={selectedProjectId}
           onClose={() => setImportOpen(false)}
           onImported={() => {
-            void qc.invalidateQueries({ queryKey: ['documents', selectedProjectId] });
+            void qc.invalidateQueries({ queryKey: queryKeys.documents(selectedProjectId) });
           }}
         />
       )}
       {graphOpen && selectedProjectId && (
         <KnowledgeGraph
           projectId={selectedProjectId}
-          onOpenDocument={openDocumentFromSearch}
+          onOpenDocument={openDocument}
           onClose={() => setGraphOpen(false)}
         />
       )}

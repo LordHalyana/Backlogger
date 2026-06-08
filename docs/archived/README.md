@@ -5,9 +5,13 @@ project: backlogger-docs
 type: note
 status: archived
 created_at: "2026-06-01T01:59:05.531Z"
-updated_at: "2026-06-02T07:36:22.207Z"
+updated_at: "2026-06-02T07:36:22.197Z"
 tags: []
 ---
+
+> **Historical archive.** This folder contains documents from earlier project phases and
+> is not current guidance. Current design docs live in `docs/design/`, current analysis
+> reports in `docs/reports/`, and operations docs in `docs/operations/`.
 
 # Backlogger — Documentation
 

@@ -1,3 +1,14 @@
+---
+id: ecf33ccb-2435-4fa9-aec5-089f80f26b2d
+title: UI Conventions
+project: backlogger-docs
+type: design_doc
+status: active
+created_at: '2026-06-04T00:00:00.000Z'
+updated_at: '2026-06-08T00:00:00.000Z'
+tags: []
+---
+
 # UI Conventions
 
 Date: 2026-06-04
@@ -110,9 +121,17 @@ The sidebar contains project tree and tag explorer.
 
 The workspace contains editor, preview, and metadata panel.
 
-Known limitation:
+Supported viewports:
 
-- Layout is desktop-first with fixed sidebar/metadata widths. If mobile support becomes a requirement, define responsive behavior before adding more panels.
+- Backlogger is a desktop-first workspace. Mobile/touch layouts are explicitly out of
+  scope for the current single-user assignment.
+- Minimum supported width is **1024px**. The layout uses a fixed 280px project sidebar and a
+  fixed 320px metadata panel, so the editor/preview area needs the remaining space to stay
+  usable. Split view (editor + preview + metadata side by side) is most comfortable at
+  **1280px and wider**; below 1024px, panels compress and the topbar actions can wrap.
+- If mobile support later becomes a requirement, define responsive behavior (collapse the
+  sidebar, move the metadata panel into a tab/drawer, reduce the topbar health text to a
+  status indicator) before adding more panels.
 
 ## Markdown Preview
 

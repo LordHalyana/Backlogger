@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiFetch } from './api.js';
+import { queryKeys } from './query-keys.js';
 
 export interface TitleRow {
   id: string;
@@ -17,7 +18,7 @@ export interface BacklinkRow {
 
 export function useTitles(projectId: string | null) {
   return useQuery({
-    queryKey: ['titles', projectId],
+    queryKey: queryKeys.titles(projectId ?? '__none__'),
     enabled: !!projectId,
     staleTime: 30_000,
     queryFn: () =>
@@ -27,7 +28,7 @@ export function useTitles(projectId: string | null) {
 
 export function useBacklinks(documentId: string | null) {
   return useQuery({
-    queryKey: ['backlinks', documentId],
+    queryKey: queryKeys.backlinks(documentId ?? '__none__'),
     enabled: !!documentId,
     staleTime: 10_000,
     queryFn: () =>

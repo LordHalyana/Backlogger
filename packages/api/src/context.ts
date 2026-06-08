@@ -65,7 +65,7 @@ export function buildContext(opts: BuildContextOptions): AppContext {
     tagsService,
     graphService,
   });
-  const reindexService = new ReindexService({ documentsRepo, projectsRepo, fs, linkService, tagsService });
+  const reindexService = new ReindexService({ documentsRepo, projectsRepo, fs, linkService, tagsService, graphService });
   const searchService = new SearchService(opts.db);
   const healthService = new HealthService({
     db: opts.db,

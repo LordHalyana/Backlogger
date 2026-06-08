@@ -1,3 +1,14 @@
+---
+id: bc81314a-882b-4f72-81f2-e765e95f91f3
+title: Overengineering Analysis
+project: backlogger-docs
+type: finding
+status: active
+created_at: '2026-06-04T00:00:00.000Z'
+updated_at: '2026-06-08T00:00:00.000Z'
+tags: []
+---
+
 # Overengineering Analysis
 
 Date: 2026-06-04
@@ -16,7 +27,14 @@ The right response is not to remove features blindly. It is to keep each feature
 
 ### 1. Optional service wiring adds complexity without clear runtime value
 
-Priority: Medium
+Priority: Completed
+
+> **Resolved (OE-1):** Optional dependencies were made required in app construction.
+> `DocumentService`, `ReindexService`, `projectsRouter`, and `documentsRouter` now take
+> `linkService`, `tagsService`, and `graphService` (and `templates`/`fs` where applicable) as
+> non-optional deps, wired exclusively through `buildContext`. The empty-data fallbacks were
+> removed, so production behavior is deterministic and a missing service fails at
+> startup/type-check. (Same change tracked as DF-F2/DF-F3, BP-3, DUC-5.)
 
 Evidence:
 
@@ -51,7 +69,15 @@ Do not add alert routing, notifications, metrics exporters, or dashboards until 
 
 ### 3. Knowledge graph is feature-rich for a small app
 
-Priority: Medium
+Priority: Completed
+
+> **Resolved (OE-3):** Scope is frozen — no graph layouts, persistence, clustering, editing, or
+> analytics will be added without real feedback (see Anti-Scope Recommendations). The cache
+> invalidation contract is now fully documented in `docs/design/derived-data.md`: create /
+> update / delete invalidate the project graph, `ReindexService.runProject` calls
+> `invalidate(projectId)` after a reload, and full reindex calls `invalidate()` to clear all
+> cached graphs. The previous "Current gap" notes (reload/full-reindex not invalidating the
+> graph) were closed by DF-F2 and the doc updated accordingly.
 
 Evidence:
 
@@ -114,7 +140,10 @@ Keep templates as Markdown files with frontmatter and simple placeholders. Do no
 
 ### 6. CSS file structure still carries too much explanation
 
-Priority: Low
+Priority: Completed
+
+> **Resolved (QW-7):** All `/* ── ... ── */` decorative banners removed from `app.css`
+> and replaced with concise single-line section comments.
 
 Evidence:
 
@@ -171,10 +200,10 @@ Do not add these without a concrete requirement:
 
 ## Suggested Cleanup Order
 
-1. Make production service dependencies explicit.
-2. Freeze graph scope and document its invalidation contract.
+1. ~~Make production service dependencies explicit.~~ (done — OE-1)
+2. ~~Freeze graph scope and document its invalidation contract.~~ (done — OE-3)
 3. Reduce documentation duplication.
-4. Split CSS and remove decorative comments.
+4. ~~Split CSS and remove decorative comments.~~ (done — QW-7)
 5. Split monolithic tests only when touching those features.
 
 ## Principle Check

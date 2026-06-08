@@ -1,3 +1,14 @@
+---
+id: ea0dafc9-63d7-443e-8025-a8e72ff2fd3f
+title: Architecture
+project: backlogger-docs
+type: design_doc
+status: active
+created_at: '2026-06-04T00:00:00.000Z'
+updated_at: '2026-06-04T00:00:00.000Z'
+tags: []
+---
+
 # Backlogger Architecture
 
 Date: 2026-06-04
@@ -65,6 +76,11 @@ All API errors should use:
 ```json
 { "error": { "code": "CODE", "message": "Message", "details": {} } }
 ```
+
+Route utilities in `packages/api/src/routes/util.ts`:
+
+- `asyncRoute(handler)` — wraps async handlers and forwards rejected promises to `next(err)`, eliminating manual `try/catch` in every route.
+- `validateBody(schema, body)` — parses a Zod schema and throws `BadRequestError('VALIDATION_FAILED')` on failure.
 
 ### Services
 

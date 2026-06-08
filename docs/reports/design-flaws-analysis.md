@@ -1,3 +1,14 @@
+---
+id: 85a66e68-908d-4903-a0e9-1de70e07d1a2
+title: Design Flaws Analysis
+project: backlogger-docs
+type: finding
+status: active
+created_at: '2026-06-04T00:00:00.000Z'
+updated_at: '2026-06-08T00:00:00.000Z'
+tags: []
+---
+
 # Design Flaws Analysis
 
 Date: 2026-06-04
@@ -14,7 +25,19 @@ Backlogger's core architecture is sound: Markdown files are the source of truth,
 
 ### 1. `App.tsx` is still the main orchestration hub
 
-Priority: Medium
+Priority: Partially Completed
+
+> **Partially resolved (DF-F1):** Extracted the cohesive selection state into
+> `packages/web/src/hooks/useWorkspaceSelection.ts` (selected project, open
+> document, tag filters, and the transitions between them). Project-switch
+> resets are now modeled explicitly inside the setters, which let us delete the
+> old `useProjectSelectionReset` effect hook and remove the `setTimeout(…, 0)`
+> selection-handoff workaround in `App.tsx` — `openDocument` now sets the
+> project and document in the same batched update so the target document is
+> never clobbered. The remaining `Topbar` extraction (health, action buttons,
+> dialogs) is left as a follow-up; per the report it is optional and a global
+> store was intentionally *not* introduced. Verified by `npm run build` and the
+> web test suite.
 
 Evidence:
 
@@ -36,7 +59,19 @@ Do not introduce a global store unless routing or multi-pane state becomes more 
 
 ### 2. Derived data invalidation is documented but still cross-cutting in code
 
-Priority: High
+Priority: Completed
+
+> **Resolved (DF-F2):** Closed the concrete freshness gap in the contract: a
+> project **reload** rebuilt documents/links/tags but never invalidated the
+> graph cache, so `GET /:id/graph` could serve a stale (10s-TTL) payload after a
+> reload added, updated, or removed files. `ReindexService` now takes a required
+> `graphService` (and required `linkService`/`tagsService`, matching DF-F3) and
+> calls `graphService.invalidate(projectId)` after `runProject`, plus a full
+> `invalidate()` after the admin `run()` reindex. Added regression tests for
+> graph freshness after delete and after a reload that removes a file; link/tag
+> freshness after create/update/delete/rename/reload and out-of-band disk edits
+> were already covered. Verified by `npm run typecheck` and the 99-test app
+> suite.
 
 Evidence:
 
@@ -61,7 +96,19 @@ Add tests around reload and graph/tag/link freshness after archive, delete, impo
 
 ### 3. Optional backend services blur runtime guarantees
 
-Priority: Medium
+Priority: Completed
+
+> **Resolved (DF-F3):** Made the cross-service dependencies required where
+> production always supplies them. `DocumentServiceDeps` now requires
+> `templates`, `linkService`, `tagsService`, and `graphService` (the class
+> fields and internal calls dropped their `?.` optional-chaining), and
+> `projectsRouter` now takes required `linkService`, `reindexService`, `fs`, and
+> `graphService` parameters. The unreachable ad hoc degraded responses
+> (`RELOAD_UNAVAILABLE`, `FOLDERS_UNAVAILABLE`, and the `503 GRAPH_UNAVAILABLE`)
+> were removed, so a misconfigured wiring now fails at construction/compile time
+> instead of silently dropping backlinks, tags, or graph data. `buildContext`
+> already wired every service, and all tests construct through it, so no test
+> doubles were needed. Verified by `npm run build` and the 105-test API suite.
 
 Evidence:
 
@@ -79,7 +126,16 @@ Use required dependencies in production context construction. If tests need mini
 
 ### 4. Folder and archive semantics are coupled through path conventions
 
-Priority: Medium
+Priority: Completed
+
+> **Resolved (DF-F4):** Created `packages/shared/src/paths.ts` as the single
+> source of truth for the `archived/` path convention: `ARCHIVE_SEGMENT`,
+> `isArchivedPath`, `archivePath`, `unarchivePath`, `folderFromDocumentPath`,
+> and `isArchivedFolder`. `document-service.ts` now delegates
+> `toArchivedPath`/`fromArchivedPath` to the shared helpers (names kept for its
+> call sites and tests), and `ProjectTree.tsx` uses `folderFromDocumentPath` and
+> `isArchivedFolder` instead of re-implementing the prefix checks. Verified by
+> the document-service and 97-test API suites.
 
 Evidence:
 
@@ -104,7 +160,19 @@ Keep the path convention; just avoid reimplementing it.
 
 ### 5. No URL-level workspace state
 
-Priority: Medium
+Priority: Completed
+
+> **Resolved (DF-F5):** Added lightweight, path-based URL synchronization in
+> `packages/web/src/lib/workspace-url.ts` (`/projects/:projectId` and
+> `/projects/:projectId/documents/:documentId`) and wired it into
+> `useWorkspaceSelection`: selection is restored from the URL on load (deep-link
+> + refresh), pushed to history on change, and re-applied on `popstate` so
+> browser back/forward maps to workspace navigation. The existing `?help=` query
+> param and any hash are preserved when the path is rewritten. The production
+> SPA fallback and Vite dev `historyApiFallback` already serve `index.html` for
+> these paths, so refreshes resolve. No full router was adopted (per the report).
+> Covered by 13 new `workspace-url` unit tests; `npm run typecheck` and the web
+> suite pass.
 
 Evidence:
 
@@ -127,7 +195,18 @@ Avoid adopting a full router unless this grows beyond a few routes.
 
 ### 6. Markdown rendering uses raw HTML injection with a documented trust boundary
 
-Priority: Medium
+Priority: Completed
+
+> **Resolved (DF-F6):** No code change needed — the recommended state is already
+> in place and now verified. `packages/shared/src/markdown.ts` sets
+> `html: false` with an explicit `SECURITY` comment, and
+> `packages/shared/src/markdown.test.ts` already locks the invariant in with
+> regression tests (`<script>` stripped, `<img onerror>` escaped, raw HTML
+> escaped to entities). Per the single-user "Design Choices To Keep", an active
+> sanitizer (e.g. DOMPurify) is intentionally deferred until an untrusted /
+> multi-user deployment; the trust boundary is documented in
+> `docs/operations/security.md`. The `dangerouslySetInnerHTML` sinks only ever
+> receive HTML produced by this escaped renderer.
 
 Evidence:
 
@@ -172,11 +251,11 @@ Document budgets in `docs/operations/performance.md` and decide whether they bel
 
 ## Suggested Cleanup Order
 
-1. Define a derived-data invalidation contract.
-2. Normalize backend optional dependency behavior.
-3. Extract workspace selection from `App.tsx`.
-4. Centralize archive/folder path helpers.
-5. Add URL sync for selected project/document.
+1. ~~Define a derived-data invalidation contract.~~ (done — DF-F2; graph-cache-on-reload gap closed + freshness tests)
+2. ~~Normalize backend optional dependency behavior.~~ (done — DF-F3)
+3. ~~Extract workspace selection from `App.tsx`.~~ (done — DF-F1; `Topbar` extraction optional)
+4. ~~Centralize archive/folder path helpers.~~ (done — DF-F4)
+5. ~~Add URL sync for selected project/document.~~ (done — DF-F5)
 
 ## Principle Check
 

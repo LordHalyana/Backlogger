@@ -19,6 +19,7 @@ export interface HealthStatus {
 
 export * from './projects.js';
 export * from './documents.js';
+export * from './paths.js';
 export * from './templates.js';
 export * from './errors.js';
 export * from './markdown.js';

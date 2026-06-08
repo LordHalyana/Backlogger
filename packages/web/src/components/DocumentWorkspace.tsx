@@ -15,6 +15,7 @@ import { useTitles } from '../lib/links.js';
 import type { Theme } from '../lib/theme.js';
 import { DocumentPreview } from './DocumentPreview.js';
 import { MetadataPanel, type MetadataPanelValue } from './MetadataPanel.js';
+import { SegmentedControl } from './SegmentedControl.js';
 import { StatusMessage } from './StatusMessage.js';
 
 const DocumentEditor = lazy(() =>
@@ -22,6 +23,12 @@ const DocumentEditor = lazy(() =>
 );
 
 type ViewMode = 'edit' | 'split' | 'preview';
+
+const VIEW_MODE_OPTIONS = [
+  { value: 'edit', label: 'Edit' },
+  { value: 'split', label: 'Split' },
+  { value: 'preview', label: 'Preview' },
+] as const;
 
 interface DocumentWorkspaceProps {
   projectId: string;
@@ -92,7 +99,10 @@ export function DocumentWorkspace({
     setDirty(false);
     setConflict(false);
     setSaveError(null);
-  }, [doc?.id, doc?.updated_at]); // eslint-disable-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // Only rebase the editor buffer when document identity or server version changes.
+  // Including `bufferFromDoc` would cause unnecessary resets on every render.
+  }, [doc?.id, doc?.updated_at]);
 
   const flush = useCallback(() => {
     const buf = bufferRef.current;
@@ -214,23 +224,17 @@ export function DocumentWorkspace({
           {update.isPending ? 'Saving…' : dirty ? 'Unsaved changes' : 'Saved'}
         </span>
         {saveError && <span className="error">Save failed: {saveError}</span>}
-        <div className="view-mode-toggle" role="group" aria-label="View mode">
-          {(['edit', 'split', 'preview'] as const).map((m) => (
-            <button
-              key={m}
-              type="button"
-              className={'view-mode-button' + (viewMode === m ? ' active' : '')}
-              aria-pressed={viewMode === m}
-              onClick={() => setViewMode(m)}
-            >
-              {m === 'edit' ? 'Edit' : m === 'split' ? 'Split' : 'Preview'}
-            </button>
-          ))}
-        </div>
+        <SegmentedControl
+          className="view-mode-toggle"
+          ariaLabel="View mode"
+          value={viewMode}
+          options={VIEW_MODE_OPTIONS}
+          onChange={setViewMode}
+        />
         {dirty || update.isPending ? (
           <button
             type="button"
-            className="download-button"
+            className="btn btn--sm"
             disabled
             title="Save unsaved changes before downloading"
           >
@@ -238,7 +242,7 @@ export function DocumentWorkspace({
           </button>
         ) : (
           <a
-            className="download-button"
+            className="btn btn--sm"
             href={`/api/documents/${doc.id}/raw`}
             download
             title="Download as Markdown"

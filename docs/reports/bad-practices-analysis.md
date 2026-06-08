@@ -1,3 +1,14 @@
+---
+id: 09d88fd4-48a9-4d4a-a9b8-434b73c03a43
+title: Bad Practices Analysis
+project: backlogger-docs
+type: finding
+status: active
+created_at: '2026-06-04T00:00:00.000Z'
+updated_at: '2026-06-08T00:00:00.000Z'
+tags: []
+---
+
 # Bad Practices Analysis
 
 Date: 2026-06-04
@@ -14,7 +25,11 @@ The project is generally pragmatic: TypeScript is strict, validation is shared t
 
 ### 1. Encoding corruption remains in older docs and comments
 
-Priority: Medium
+Priority: Completed
+
+> **Resolved (QW-6/7):** Decorative box-drawing banners removed from `app.css`. Remaining
+> non-ASCII characters in design docs are intentional Unicode (em-dashes, box-drawing in
+> code trees) and are not encoding corruption.
 
 Evidence:
 
@@ -37,7 +52,11 @@ Run a focused encoding cleanup:
 
 ### 2. README feature claims were corrected, but historical docs still mix current and old scope
 
-Priority: Medium
+Priority: Completed
+
+> **Resolved (QW-8):** `Historical note` callouts added to the Non-Goals (MVP) and Phase 1
+> Scope sections of `docs/design/overview.md`. Both sections now point to [[Architecture]]
+> as the current source of truth.
 
 Evidence:
 
@@ -55,7 +74,16 @@ Mark older design docs as historical or trim them to point at the new current do
 
 ### 3. Optional service fallbacks can still hide misconfiguration
 
-Priority: Medium
+Priority: Completed
+
+> **Resolved (BP-3):** The last silent empty-data fallbacks were removed. `linkService` is now
+> a required dependency of `documentsRouter`, and the backlinks route calls
+> `linkService.backlinksFor(id)` directly (was `linkService?.backlinksFor(id) ?? []`). The
+> matching `titles` fallback in `projects.ts` was already removed in DF-F3, and
+> `DocumentService`/`ReindexService` now require `linkService`, `tagsService`, and
+> `graphService` (no `?` deps). All services are constructed exclusively via `buildContext`,
+> so a missing service is now a startup/type error rather than a feature that silently looks
+> empty. Verified by the existing backlinks integration tests (99 API tests pass).
 
 Evidence:
 
@@ -76,7 +104,10 @@ For optional services, choose one policy per feature:
 
 ### 4. Several React effects suppress hook dependency linting
 
-Priority: Medium
+Priority: Completed
+
+> **Resolved (QW-1):** Invariant comments added to all four suppressions in
+> `DocumentWorkspace.tsx`, `DocumentEditor.tsx`, `DocumentPreview.tsx`, and `HelpDrawer.tsx`.
 
 Evidence:
 
@@ -94,7 +125,10 @@ For each suppression, add a short comment that states the invariant. Example: "O
 
 ### 5. `apiFetch` is hardened, but fetch coverage is still thin
 
-Priority: Low
+Priority: Completed
+
+> **Resolved (QW-2):** `packages/web/src/lib/api.test.ts` added with 5 tests covering
+> success, 204, `INVALID_JSON`, structured error body, and `HTTP_ERROR` fallback.
 
 Evidence:
 
@@ -111,7 +145,15 @@ Add a small unit test for invalid JSON and non-OK structured JSON responses.
 
 ### 6. `setTimeout(..., 0)` is used for selection sequencing
 
-Priority: Low
+Priority: Completed
+
+> **Resolved (QW-3):** Explanatory comment added to the `setTimeout` call in `App.tsx`
+> describing the ordering invariant and linking to [[Medium Wins]] MW-2 for the proper fix.
+>
+> **Superseded (DF-F1):** The structural fix has since landed. `App.tsx` no longer uses
+> `setTimeout(..., 0)` or `useProjectSelectionReset`; project/document selection is now owned
+> by `useWorkspaceSelection`, whose `openDocument(projectId, documentId)` sets both in a single
+> batched update (and clears tags when the project changes). The sequencing hack is gone.
 
 Evidence:
 
@@ -160,11 +202,11 @@ Do not split just for aesthetics if there is no active work nearby.
 
 ## Suggested Cleanup Order
 
-1. Add tests for `apiFetch` invalid JSON behavior.
-2. Document or remove hook dependency suppressions.
-3. Normalize optional-service behavior.
-4. Mark old design docs as historical or redirect them.
-5. Clean remaining mojibake in old docs/comments.
+1. ~~Add tests for `apiFetch` invalid JSON behavior.~~ (done — QW-2)
+2. ~~Document or remove hook dependency suppressions.~~ (done — QW-1)
+3. ~~Normalize optional-service behavior.~~ (done — BP-3 / DF-F2 / DF-F3)
+4. ~~Mark old design docs as historical or redirect them.~~ (done — QW-8)
+5. ~~Clean remaining mojibake in old docs/comments.~~ (done — QW-6/7)
 
 ## Principle Check
 

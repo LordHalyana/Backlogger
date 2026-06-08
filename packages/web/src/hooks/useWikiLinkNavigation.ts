@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTitles, type TitleRow } from '../lib/links.js';
+import { queryKeys } from '../lib/query-keys.js';
 
 interface UseWikiLinkNavigationOptions {
   projectId: string | null;
@@ -41,7 +42,7 @@ export function useWikiLinkNavigation({
       const norm = title.trim().toLowerCase();
       const hit = titlesRef.current.find((t) => t.title.trim().toLowerCase() === norm);
       if (hit) {
-        void qc.invalidateQueries({ queryKey: ['titles'] });
+        void qc.invalidateQueries({ queryKey: queryKeys.titles(hit.project_id) });
         onNavigate(hit.project_id, hit.id);
       } else {
         anchor.classList.add('broken');

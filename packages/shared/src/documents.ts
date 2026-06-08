@@ -2,18 +2,38 @@ import { z } from 'zod';
 import { ProjectIdSchema } from './projects.js';
 import { TagSchema } from './tags.js';
 
-export const DocumentTypeSchema = z.enum([
+/**
+ * Canonical list of document types. This is the single source of truth:
+ * the zod enum below and every consumer (web display map, API import guards)
+ * derive from this tuple, so adding a type is a one-line change here.
+ */
+export const DOCUMENT_TYPES = [
   'idea',
   'note',
   'design_doc',
   'implementation_plan',
   'backlog_item',
   'finding',
-]);
+] as const;
+
+export const DocumentTypeSchema = z.enum(DOCUMENT_TYPES);
 export type DocumentType = z.infer<typeof DocumentTypeSchema>;
 
-export const DocumentStatusSchema = z.enum(['draft', 'active', 'archived']);
+/** Canonical list of document statuses. Single source of truth (see above). */
+export const DOCUMENT_STATUSES = ['draft', 'active', 'archived'] as const;
+
+export const DocumentStatusSchema = z.enum(DOCUMENT_STATUSES);
 export type DocumentStatus = z.infer<typeof DocumentStatusSchema>;
+
+/** Type guard: is `value` a known document type? Derived from `DOCUMENT_TYPES`. */
+export function isDocumentType(value: string): value is DocumentType {
+  return (DOCUMENT_TYPES as readonly string[]).includes(value);
+}
+
+/** Type guard: is `value` a known document status? Derived from `DOCUMENT_STATUSES`. */
+export function isDocumentStatus(value: string): value is DocumentStatus {
+  return (DOCUMENT_STATUSES as readonly string[]).includes(value);
+}
 
 /**
  * Legacy compatibility default: maps document type to a subfolder path.

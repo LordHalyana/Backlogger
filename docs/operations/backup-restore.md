@@ -1,3 +1,14 @@
+---
+id: 9ed32955-3588-40b8-bff9-7df831440a28
+title: Backup And Restore
+project: backlogger-docs
+type: note
+status: active
+created_at: '2026-06-04T00:00:00.000Z'
+updated_at: '2026-06-04T00:00:00.000Z'
+tags: []
+---
+
 # Backup And Restore
 
 Date: 2026-06-04

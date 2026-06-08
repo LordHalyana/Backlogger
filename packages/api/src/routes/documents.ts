@@ -5,6 +5,7 @@ import {
   UpdateDocumentRequestSchema,
 } from '@backlogger/shared';
 import { BadRequestError } from '../errors.js';
+import { asyncRoute, validateBody } from './util.js';
 import type { DocumentService } from '../services/document-service.js';
 import type { LinkService } from '../services/link-service.js';
 import { parseTagParams } from './tags.js';
@@ -28,8 +29,9 @@ function parseDocId(raw: unknown): string {
 export function projectDocumentsRouter(service: DocumentService): Router {
   const router = Router({ mergeParams: true });
 
-  router.get('/', (req, res, next) => {
-    try {
+  router.get(
+    '/',
+    asyncRoute(async (req, res) => {
       const projectId = parseProjectId((req.params as { projectId?: string }).projectId);
       const tags = parseTagParams(req.query.tag);
       if (tags.length > 0) {
@@ -37,28 +39,18 @@ export function projectDocumentsRouter(service: DocumentService): Router {
       } else {
         res.json(service.listByProject(projectId));
       }
-    } catch (err) {
-      next(err);
-    }
-  });
+    }),
+  );
 
-  router.post('/', async (req, res, next) => {
-    try {
+  router.post(
+    '/',
+    asyncRoute(async (req, res) => {
       const projectId = parseProjectId((req.params as { projectId?: string }).projectId);
-      const parsed = CreateDocumentRequestSchema.safeParse(req.body);
-      if (!parsed.success) {
-        throw new BadRequestError(
-          'VALIDATION_FAILED',
-          'Invalid request body',
-          parsed.error.format(),
-        );
-      }
-      const doc = await service.create(projectId, parsed.data);
+      const input = validateBody(CreateDocumentRequestSchema, req.body);
+      const doc = await service.create(projectId, input);
       res.status(201).json(doc);
-    } catch (err) {
-      next(err);
-    }
-  });
+    }),
+  );
 
   return router;
 }
@@ -66,31 +58,30 @@ export function projectDocumentsRouter(service: DocumentService): Router {
 /** Routes mounted at /api/documents */
 export function documentsRouter(
   service: DocumentService,
-  linkService?: LinkService,
+  linkService: LinkService,
 ): Router {
   const router = Router();
 
-  router.get('/:id', async (req, res, next) => {
-    try {
+  router.get(
+    '/:id',
+    asyncRoute(async (req, res) => {
       const id = parseDocId(req.params.id);
       res.json(await service.get(id));
-    } catch (err) {
-      next(err);
-    }
-  });
+    }),
+  );
 
-  router.get('/:id/backlinks', (req, res, next) => {
-    try {
+  router.get(
+    '/:id/backlinks',
+    asyncRoute(async (req, res) => {
       const id = parseDocId(req.params.id);
-      const rows = linkService?.backlinksFor(id) ?? [];
+      const rows = linkService.backlinksFor(id);
       res.json(rows);
-    } catch (err) {
-      next(err);
-    }
-  });
+    }),
+  );
 
-  router.get('/:id/raw', async (req, res, next) => {
-    try {
+  router.get(
+    '/:id/raw',
+    asyncRoute(async (req, res, next) => {
       const id = parseDocId(req.params.id);
       const { absolutePath, diskFilename, title } = await service.locateRaw(id);
       // Use the (already-safe) on-disk filename for the ASCII fallback and
@@ -105,39 +96,28 @@ export function documentsRouter(
       res.sendFile(absolutePath, (err) => {
         if (err) next(err);
       });
-    } catch (err) {
-      next(err);
-    }
-  });
+    }),
+  );
 
-  router.put('/:id', async (req, res, next) => {
-    try {
+  router.put(
+    '/:id',
+    asyncRoute(async (req, res) => {
       const id = parseDocId(req.params.id);
-      const parsed = UpdateDocumentRequestSchema.safeParse(req.body);
-      if (!parsed.success) {
-        throw new BadRequestError(
-          'VALIDATION_FAILED',
-          'Invalid request body',
-          parsed.error.format(),
-        );
-      }
+      const input = validateBody(UpdateDocumentRequestSchema, req.body);
       const ifMatch = req.header('If-Match');
-      const doc = await service.update(id, parsed.data, ifMatch);
+      const doc = await service.update(id, input, ifMatch);
       res.json(doc);
-    } catch (err) {
-      next(err);
-    }
-  });
+    }),
+  );
 
-  router.delete('/:id', async (req, res, next) => {
-    try {
+  router.delete(
+    '/:id',
+    asyncRoute(async (req, res) => {
       const id = parseDocId(req.params.id);
       await service.delete(id);
       res.status(204).send();
-    } catch (err) {
-      next(err);
-    }
-  });
+    }),
+  );
 
   return router;
 }

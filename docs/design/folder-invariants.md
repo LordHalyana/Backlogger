@@ -1,3 +1,14 @@
+---
+id: d83567ff-63b6-47d0-a829-2c249cfcc187
+title: Folder Invariants
+project: backlogger-docs
+type: design_doc
+status: active
+created_at: '2026-06-04T00:00:00.000Z'
+updated_at: '2026-06-04T00:00:00.000Z'
+tags: []
+---
+
 # Folder Invariants
 
 > Related code: `packages/api/src/routes/projects.ts`  

@@ -14,9 +14,10 @@ import type {
   UpdateDocumentRequest,
 } from '@backlogger/shared';
 import { apiFetch } from './api.js';
+import { queryKeys, invalidateDocumentDerived } from './query-keys.js';
 
-export const documentsKey = (projectId: string) => ['documents', projectId] as const;
-export const documentKey = (id: string) => ['document', id] as const;
+export const documentsKey = (projectId: string) => queryKeys.documents(projectId);
+export const documentKey = (id: string) => queryKeys.document(id);
 
 export function useDocuments(projectId: string | null): UseQueryResult<DocumentSummary[]> {
   return useQuery({
@@ -47,7 +48,7 @@ export function useCreateDocument(
         method: 'POST',
         body: JSON.stringify(input),
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: documentsKey(projectId) }),
+    onSuccess: () => invalidateDocumentDerived(qc, projectId),
   });
 }
 
@@ -70,9 +71,7 @@ export function useUpdateDocument(
       }),
     onSuccess: (doc) => {
       qc.setQueryData(documentKey(doc.id), doc);
-      qc.invalidateQueries({ queryKey: documentsKey(projectId) });
-      qc.invalidateQueries({ queryKey: ['tags', projectId] });
-      qc.invalidateQueries({ queryKey: ['backlinks'] });
+      invalidateDocumentDerived(qc, projectId);
     },
   });
 }
@@ -85,7 +84,7 @@ export function useDeleteDocument(
     mutationFn: (id) => apiFetch<void>(`/api/documents/${id}`, { method: 'DELETE' }),
     onSuccess: (_v, id) => {
       qc.removeQueries({ queryKey: documentKey(id) });
-      qc.invalidateQueries({ queryKey: documentsKey(projectId) });
+      invalidateDocumentDerived(qc, projectId);
     },
   });
 }
@@ -101,8 +100,7 @@ export function useImportFiles(
         body: JSON.stringify(input),
       }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: documentsKey(projectId) });
-      qc.invalidateQueries({ queryKey: ['tags', projectId] });
+      invalidateDocumentDerived(qc, projectId);
     },
   });
 }
