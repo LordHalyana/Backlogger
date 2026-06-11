@@ -6,7 +6,7 @@ import {
   type UseQueryResult,
 } from '@tanstack/react-query';
 import { apiFetch } from './api.js';
-import { queryKeys } from './query-keys.js';
+import { invalidateProjectFolders, invalidateProjectStructure, queryKeys } from './query-keys.js';
 
 export const FOLDERS_KEY = (projectId: string) => queryKeys.folders(projectId);
 
@@ -30,8 +30,7 @@ export function useCreateFolder(): UseMutationResult<
         method: 'POST',
         body: JSON.stringify({ folder }),
       }),
-    onSuccess: (_data, vars) =>
-      qc.invalidateQueries({ queryKey: FOLDERS_KEY(vars.projectId) }),
+    onSuccess: (_data, vars) => invalidateProjectFolders(qc, vars.projectId),
   });
 }
 
@@ -50,9 +49,6 @@ export function useDeleteFolder(): UseMutationResult<
           .join('/')}`,
         { method: 'DELETE' },
       ),
-    onSuccess: (_data, vars) => {
-      qc.invalidateQueries({ queryKey: FOLDERS_KEY(vars.projectId) });
-      qc.invalidateQueries({ queryKey: queryKeys.documents(vars.projectId) });
-    },
+    onSuccess: (_data, vars) => invalidateProjectStructure(qc, vars.projectId),
   });
 }

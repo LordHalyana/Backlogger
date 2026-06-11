@@ -1,29 +1,13 @@
 import { Router } from 'express';
 import {
   CreateDocumentRequestSchema,
-  ProjectIdSchema,
   UpdateDocumentRequestSchema,
 } from '@backlogger/shared';
-import { BadRequestError } from '../errors.js';
 import { asyncRoute, validateBody } from './util.js';
 import type { DocumentService } from '../services/document-service.js';
 import type { LinkService } from '../services/link-service.js';
 import { parseTagParams } from './tags.js';
-
-function parseProjectId(raw: unknown): string {
-  const parsed = ProjectIdSchema.safeParse(raw);
-  if (!parsed.success) {
-    throw new BadRequestError('INVALID_PROJECT_ID', `Invalid project id: ${String(raw)}`);
-  }
-  return parsed.data;
-}
-
-function parseDocId(raw: unknown): string {
-  if (typeof raw !== 'string' || !/^[0-9a-f-]{36}$/.test(raw)) {
-    throw new BadRequestError('INVALID_DOCUMENT_ID', `Invalid document id: ${String(raw)}`);
-  }
-  return raw;
-}
+import { parseDocumentId, parseProjectId } from './route-params.js';
 
 /** Routes mounted at /api/projects/:projectId/documents */
 export function projectDocumentsRouter(service: DocumentService): Router {
@@ -65,7 +49,7 @@ export function documentsRouter(
   router.get(
     '/:id',
     asyncRoute(async (req, res) => {
-      const id = parseDocId(req.params.id);
+      const id = parseDocumentId(req.params.id);
       res.json(await service.get(id));
     }),
   );
@@ -73,7 +57,7 @@ export function documentsRouter(
   router.get(
     '/:id/backlinks',
     asyncRoute(async (req, res) => {
-      const id = parseDocId(req.params.id);
+      const id = parseDocumentId(req.params.id);
       const rows = linkService.backlinksFor(id);
       res.json(rows);
     }),
@@ -82,7 +66,7 @@ export function documentsRouter(
   router.get(
     '/:id/raw',
     asyncRoute(async (req, res, next) => {
-      const id = parseDocId(req.params.id);
+      const id = parseDocumentId(req.params.id);
       const { absolutePath, diskFilename, title } = await service.locateRaw(id);
       // Use the (already-safe) on-disk filename for the ASCII fallback and
       // the human-readable title in `filename*` per RFC 5987.
@@ -102,7 +86,7 @@ export function documentsRouter(
   router.put(
     '/:id',
     asyncRoute(async (req, res) => {
-      const id = parseDocId(req.params.id);
+      const id = parseDocumentId(req.params.id);
       const input = validateBody(UpdateDocumentRequestSchema, req.body);
       const ifMatch = req.header('If-Match');
       const doc = await service.update(id, input, ifMatch);
@@ -113,7 +97,7 @@ export function documentsRouter(
   router.delete(
     '/:id',
     asyncRoute(async (req, res) => {
-      const id = parseDocId(req.params.id);
+      const id = parseDocumentId(req.params.id);
       await service.delete(id);
       res.status(204).send();
     }),

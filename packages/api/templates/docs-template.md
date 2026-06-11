@@ -78,8 +78,8 @@ My Project
 │   │       └── block-2.md
 │   └── 📁 phase-2/
 │       └── implementation-plan.md
-├── 📁 reports/
-│   └── 2026-06-01-status.md
+├── 📁 findings/
+│   └── search-audit.md
 ├── 📁 archived/            ← mirror of the structure above
 │   ├── 📁 design/
 │   │   └── old-approach.md
@@ -171,7 +171,7 @@ Available `{{placeholders}}`:
 |---------|---------|
 | Phase plans | `phases/phase-N/implementation-plan` |
 | Block designs | `phases/phase-N/blocks/block-N-short-name` |
-| Status reports | `reports/YYYY-MM-DD-topic` |
+| Findings | `findings/topic-name` |
 | Design decisions | `design/decision-short-name` |
 | Backlog items | `backlog/YYYY-MM-DD-short-description` |
 

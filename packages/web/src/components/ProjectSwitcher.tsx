@@ -1,8 +1,13 @@
 import { useState } from 'react';
 import type { Project } from '@backlogger/shared';
-import { useCreateProject, useDeleteProject, useProjects } from '../lib/projects.js';
+import {
+  useCreateProject,
+  useDeleteProject,
+  useProjects,
+  useUpdateProject,
+} from '../lib/projects.js';
 import { ApiError } from '../lib/api.js';
-import { useDialog } from '../lib/dialog.js';
+import { toastError, useDialog } from '../lib/dialog.js';
 import { Modal } from './Modal.js';
 
 interface ProjectSwitcherProps {
@@ -13,6 +18,7 @@ interface ProjectSwitcherProps {
 export function ProjectSwitcher({ selectedId, onSelect }: ProjectSwitcherProps): JSX.Element {
   const projects = useProjects();
   const [showNew, setShowNew] = useState(false);
+  const selectedProject = projects.data?.find((p) => p.id === selectedId);
 
   return (
     <div className="project-switcher">
@@ -34,17 +40,19 @@ export function ProjectSwitcher({ selectedId, onSelect }: ProjectSwitcherProps):
         </option>
         {projects.data?.map((p) => (
           <option key={p.id} value={p.id}>
-            {p.name}
+            {p.name}{p.readOnly ? ' (read-only)' : ''}
           </option>
         ))}
       </select>
       <button type="button" onClick={() => setShowNew(true)}>
         + New Project
       </button>
+      {selectedProject && <ProjectReadOnlyToggle project={selectedProject} />}
       {selectedId && (
         <DeleteProjectButton
           id={selectedId}
-          name={projects.data?.find((p) => p.id === selectedId)?.name ?? selectedId}
+          name={selectedProject?.name ?? selectedId}
+          readOnly={selectedProject?.readOnly ?? false}
           onDeleted={() => onSelect(null)}
         />
       )}
@@ -58,6 +66,33 @@ export function ProjectSwitcher({ selectedId, onSelect }: ProjectSwitcherProps):
         />
       )}
     </div>
+  );
+}
+
+function ProjectReadOnlyToggle({ project }: { project: Project }): JSX.Element {
+  const update = useUpdateProject();
+  const dialog = useDialog();
+  const nextReadOnly = !project.readOnly;
+  return (
+    <button
+      type="button"
+      className={project.readOnly ? 'readonly-toggle locked' : 'readonly-toggle'}
+      onClick={() =>
+        update.mutate(
+          { id: project.id, input: { readOnly: nextReadOnly } },
+          { onError: (e) => toastError(dialog, 'Failed to update project mode', e) },
+        )
+      }
+      disabled={update.isPending}
+      title={
+        project.readOnly
+          ? 'Read-only mode is enabled. Click to allow edits in this project.'
+          : 'Edits are enabled. Click to protect this project from writes.'
+      }
+      aria-pressed={project.readOnly}
+    >
+      {project.readOnly ? 'Read-only' : 'Editable'}
+    </button>
   );
 }
 
@@ -136,10 +171,16 @@ function NewProjectDialog({ onClose, onCreated }: NewProjectDialogProps): JSX.El
 interface DeleteProjectButtonProps {
   id: string;
   name: string;
+  readOnly: boolean;
   onDeleted: () => void;
 }
 
-function DeleteProjectButton({ id, name, onDeleted }: DeleteProjectButtonProps): JSX.Element {
+function DeleteProjectButton({
+  id,
+  name,
+  readOnly,
+  onDeleted,
+}: DeleteProjectButtonProps): JSX.Element {
   const del = useDeleteProject();
   const dialog = useDialog();
   const handle = (): void => {
@@ -153,7 +194,10 @@ function DeleteProjectButton({ id, name, onDeleted }: DeleteProjectButtonProps):
       })
       .then((typed) => {
         if (typed !== id) return;
-        del.mutate(id, { onSuccess: onDeleted });
+        del.mutate(id, {
+          onSuccess: onDeleted,
+          onError: (e) => toastError(dialog, 'Failed to delete project', e),
+        });
       });
   };
   return (
@@ -161,8 +205,12 @@ function DeleteProjectButton({ id, name, onDeleted }: DeleteProjectButtonProps):
       type="button"
       className="danger"
       onClick={handle}
-      disabled={del.isPending}
-      title={`Delete project "${name}"`}
+      disabled={del.isPending || readOnly}
+      title={
+        readOnly
+          ? 'Disable read-only mode before deleting this project'
+          : `Delete project "${name}"`
+      }
     >
       Delete
     </button>

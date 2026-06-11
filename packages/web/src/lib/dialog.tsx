@@ -11,7 +11,7 @@ import { createPortal } from 'react-dom';
 
 export interface ConfirmOptions {
   title: string;
-  message: string;
+  message: React.ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;
   danger?: boolean;
@@ -19,7 +19,7 @@ export interface ConfirmOptions {
 
 export interface PromptOptions {
   title: string;
-  message: string;
+  message: React.ReactNode;
   defaultValue?: string;
   placeholder?: string;
   confirmLabel?: string;
@@ -28,11 +28,23 @@ export interface PromptOptions {
   validate?: (value: string) => string | null;
 }
 
+export interface AlertOptions {
+  title: string;
+  message: React.ReactNode;
+  confirmLabel?: string;
+}
+
 export interface DialogApi {
+  alert: (opts: AlertOptions) => Promise<void>;
   confirm: (opts: ConfirmOptions) => Promise<boolean>;
   prompt: (opts: PromptOptions) => Promise<string | null>;
   toast: (message: string, opts?: { kind?: 'info' | 'error'; durationMs?: number }) => void;
 }
+
+type AlertState = AlertOptions & {
+  kind: 'alert';
+  resolve: () => void;
+};
 
 type ConfirmState = ConfirmOptions & {
   kind: 'confirm';
@@ -44,7 +56,7 @@ type PromptState = PromptOptions & {
   resolve: (value: string | null) => void;
 };
 
-type DialogState = ConfirmState | PromptState;
+type DialogState = AlertState | ConfirmState | PromptState;
 
 interface ToastEntry {
   id: number;
@@ -60,6 +72,15 @@ export function useDialog(): DialogApi {
   return ctx;
 }
 
+export function errorToastMessage(action: string, error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return `${action}: ${message}`;
+}
+
+export function toastError(dialog: DialogApi, action: string, error: unknown): void {
+  dialog.toast(errorToastMessage(action, error), { kind: 'error' });
+}
+
 export function DialogProvider({ children }: { children: React.ReactNode }): JSX.Element {
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [toasts, setToasts] = useState<ToastEntry[]>([]);
@@ -69,7 +90,8 @@ export function DialogProvider({ children }: { children: React.ReactNode }): JSX
     (value: boolean | string | null) => {
       setDialog((cur) => {
         if (!cur) return cur;
-        if (cur.kind === 'confirm') cur.resolve(value === true);
+        if (cur.kind === 'alert') cur.resolve();
+        else if (cur.kind === 'confirm') cur.resolve(value === true);
         else cur.resolve(typeof value === 'string' ? value : null);
         return null;
       });
@@ -79,6 +101,10 @@ export function DialogProvider({ children }: { children: React.ReactNode }): JSX
 
   const api = useMemo<DialogApi>(
     () => ({
+      alert: (opts) =>
+        new Promise<void>((resolve) => {
+          setDialog({ kind: 'alert', ...opts, resolve });
+        }),
       confirm: (opts) =>
         new Promise<boolean>((resolve) => {
           setDialog({ kind: 'confirm', ...opts, resolve });
@@ -163,6 +189,10 @@ function DialogHost({ state, closeWith }: DialogHostProps): JSX.Element {
       closeWith(true);
       return;
     }
+    if (state.kind === 'alert') {
+      closeWith(true);
+      return;
+    }
     const v = value;
     const validationError = state.validate?.(v) ?? null;
     if (validationError) {
@@ -187,7 +217,7 @@ function DialogHost({ state, closeWith }: DialogHostProps): JSX.Element {
       >
         <h2 id="dialog-title">{state.title}</h2>
         <form onSubmit={submit}>
-          <p className="dialog-message">{state.message}</p>
+          <div className="dialog-message">{state.message}</div>
           {state.kind === 'prompt' && (
             <label>
               <input
@@ -204,15 +234,17 @@ function DialogHost({ state, closeWith }: DialogHostProps): JSX.Element {
           )}
           {error && <p className="error">{error}</p>}
           <div className="modal-actions">
-            <button type="button" onClick={cancel}>
-              {state.cancelLabel ?? 'Cancel'}
-            </button>
+            {state.kind !== 'alert' && (
+              <button type="button" onClick={cancel}>
+                {state.cancelLabel ?? 'Cancel'}
+              </button>
+            )}
             <button
               type="submit"
               className={state.kind === 'confirm' && state.danger ? 'danger' : undefined}
-              autoFocus={state.kind === 'confirm'}
+              autoFocus={state.kind === 'confirm' || state.kind === 'alert'}
             >
-              {state.confirmLabel ?? (state.kind === 'confirm' ? 'OK' : 'Submit')}
+              {state.confirmLabel ?? (state.kind === 'prompt' ? 'Submit' : 'OK')}
             </button>
           </div>
         </form>

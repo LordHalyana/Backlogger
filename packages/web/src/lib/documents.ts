@@ -14,7 +14,12 @@ import type {
   UpdateDocumentRequest,
 } from '@backlogger/shared';
 import { apiFetch } from './api.js';
-import { queryKeys, invalidateDocumentDerived } from './query-keys.js';
+import {
+  queryKeys,
+  invalidateDocumentDerived,
+  removeDocumentCache,
+  setDocumentCache,
+} from './query-keys.js';
 
 export const documentsKey = (projectId: string) => queryKeys.documents(projectId);
 export const documentKey = (id: string) => queryKeys.document(id);
@@ -70,7 +75,7 @@ export function useUpdateDocument(
         body: JSON.stringify(input),
       }),
     onSuccess: (doc) => {
-      qc.setQueryData(documentKey(doc.id), doc);
+      setDocumentCache(qc, doc);
       invalidateDocumentDerived(qc, projectId);
     },
   });
@@ -83,7 +88,7 @@ export function useDeleteDocument(
   return useMutation({
     mutationFn: (id) => apiFetch<void>(`/api/documents/${id}`, { method: 'DELETE' }),
     onSuccess: (_v, id) => {
-      qc.removeQueries({ queryKey: documentKey(id) });
+      removeDocumentCache(qc, id);
       invalidateDocumentDerived(qc, projectId);
     },
   });

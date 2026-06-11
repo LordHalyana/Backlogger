@@ -35,6 +35,18 @@ click the topbar **Reload** button. Backlogger walks the project folder,
 detects added / updated / removed files, and refreshes the in-memory
 indexes. A toast confirms the counts.
 
+Plain Markdown files without Backlogger frontmatter are indexed with derived
+metadata, so mounted docs folders can be browsed without rewriting files.
+
+## Read-only projects
+
+Mounted projects discovered on startup begin in read-only mode. Read-only mode
+allows browsing, search, graph, and reload, but blocks Backlogger writes.
+
+Use the project switcher toggle only when you want Backlogger to edit that
+project. After unlocking, the first save of a plain Markdown file adopts it by
+writing Backlogger frontmatter to the same file.
+
 ## Deleting
 
 Project deletion is not exposed in the UI for safety. Remove the project

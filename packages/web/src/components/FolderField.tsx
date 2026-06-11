@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FolderPathSchema } from '@backlogger/shared';
 import { useFolders } from '../lib/folders.js';
 
@@ -32,11 +32,17 @@ export function FolderField({
 }: FolderFieldProps): JSX.Element {
   const folders = useFolders(projectId);
   const folderList = folders.data ?? [];
+  const options =
+    value && !folderList.includes(value) ? [value, ...folderList] : folderList;
 
   // Internal select state — initialized from value prop.
   const [selected, setSelected] = useState<string>(value ?? BLANK);
   const [newName, setNewName] = useState('');
   const [nameError, setNameError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSelected(value ?? BLANK);
+  }, [value]);
 
   const handleSelect = (e: React.ChangeEvent<HTMLSelectElement>): void => {
     const v = e.target.value;
@@ -78,7 +84,7 @@ export function FolderField({
         Folder
         <select aria-label="Document folder" value={selected} onChange={handleSelect}>
           <option value={BLANK}>Default (by type)</option>
-          {folderList.map((f) => (
+          {options.map((f) => (
             <option key={f} value={f}>
               {f}
             </option>

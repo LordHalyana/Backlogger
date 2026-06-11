@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { toArchivedPath, fromArchivedPath } from './document-service.js';
+import { archivePath, isArchivedPath, unarchivePath } from '@backlogger/shared';
 
 /**
  * Tests for the archive invariant:
@@ -10,13 +10,13 @@ import { toArchivedPath, fromArchivedPath } from './document-service.js';
  */
 describe('archive invariant', () => {
   it('archiving a document moves it under archived/ and sets status to archived', () => {
-    expect(toArchivedPath('proj/notes/doc-abc12.md')).toBe(
+    expect(archivePath('proj/notes/doc-abc12.md')).toBe(
       'proj/archived/notes/doc-abc12.md',
     );
   });
 
   it('unarchiving a document moves it out of archived/ and sets status to active', () => {
-    expect(fromArchivedPath('proj/archived/notes/doc-abc12.md')).toBe(
+    expect(unarchivePath('proj/archived/notes/doc-abc12.md')).toBe(
       'proj/notes/doc-abc12.md',
     );
   });
@@ -25,16 +25,13 @@ describe('archive invariant', () => {
     // Invariant: path[1] === 'archived' means the document is archived,
     // regardless of frontmatter. The path is the authoritative signal.
     const archivedPath = 'proj/archived/notes/doc-abc12.md';
-    const segments = archivedPath.split('/');
-    expect(segments[1]).toBe('archived');
-    // fromArchivedPath recovers the non-archived base path for display/correction.
-    expect(fromArchivedPath(archivedPath)).toBe('proj/notes/doc-abc12.md');
+    expect(isArchivedPath(archivedPath)).toBe(true);
+    expect(unarchivePath(archivedPath)).toBe('proj/notes/doc-abc12.md');
   });
 
   it('reindex corrects status when file is outside archived/ but frontmatter says archived', () => {
-    // Invariant: path[1] !== 'archived' means the document is not archived.
-    // fromArchivedPath is a no-op on non-archived paths.
     const activePath = 'proj/notes/doc-abc12.md';
-    expect(fromArchivedPath(activePath)).toBe(activePath);
+    expect(isArchivedPath(activePath)).toBe(false);
+    expect(unarchivePath(activePath)).toBe(activePath);
   });
 });

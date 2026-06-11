@@ -58,7 +58,7 @@ function classify(rel: string): { type: DocType; tags: string[]; status: 'active
   ) {
     return { type: 'design_doc', tags: [...tags], status };
   }
-  if ((status === 'archived' ? parts[1] : parts[0]) === 'reports') tags.add('status');
+  if ((status === 'archived' ? parts[1] : parts[0]) === 'findings') tags.add('findings');
   if ((status === 'archived' ? parts[1] : parts[0]) === 'operations') tags.add('operations');
   return { type: 'note', tags: [...tags], status };
 }

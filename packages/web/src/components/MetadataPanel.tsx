@@ -17,6 +17,7 @@ interface MetadataPanelProps {
   updatedAt: string;
   onDelete: () => void;
   deleting?: boolean;
+  readOnly?: boolean;
   onOpenDocument?: (projectId: string, documentId: string) => void;
 }
 
@@ -29,6 +30,7 @@ export function MetadataPanel({
   updatedAt,
   onDelete,
   deleting,
+  readOnly = false,
   onOpenDocument,
 }: MetadataPanelProps): JSX.Element {
   const backlinks = useBacklinks(documentId);
@@ -36,11 +38,17 @@ export function MetadataPanel({
   return (
     <section className="metadata-panel">
       <h3>Metadata</h3>
+      {readOnly && (
+        <p className="metadata-readonly">
+          Read-only derived document. Add Backlogger frontmatter to edit it.
+        </p>
+      )}
       <label>
         Title
         <input
           type="text"
           value={value.title}
+          disabled={readOnly}
           onChange={(e) => onChange({ ...value, title: e.target.value })}
         />
       </label>
@@ -48,6 +56,7 @@ export function MetadataPanel({
         Status
         <select
           value={value.status}
+          disabled={readOnly}
           onChange={(e) => onChange({ ...value, status: e.target.value as DocumentStatus })}
         >
           {(Object.entries(DOCUMENT_STATUS_LABELS) as Array<[DocumentStatus, string]>).map(
@@ -61,7 +70,11 @@ export function MetadataPanel({
       </label>
       <label>
         Tags
-        <TagInput value={value.tags} onChange={(tags) => onChange({ ...value, tags })} />
+        <TagInput
+          value={value.tags}
+          disabled={readOnly}
+          onChange={(tags) => onChange({ ...value, tags })}
+        />
       </label>
       <dl className="metadata-info">
         <dt>Path</dt>
@@ -71,12 +84,13 @@ export function MetadataPanel({
         <dt>Updated</dt>
         <dd>{new Date(updatedAt).toLocaleString()}</dd>
       </dl>
-      <button type="button" className="danger" onClick={onDelete} disabled={deleting}>
+      <button type="button" className="danger" onClick={onDelete} disabled={deleting || readOnly}>
         {deleting ? 'Deleting…' : 'Delete document'}
       </button>
       <button
         type="button"
         className={value.status === 'archived' ? 'archive-toggle archive-toggle--restore' : 'archive-toggle'}
+        disabled={readOnly}
         onClick={() =>
           onChange({
             ...value,

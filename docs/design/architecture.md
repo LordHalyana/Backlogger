@@ -168,5 +168,3 @@ These are deliberate scope boundaries. New work should justify crossing them exp
 - Some backend services remain optional in constructors/routes even though production context wires them.
 - Markdown rendering relies on trusted Markdown content.
 - `app.css` is large and mixed-responsibility.
-
-See `docs/reports/*.md` for detailed analysis and cleanup priorities.

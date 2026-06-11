@@ -41,8 +41,8 @@ export function isDocumentStatus(value: string): value is DocumentStatus {
  * This behavior is preserved for backwards compatibility with existing
  * projects. New UI flows should prefer explicit folder selection.
  *
- * @see `packages/web/src/components/NewDocumentDialog.tsx` — the folder
- *   field leaves this blank by default, triggering this fallback in the API.
+ * @see `packages/web/src/components/NewDocumentDialog.tsx` — the current UI
+ *   sends an explicit default folder and keeps this fallback for older clients.
  */
 export const DOCUMENT_TYPE_TO_SUBDIR: Record<DocumentType, string> = {
   idea: 'ideas',
@@ -105,6 +105,7 @@ export const DocumentSummarySchema = z.object({
   status: DocumentStatusSchema,
   path: z.string(),
   tags: z.array(TagSchema),
+  readOnly: z.boolean().default(false),
   created_at: z.string().datetime({ offset: true }),
   updated_at: z.string().datetime({ offset: true }),
 });
@@ -127,6 +128,7 @@ export const CreateDocumentRequestSchema = z.object({
   /**
    * Project-relative folder to place the document under. When omitted,
    * the service falls back to the legacy `DOCUMENT_TYPE_TO_SUBDIR` mapping.
+   * Current UI creation flows send an explicit folder.
    */
   folder: FolderPathSchema.optional(),
 });

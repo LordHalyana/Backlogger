@@ -9,6 +9,7 @@ export const ProjectSchema = z.object({
   id: ProjectIdSchema,
   name: z.string().min(1).max(200),
   description: z.string().max(2000).nullable(),
+  readOnly: z.boolean().default(false),
   created_at: z.string().datetime({ offset: true }),
   updated_at: z.string().datetime({ offset: true }),
 });
@@ -23,6 +24,7 @@ export const UpdateProjectRequestSchema = z
   .object({
     name: z.string().min(1).max(200).optional(),
     description: z.string().max(2000).nullable().optional(),
+    readOnly: z.boolean().optional(),
   })
   .refine((v) => Object.keys(v).length > 0, { message: 'no fields to update' });
 

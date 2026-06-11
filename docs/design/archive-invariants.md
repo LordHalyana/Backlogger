@@ -11,7 +11,7 @@ tags: []
 
 # Archive Invariants
 
-> Related code: `packages/api/src/services/document-service.ts`  
+> Related code: `packages/shared/src/paths.ts`, `packages/api/src/services/document-service.ts`<br>
 > Related tests: `packages/api/src/services/document-service.test.ts`
 
 ---
@@ -63,6 +63,6 @@ operation the **filesystem path wins**:
 | Path is under `archived/` but frontmatter says `active` | Status recorded as `archived`         |
 | Path is not under `archived/` but frontmatter says `archived` | Status recorded as `active`    |
 
-The path utility functions `toArchivedPath` and `fromArchivedPath` in
-`document-service.ts` are the canonical implementations of this rule and are
-tested in `document-service.test.ts`.
+The path utility functions `archivePath`, `unarchivePath`, and `isArchivedPath`
+in `packages/shared/src/paths.ts` are the canonical implementations of this
+rule and are tested through `document-service.test.ts`.

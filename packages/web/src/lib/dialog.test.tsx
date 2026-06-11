@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { useDialog, DialogProvider } from './dialog.js';
+import { useDialog, DialogProvider, errorToastMessage } from './dialog.js';
 
 function ConfirmHarness({ onResult }: { onResult: (v: boolean) => void }): JSX.Element {
   const dialog = useDialog();
@@ -15,6 +15,25 @@ function ConfirmHarness({ onResult }: { onResult: (v: boolean) => void }): JSX.E
             message: 'Really?',
             confirmLabel: 'Yes',
             danger: true,
+          })
+          .then(onResult);
+      }}
+    >
+      open
+    </button>
+  );
+}
+
+function AlertHarness({ onResult }: { onResult: () => void }): JSX.Element {
+  const dialog = useDialog();
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        void dialog
+          .alert({
+            title: 'Skipped files',
+            message: '- docs/bad.md: project/folder mismatch',
           })
           .then(onResult);
       }}
@@ -48,6 +67,31 @@ function PromptHarness({ onResult }: { onResult: (v: string | null) => void }): 
 afterEach(() => cleanup());
 
 describe('DialogProvider', () => {
+  it('formats error toast messages consistently', () => {
+    expect(errorToastMessage('Reload failed', new Error('disk unavailable'))).toBe(
+      'Reload failed: disk unavailable',
+    );
+    expect(errorToastMessage('Reindex failed', 'unknown failure')).toBe(
+      'Reindex failed: unknown failure',
+    );
+  });
+
+  it('alert shows message and resolves on OK', async () => {
+    const user = userEvent.setup();
+    let resolved = false;
+    render(
+      <DialogProvider>
+        <AlertHarness onResult={() => { resolved = true; }} />
+      </DialogProvider>,
+    );
+
+    await user.click(screen.getByText('open'));
+    expect(await screen.findByText('- docs/bad.md: project/folder mismatch')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'OK' }));
+    await waitFor(() => expect(resolved).toBe(true));
+  });
+
   it('confirm resolves true when Yes is clicked', async () => {
     const user = userEvent.setup();
     const results: boolean[] = [];

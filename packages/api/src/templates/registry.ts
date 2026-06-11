@@ -8,6 +8,7 @@ import {
   type TemplateSummary,
 } from '@backlogger/shared';
 import { NotFoundError } from '../errors.js';
+import { logger } from '../logger.js';
 
 /**
  * In-memory registry of built-in document templates.
@@ -115,8 +116,7 @@ export async function loadAllTemplates(
   for (const t of builtin.loaded) merged.set(t.id, t);
   for (const t of user.loaded) {
     if (merged.has(t.id)) {
-      // eslint-disable-next-line no-console
-      console.warn(`[backlogger] user template '${t.id}' overrides built-in`);
+      logger.warn(`user template '${t.id}' overrides built-in`);
     }
     merged.set(t.id, t);
   }

@@ -113,6 +113,15 @@ Strong coverage exists for:
 Known maintenance issue:
 
 - `packages/api/src/app.test.ts` is large and covers many API areas. Split it opportunistically when making route-level changes.
+- Storage, mounted-doc, reload, and reindex changes should keep coverage around:
+  - frontmatterless Markdown indexing with derived metadata.
+  - malformed frontmatter and mismatched project frontmatter indexing with repaired metadata.
+  - first-edit adoption of derived plain Markdown when a project is editable.
+  - skipped-file reporting from project reload and full reindex.
+  - project read-only mode blocking document, folder, import, archive, and delete writes.
+  - graph/search cache invalidation after reload removes or updates files.
+
+Use API tests for service and route behavior first. Add e2e smoke coverage only when the user workflow changes, such as the read-only toggle, import dialog gating, or skipped-file feedback.
 
 ## Test Data
 

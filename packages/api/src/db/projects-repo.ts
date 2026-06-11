@@ -5,6 +5,7 @@ interface ProjectRow {
   id: string;
   name: string;
   description: string | null;
+  read_only: number;
   created_at: string;
   updated_at: string;
 }
@@ -14,6 +15,7 @@ function rowToProject(row: ProjectRow): Project {
     id: row.id,
     name: row.name,
     description: row.description,
+    readOnly: row.read_only === 1,
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
@@ -23,6 +25,7 @@ export interface ProjectInsertInput {
   id: string;
   name: string;
   description: string | null;
+  readOnly?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -30,6 +33,7 @@ export interface ProjectInsertInput {
 export interface ProjectUpdateInput {
   name?: string;
   description?: string | null;
+  readOnly?: boolean;
   updated_at: string;
 }
 
@@ -60,10 +64,10 @@ export class ProjectsRepo {
   insert(input: ProjectInsertInput): Project {
     this.db
       .prepare(
-        `INSERT INTO projects (id, name, description, created_at, updated_at)
-         VALUES (@id, @name, @description, @created_at, @updated_at)`,
+        `INSERT INTO projects (id, name, description, read_only, created_at, updated_at)
+         VALUES (@id, @name, @description, @read_only, @created_at, @updated_at)`,
       )
-      .run(input);
+      .run({ ...input, read_only: input.readOnly ? 1 : 0 });
     return this.find(input.id)!;
   }
 
@@ -75,6 +79,7 @@ export class ProjectsRepo {
       name: input.name ?? existing.name,
       description:
         input.description === undefined ? existing.description : input.description,
+      readOnly: input.readOnly ?? existing.readOnly,
       created_at: existing.created_at,
       updated_at: input.updated_at,
     };
@@ -83,10 +88,11 @@ export class ProjectsRepo {
         `UPDATE projects
             SET name = @name,
                 description = @description,
+                read_only = @read_only,
                 updated_at = @updated_at
           WHERE id = @id`,
       )
-      .run(next);
+      .run({ ...next, read_only: next.readOnly ? 1 : 0 });
     return this.find(id);
   }
 

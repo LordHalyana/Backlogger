@@ -11,7 +11,7 @@ tags: []
 
 # UI Conventions
 
-Date: 2026-06-04
+Date: 2026-06-09
 
 ## Scope
 
@@ -58,12 +58,59 @@ Current tokens include:
 - `--danger`
 - `--ok`
 - `--shadow`
+- `--overlay-shadow`
+- `--drawer-shadow`
+- `--backdrop`
+- `--backdrop-strong`
+- `--backdrop-soft`
+- `--tag-active-hover`
 - `--focus`
 - `--hover`
 - `--selected`
 - `--warning`
 
 New styling should use tokens instead of hardcoded colors when possible.
+Component styles should not add fallback color literals such as
+`var(--border, #...)`; missing tokens should be fixed in `theme.css`.
+Canvas-only graph colors live in `packages/web/src/lib/display.ts` with the
+document type color map; do not redefine them inside graph components.
+
+## CSS Organization
+
+The app currently uses plain CSS:
+
+```text
+packages/web/src/styles/theme.css
+packages/web/src/styles/app.css
+packages/web/src/styles/project-tree.css
+packages/web/src/styles/project-switcher.css
+packages/web/src/styles/document-workspace.css
+packages/web/src/styles/markdown.css
+packages/web/src/styles/links.css
+packages/web/src/styles/command-palette.css
+packages/web/src/styles/import.css
+packages/web/src/styles/tags.css
+packages/web/src/styles/settings.css
+packages/web/src/styles/help.css
+packages/web/src/styles/modal.css
+packages/web/src/styles/graph.css
+```
+
+Keep `theme.css` as the token source. `project-tree.css` owns the project
+sidebar document tree and folder controls. `project-switcher.css` owns the
+topbar project selector and read-only toggle. `document-workspace.css` owns the
+editor/preview/metadata workspace surface. `markdown.css` owns shared rendered
+Markdown body rules for document preview and help. `links.css` owns wiki-link
+and backlinks styling. `command-palette.css` owns the search command overlay
+and result rows. `import.css` owns import dialog file-list and result-summary
+styles. `tags.css` owns tag chips, the sidebar tag explorer, filter bar, and
+metadata tag input. `settings.css` owns settings-dialog content, `help.css`
+owns the help drawer, `modal.css` owns the shared modal shell and standard
+modal form/result-summary layout, and `graph.css` owns the full-screen graph overlay. Keep
+remaining `app.css` sections organized by visible surface and preserve cascade
+order. Split more CSS only when actively changing those styles and when the
+split can be verified visually. Do not introduce Tailwind, CSS-in-JS, CSS
+modules, or a component library for the current assignment.
 
 ## Buttons
 
@@ -77,6 +124,9 @@ Current variants:
 
 - `.btn--ghost`
 - `.btn--danger`
+- `.btn--sm`
+- `.btn--icon`
+- `.btn--link`
 - `.topbar-action`
 - `.topbar-action--active`
 
@@ -86,6 +136,11 @@ Preferred direction:
 - Add small variants only when repeated need exists.
 - Keep destructive actions visibly dangerous.
 - Preserve `:focus-visible` styling.
+- Use icon-only buttons only for universally recognizable actions and always
+  include `aria-label` and `title`.
+- Use `packages/web/src/components/Icon.tsx` for local app icons instead of
+  Unicode symbols or ad hoc text glyphs.
+- Keep text labels for destructive, ambiguous, or workflow-changing actions.
 
 ## Modals And Dialogs
 

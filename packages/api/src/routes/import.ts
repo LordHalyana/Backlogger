@@ -1,8 +1,8 @@
 import { Router } from 'express';
-import { ImportRequestSchema, ProjectIdSchema } from '@backlogger/shared';
-import { BadRequestError } from '../errors.js';
+import { ImportRequestSchema } from '@backlogger/shared';
 import { asyncRoute, validateBody } from './util.js';
 import type { ImportService } from '../services/import-service.js';
+import { parseProjectId } from './route-params.js';
 
 /** Mounted at /api/projects/:projectId/import */
 export function importRouter(service: ImportService): Router {
@@ -20,12 +20,4 @@ export function importRouter(service: ImportService): Router {
   );
 
   return router;
-}
-
-function parseProjectId(raw: unknown): string {
-  const parsed = ProjectIdSchema.safeParse(raw);
-  if (!parsed.success) {
-    throw new BadRequestError('INVALID_PROJECT_ID', 'Invalid project id', parsed.error.format());
-  }
-  return parsed.data;
 }

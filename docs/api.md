@@ -42,8 +42,10 @@ Common codes include:
 - `INVALID_DOCUMENT_ID`
 - `INVALID_TAG`
 - `PROJECT_NOT_FOUND`
+- `PROJECT_READ_ONLY`
 - `DOCUMENT_NOT_FOUND`
 - `DOCUMENT_VERSION_MISMATCH`
+- `DERIVED_DOCUMENT_READ_ONLY`
 - `RELOAD_IN_PROGRESS`
 - `GRAPH_UNAVAILABLE`
 - `INTERNAL_ERROR`
@@ -84,6 +86,19 @@ Returns the JSON Schema for health payloads.
 
 Returns all projects.
 
+Project objects include:
+
+```json
+{
+  "id": "home-system",
+  "name": "Home System",
+  "description": "Optional",
+  "readOnly": false,
+  "created_at": "2026-06-04T10:00:00.000Z",
+  "updated_at": "2026-06-04T10:00:00.000Z"
+}
+```
+
 ### `POST /api/projects`
 
 Body:
@@ -109,9 +124,12 @@ Body:
 ```json
 {
   "name": "New Name",
-  "description": "Optional"
+  "description": "Optional",
+  "readOnly": true
 }
 ```
+
+All fields are optional, but at least one field is required. Use `readOnly` to protect a project from Backlogger writes or to deliberately unlock a mounted project for editing.
 
 Returns the updated project.
 
@@ -121,11 +139,15 @@ Deletes the project and attempts to remove its folder.
 
 Returns `204`.
 
+Returns `409 PROJECT_READ_ONLY` while read-only mode is enabled.
+
 ## Documents
 
 ### `GET /api/projects/:projectId/documents`
 
 Returns document summaries for a project.
+
+Summary objects include `readOnly`. `readOnly: true` means the document cannot currently be edited because the containing project is in read-only mode. Plain Markdown files without Backlogger frontmatter are indexed with derived metadata; when the project is editable, the first update adopts the file by writing Backlogger frontmatter to the same path.
 
 Optional query:
 
@@ -155,9 +177,13 @@ Body:
 
 Returns `201` with the full document.
 
+Returns `409 PROJECT_READ_ONLY` while the project is in read-only mode.
+
 ### `GET /api/documents/:id`
 
 Returns a full document including `body`.
+
+Full document responses also include `readOnly`.
 
 ### `PUT /api/documents/:id`
 
@@ -180,11 +206,19 @@ If-Match: <updated_at value>
 
 If the header does not match the current `updated_at`, the API returns `409 DOCUMENT_VERSION_MISMATCH`.
 
+If the project is in read-only mode, the API returns `409 PROJECT_READ_ONLY`.
+
+If the document was indexed from plain Markdown without Backlogger frontmatter and the project is editable, the first successful update writes Backlogger frontmatter to the same file and returns the adopted editable document.
+
 ### `DELETE /api/documents/:id`
 
 Deletes a document.
 
 Returns `204`.
+
+Returns `409 PROJECT_READ_ONLY` while the project is in read-only mode.
+
+Derived plain-Markdown documents can be deleted only when the containing project is editable. While the project is read-only, deletion returns `409 PROJECT_READ_ONLY`.
 
 ### `GET /api/documents/:id/raw`
 
@@ -265,6 +299,8 @@ Status:
 - `200` when all files import or skip without per-file errors.
 - `207` when at least one file has a per-file error.
 
+Returns `409 PROJECT_READ_ONLY` while the project is in read-only mode.
+
 ## Folders
 
 ### `GET /api/projects/:id/folders`
@@ -281,6 +317,8 @@ Body:
 
 Returns `201`.
 
+Returns `409 PROJECT_READ_ONLY` while the project is in read-only mode.
+
 ### `DELETE /api/projects/:id/folders/*`
 
 Deletes an empty folder.
@@ -288,6 +326,8 @@ Deletes an empty folder.
 Returns `204`.
 
 Returns `409 FOLDER_NOT_EMPTY` when files or subfolders remain.
+
+Returns `409 PROJECT_READ_ONLY` while the project is in read-only mode.
 
 ## Graph
 
@@ -307,9 +347,39 @@ Returns `503 GRAPH_UNAVAILABLE` if the graph service is not configured.
 
 ## Admin
 
+### `POST /api/projects/:id/reload`
+
+Reloads one project from disk. This is the preferred endpoint after changing or mounting files for a single project.
+
+Plain Markdown files without Backlogger frontmatter are indexed with derived metadata. They remain protected while the project is read-only; if the project is later switched to editable, the first update adopts the file by writing Backlogger frontmatter. Files with valid Backlogger frontmatter whose `project` does not match the folder are repaired for indexing: the folder project wins, a path-derived id is used, and usable title/type/tags/timestamps are retained.
+
+Example response:
+
+```json
+{
+  "projectId": "docs-site",
+  "added": 3,
+  "updated": 10,
+  "removed": 1,
+  "skipped": [],
+  "durationMs": 24,
+  "removedIds": ["5f8c5b7b-7d9e-4b4d-a017-d3ab3e1d9d31"]
+}
+```
+
 ### `POST /api/admin/reindex`
 
-Runs a full reindex from disk.
+Runs a full reindex from disk. Valid project folders found on disk but missing from SQLite are registered as read-only projects before indexing.
+
+Plain Markdown files without Backlogger frontmatter, malformed-frontmatter files, and files whose frontmatter points at a different project are indexed with derived or repaired metadata. The response includes `scanned`, `inserted`, and `skipped` counts/details. `skipped` is reserved for files that cannot be assigned to a valid project folder.
+
+```json
+{
+  "scanned": 12,
+  "inserted": 12,
+  "skipped": []
+}
+```
 
 ### `POST /api/admin/reload-templates`
 

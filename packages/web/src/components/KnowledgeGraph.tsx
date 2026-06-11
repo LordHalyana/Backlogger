@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ForceGraph2D from 'react-force-graph-2d';
 import type { DocumentType } from '@backlogger/shared';
-import { useGraph, type GraphNode } from '../lib/graph.js';
+import { useGraph, type GraphEdge, type GraphNode, type GraphPayload } from '../lib/graph.js';
 import { StatusMessage } from './StatusMessage.js';
-import { DOCUMENT_TYPE_COLORS } from '../lib/display.js';
+import { DOCUMENT_TYPE_COLORS, GRAPH_COLORS } from '../lib/display.js';
+import { Icon } from './Icon.js';
 
 interface Props {
   projectId: string;
@@ -11,20 +12,64 @@ interface Props {
   onClose: () => void;
 }
 
-// Colour by document type — defined in packages/web/src/lib/display.ts.
-const BROKEN_COLOUR = '#ef4444';
-const ORPHAN_COLOUR = '#94a3b8';
-const DEFAULT_COLOUR = '#64748b';
+interface ForceGraphLink {
+  source: string;
+  target: string;
+  display: string;
+}
+
+interface ForceGraphData {
+  nodes: GraphNode[];
+  links: ForceGraphLink[];
+}
+
+function toGraphNode(value: unknown): GraphNode {
+  return value as GraphNode;
+}
+
+function toForceGraphData(data: ForceGraphData): never {
+  return data as never;
+}
 
 function nodeColour(node: GraphNode): string {
-  if (node.kind === 'broken') return BROKEN_COLOUR;
-  if (node.inDegree === 0 && node.outDegree === 0) return ORPHAN_COLOUR;
-  return (node.type ? DOCUMENT_TYPE_COLORS[node.type as DocumentType] : undefined) ?? DEFAULT_COLOUR;
+  if (node.kind === 'broken') return GRAPH_COLORS.brokenNode;
+  if (node.inDegree === 0 && node.outDegree === 0) return GRAPH_COLORS.orphanNode;
+  return (node.type ? DOCUMENT_TYPE_COLORS[node.type as DocumentType] : undefined) ?? GRAPH_COLORS.defaultNode;
 }
 
 // Scale node size by in-degree (min 3, max 14)
 function nodeVal(node: GraphNode): number {
   return Math.max(3, Math.min(14, 3 + node.inDegree * 2));
+}
+
+function buildVisibleGraphData(data: GraphPayload | undefined, query: string): ForceGraphData {
+  if (!data) return { nodes: [], links: [] };
+  const q = query.trim().toLowerCase();
+
+  const visibleNodes = q
+    ? data.nodes.filter(
+        (n) =>
+          n.title.toLowerCase().includes(q) ||
+          n.tags?.some((t) => t.toLowerCase().includes(q)),
+      )
+    : data.nodes;
+
+  const visibleIds = new Set(visibleNodes.map((n) => n.id));
+
+  return {
+    nodes: visibleNodes,
+    links: data.edges
+      .filter((edge) => edgeVisible(edge, visibleIds))
+      .map((edge) => ({
+        source: edge.sourceId,
+        target: edge.targetId,
+        display: edge.display,
+      })),
+  };
+}
+
+function edgeVisible(edge: GraphEdge, visibleIds: ReadonlySet<string>): boolean {
+  return visibleIds.has(edge.sourceId) && visibleIds.has(edge.targetId);
 }
 
 export function KnowledgeGraph({ projectId, onOpenDocument, onClose }: Props) {
@@ -68,34 +113,7 @@ export function KnowledgeGraph({ projectId, onOpenDocument, onClose }: Props) {
     return map;
   }, [data]);
 
-  // Filter nodes & edges by search query
-  const filteredData = useMemo(() => {
-    if (!data) return { nodes: [], links: [] };
-    const q = query.trim().toLowerCase();
-
-    const visibleNodes = q
-      ? data.nodes.filter(
-          (n) =>
-            n.title.toLowerCase().includes(q) ||
-            n.tags?.some((t) => t.toLowerCase().includes(q)),
-        )
-      : data.nodes;
-
-    const visibleIds = new Set(visibleNodes.map((n) => n.id));
-
-    const visibleEdges = data.edges.filter(
-      (e) => visibleIds.has(e.sourceId) && visibleIds.has(e.targetId),
-    );
-
-    return {
-      nodes: visibleNodes,
-      links: visibleEdges.map((e) => ({
-        source: e.sourceId,
-        target: e.targetId,
-        display: e.display,
-      })),
-    };
-  }, [data, query]);
+  const filteredData = useMemo(() => buildVisibleGraphData(data, query), [data, query]);
 
   const handleNodeHover = useCallback(
     (node: GraphNode | null) => {
@@ -141,11 +159,13 @@ export function KnowledgeGraph({ projectId, onOpenDocument, onClose }: Props) {
           aria-label="Filter graph nodes"
         />
         <button
+          type="button"
           className="graph-overlay__close"
           onClick={onClose}
           aria-label="Close graph"
+          title="Close graph"
         >
-          ✕
+          <Icon name="close" />
         </button>
       </div>
 
@@ -162,21 +182,21 @@ export function KnowledgeGraph({ projectId, onOpenDocument, onClose }: Props) {
         )}
         {data && (
           <ForceGraph2D
-            graphData={filteredData as never}
+            graphData={toForceGraphData(filteredData)}
             width={dimensions.width}
             height={dimensions.height}
-            backgroundColor="var(--bg-body, #0f172a)"
+            backgroundColor={GRAPH_COLORS.canvasBackground}
             nodeId="id"
-            nodeLabel={(n) => (n as unknown as GraphNode).title}
-            nodeVal={(n) => nodeVal(n as unknown as GraphNode)}
-            nodeColor={(n) => nodeColorFn(n as unknown as GraphNode)}
+            nodeLabel={(n) => toGraphNode(n).title}
+            nodeVal={(n) => nodeVal(toGraphNode(n))}
+            nodeColor={(n) => nodeColorFn(toGraphNode(n))}
             linkSource="source"
             linkTarget="target"
-            linkColor={() => 'rgba(148,163,184,0.4)'}
+            linkColor={() => GRAPH_COLORS.link}
             linkDirectionalArrowLength={4}
             linkDirectionalArrowRelPos={1}
-            onNodeClick={(n) => handleNodeClick(n as unknown as GraphNode)}
-            onNodeHover={(n) => handleNodeHover(n as unknown as GraphNode | null)}
+            onNodeClick={(n) => handleNodeClick(toGraphNode(n))}
+            onNodeHover={(n) => handleNodeHover(n ? toGraphNode(n) : null)}
           />
         )}
       </div>
@@ -194,14 +214,14 @@ export function KnowledgeGraph({ projectId, onOpenDocument, onClose }: Props) {
         <span className="graph-overlay__legend-item">
           <span
             className="graph-overlay__legend-dot"
-            style={{ background: ORPHAN_COLOUR }}
+            style={{ background: GRAPH_COLORS.orphanNode }}
           />
           orphan
         </span>
         <span className="graph-overlay__legend-item">
           <span
             className="graph-overlay__legend-dot graph-overlay__legend-dot--broken"
-            style={{ background: BROKEN_COLOUR }}
+            style={{ background: GRAPH_COLORS.brokenNode }}
           />
           broken link
         </span>

@@ -1,6 +1,7 @@
 import type { Theme } from '../lib/theme.js';
 import { useReindex } from '../lib/reindex.js';
 import { useReloadTemplates, useTemplates } from '../lib/templates.js';
+import { Icon } from './Icon.js';
 import { Modal } from './Modal.js';
 
 interface SettingsDialogProps {
@@ -21,8 +22,15 @@ export function SettingsDialog({ theme, onToggleTheme, onClose, onOpenHelp }: Se
         <h3>Appearance</h3>
         <div className="settings-row">
           <span>Theme</span>
-          <button type="button" className="theme-toggle" onClick={onToggleTheme}>
-            {theme === 'dark' ? '☀ Light' : '☾ Dark'}
+          <button
+            type="button"
+            className="theme-toggle"
+            onClick={onToggleTheme}
+            aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+            title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+          >
+            <Icon name={theme === 'dark' ? 'sun' : 'moon'} />
+            <span>{theme === 'dark' ? 'Light' : 'Dark'}</span>
           </button>
         </div>
       </section>

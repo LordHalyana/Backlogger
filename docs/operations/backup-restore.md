@@ -103,6 +103,12 @@ Use project reload from the app when possible. Use full reindex when many projec
 If SQLite is missing but project folders exist:
 
 - Startup may auto-discover valid project folders.
-- Reindex rebuilds document metadata from Markdown frontmatter.
+- Reindex rebuilds document metadata from Backlogger frontmatter or derives
+  metadata for plain Markdown files.
 
-Files with invalid or missing frontmatter are skipped and reported by reindex.
+Files with invalid Backlogger frontmatter or a mismatched `project` value are
+skipped and reported by reindex. Plain Markdown without Backlogger frontmatter
+is indexed with derived metadata; it can be adopted on first edit after the
+project is explicitly switched to editable mode.
+
+See `docs/operations/data-storage.md` for the data directory layout, project mount rules, and external docs folder constraints.

@@ -9,6 +9,7 @@ interface DocumentRow {
   status: string;
   path: string;
   tags: string;
+  read_only: number;
   created_at: string;
   updated_at: string;
 }
@@ -29,6 +30,7 @@ function rowToSummary(row: DocumentRow): DocumentSummary {
     status: row.status as DocumentStatus,
     path: row.path,
     tags,
+    readOnly: row.read_only === 1,
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
@@ -42,6 +44,7 @@ export interface DocumentUpsertInput {
   status: DocumentStatus;
   path: string;
   tags: string[];
+  readOnly?: boolean;
   body: string;
   created_at: string;
   updated_at: string;
@@ -96,9 +99,9 @@ export class DocumentsRepo {
     this.db
       .prepare(
         `INSERT INTO documents
-           (id, project_id, title, type, status, path, tags, body_indexed, created_at, updated_at)
+           (id, project_id, title, type, status, path, tags, read_only, body_indexed, created_at, updated_at)
          VALUES
-           (@id, @project_id, @title, @type, @status, @path, @tags, @body_indexed, @created_at, @updated_at)
+           (@id, @project_id, @title, @type, @status, @path, @tags, @read_only, @body_indexed, @created_at, @updated_at)
          ON CONFLICT(id) DO UPDATE SET
            project_id   = excluded.project_id,
            title        = excluded.title,
@@ -106,12 +109,14 @@ export class DocumentsRepo {
            status       = excluded.status,
            path         = excluded.path,
            tags         = excluded.tags,
+           read_only    = excluded.read_only,
            body_indexed = excluded.body_indexed,
            updated_at   = excluded.updated_at`,
       )
       .run({
         ...input,
         tags: JSON.stringify(input.tags),
+        read_only: input.readOnly ? 1 : 0,
         body_indexed: input.body,
       });
     return this.find(input.id)!;

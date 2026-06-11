@@ -26,3 +26,11 @@ export const DOCUMENT_TYPE_COLORS: Record<DocumentType, string> = {
   backlog_item:        '#f59e0b',
   finding:             '#f87171',
 };
+
+export const GRAPH_COLORS = {
+  brokenNode: '#ef4444',
+  orphanNode: '#94a3b8',
+  defaultNode: '#64748b',
+  link: 'rgba(148,163,184,0.4)',
+  canvasBackground: 'transparent',
+} as const;

@@ -15,6 +15,8 @@ export interface RawDocument {
   path: string;
   frontmatter: Record<string, unknown>;
   body: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface FsRepositoryOptions {
@@ -177,11 +179,11 @@ export class FsRepository {
       }
       throw err;
     }
-    const parsed = matter(raw);
+    const parsed = parseMarkdown(raw);
     return {
       path: toForwardSlash(relativePath),
-      frontmatter: { ...(parsed.data as Record<string, unknown>) },
-      body: parsed.content,
+      frontmatter: parsed.frontmatter,
+      body: parsed.body,
     };
   }
 
@@ -235,7 +237,7 @@ export class FsRepository {
     try {
       const entries = await fs.readdir(this.resolver.projectsRoot, { withFileTypes: true });
       for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
+        if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
         yield* this.walkProject(entry.name);
       }
     } catch (err) {
@@ -271,12 +273,15 @@ async function* walkMarkdown(
     } else if (entry.isFile() && entry.name.endsWith('.md')) {
       const rel = toForwardSlash(path.relative(rootForRelative, abs));
       try {
+        const st = await fs.stat(abs);
         const raw = await fs.readFile(abs, 'utf8');
-        const parsed = matter(raw);
+        const parsed = parseMarkdown(raw);
         yield {
           path: rel,
-          frontmatter: { ...(parsed.data as Record<string, unknown>) },
-          body: parsed.content,
+          frontmatter: parsed.frontmatter,
+          body: parsed.body,
+          createdAt: st.birthtime.toISOString(),
+          updatedAt: st.mtime.toISOString(),
         };
       } catch (err) {
         if (err instanceof FsRepoError) throw err;
@@ -288,4 +293,16 @@ async function* walkMarkdown(
 
 function toForwardSlash(p: string): string {
   return p.replace(/\\/g, '/');
+}
+
+function parseMarkdown(raw: string): { frontmatter: Record<string, unknown>; body: string } {
+  try {
+    const parsed = matter(raw);
+    return {
+      frontmatter: { ...(parsed.data as Record<string, unknown>) },
+      body: parsed.content,
+    };
+  } catch {
+    return { frontmatter: {}, body: raw };
+  }
 }

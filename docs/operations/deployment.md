@@ -94,11 +94,13 @@ Project folder names must match:
 ^[a-z0-9][a-z0-9-]{1,62}$
 ```
 
+See `docs/operations/data-storage.md` for the full storage and mounted-project contract.
+
 ## Environment Variables
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `BACKLOGGER_HOST` | `0.0.0.0` | API bind address. |
+| `BACKLOGGER_HOST` | `0.0.0.0` | API bind address. Use `127.0.0.1` when the app should not be reachable from the LAN. |
 | `BACKLOGGER_PORT` | `3333` locally, `3002` in Docker | API port. |
 | `BACKLOGGER_WEB_PORT` | `5173` | Vite dev server port. |
 | `BACKLOGGER_DATA_DIR` | `./data` | Data root. |
@@ -113,7 +115,9 @@ Default CORS reflects any origin:
 BACKLOGGER_ALLOWED_ORIGINS=*
 ```
 
-This is convenient for LAN access. For a less trusted network, set a comma-separated allow-list:
+This is convenient for trusted LAN access. It is not a safe default for an
+untrusted network because any browser origin can call the API. Bind the server
+to `127.0.0.1` or set a comma-separated allow-list before exposing the app.
 
 ```text
 BACKLOGGER_ALLOWED_ORIGINS=http://home.local,http://127.0.0.1:5173
@@ -145,6 +149,10 @@ On startup the server:
 6. Watches project files for reload/reindex work.
 7. Discovers project folders missing from the database.
 8. Runs a full reindex if the document table is empty but Markdown exists.
+
+Startup discovery, startup sync, startup full reindex, and watcher-triggered
+sync log skipped Markdown files with path and reason details. Check these logs
+when a mounted project appears but some docs are missing.
 
 ## Operational Checks
 

@@ -25,15 +25,19 @@ const modules = import.meta.glob('../help/*.md', {
   eager: true,
 }) as Record<string, string>;
 
-function parseFrontmatter(source: string): { fm: RawFrontmatter; body: string } {
+export function parseFrontmatter(source: string): { fm: RawFrontmatter; body: string } {
   // Minimal YAML-ish parser: the help files only use string and number scalars.
-  if (!source.startsWith('---\n')) return { fm: {}, body: source };
-  const end = source.indexOf('\n---', 4);
+  if (!source.startsWith('---\n') && !source.startsWith('---\r\n')) {
+    return { fm: {}, body: source };
+  }
+  const start = source.startsWith('---\r\n') ? 5 : 4;
+  const end = source.search(/\r?\n---/);
   if (end === -1) return { fm: {}, body: source };
-  const block = source.slice(4, end);
-  const body = source.slice(end + 4).replace(/^\n/, '');
+  const block = source.slice(start, end);
+  const marker = source.slice(end).match(/^\r?\n---\r?\n?/);
+  const body = source.slice(end + (marker?.[0].length ?? 4));
   const fm: RawFrontmatter = {};
-  for (const line of block.split('\n')) {
+  for (const line of block.split(/\r?\n/)) {
     const m = line.match(/^(\w+):\s*(.*)$/);
     if (!m) continue;
     const [, key, rawValue] = m;

@@ -7,7 +7,13 @@ import {
 } from '@tanstack/react-query';
 import type { CreateProjectRequest, Project, UpdateProjectRequest } from '@backlogger/shared';
 import { apiFetch } from './api.js';
-import { queryKeys, invalidateDocumentDerived, clearDocumentBuffers } from './query-keys.js';
+import {
+  queryKeys,
+  clearDocumentBuffers,
+  invalidateDocumentDerived,
+  invalidateProjectList,
+  invalidateProjectReload,
+} from './query-keys.js';
 
 const PROJECTS_KEY = queryKeys.projects();
 
@@ -23,7 +29,7 @@ export function useCreateProject(): UseMutationResult<Project, Error, CreateProj
   return useMutation({
     mutationFn: (input) =>
       apiFetch<Project>('/api/projects', { method: 'POST', body: JSON.stringify(input) }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: PROJECTS_KEY }),
+    onSuccess: () => invalidateProjectList(qc),
   });
 }
 
@@ -39,7 +45,11 @@ export function useUpdateProject(): UseMutationResult<
         method: 'PUT',
         body: JSON.stringify(input),
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: PROJECTS_KEY }),
+    onSuccess: (_project, vars) => {
+      invalidateProjectList(qc);
+      invalidateDocumentDerived(qc, vars.id);
+      clearDocumentBuffers(qc);
+    },
   });
 }
 
@@ -47,7 +57,7 @@ export function useDeleteProject(): UseMutationResult<void, Error, string> {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id) => apiFetch<void>(`/api/projects/${id}`, { method: 'DELETE' }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: PROJECTS_KEY }),
+    onSuccess: () => invalidateProjectList(qc),
   });
 }
 
@@ -66,15 +76,7 @@ export function useReloadProject(): UseMutationResult<ReloadProjectReport, Error
   return useMutation({
     mutationFn: (id) =>
       apiFetch<ReloadProjectReport>(`/api/projects/${id}/reload`, { method: 'POST' }),
-    onSuccess: (report) => {
-      invalidateDocumentDerived(qc, report.projectId);
-      // Out-of-band edits don't bump frontmatter `updated_at`, so React
-      // Query won't rebuild buffers via updated_at change alone. Drop the
-      // cached document queries so any open editor refetches from scratch.
-      clearDocumentBuffers(qc);
-      for (const id of report.removedIds) {
-        qc.removeQueries({ queryKey: queryKeys.document(id) });
-      }
-    },
+    onSuccess: (report) =>
+      invalidateProjectReload(qc, report.projectId, report.removedIds),
   });
 }

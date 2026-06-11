@@ -4,11 +4,13 @@ import {
   CreateDocumentRequestSchema,
   DOCUMENT_TYPE_TO_SUBDIR,
   FrontmatterSchema,
+  isArchivedPath,
   unarchivePath,
   type CreateDocumentRequest,
   type Document,
   type DocumentSummary,
   type Frontmatter,
+  type Project,
   type UpdateDocumentRequest,
 } from '@backlogger/shared';
 import { BadRequestError, ConflictError, NotFoundError } from '../errors.js';
@@ -56,13 +58,16 @@ export class DocumentService {
   }
 
   listByProject(projectId: string): DocumentSummary[] {
-    this.assertProjectExists(projectId);
-    return this.documentsRepo.listByProject(projectId);
+    const project = this.getProject(projectId);
+    return this.applyProjectReadOnly(project, this.documentsRepo.listByProject(projectId));
   }
 
   listByProjectAndTags(projectId: string, tags: string[]): DocumentSummary[] {
-    this.assertProjectExists(projectId);
-    return this.documentsRepo.listByProjectAndTags(projectId, tags);
+    const project = this.getProject(projectId);
+    return this.applyProjectReadOnly(
+      project,
+      this.documentsRepo.listByProjectAndTags(projectId, tags),
+    );
   }
 
   /** Full document including body, read fresh from disk. */
@@ -70,7 +75,8 @@ export class DocumentService {
     const summary = this.documentsRepo.find(id);
     if (!summary) throw new NotFoundError('DOCUMENT_NOT_FOUND', `Document not found: ${id}`);
     const raw = await this.fs.read(summary.path);
-    return { ...summary, body: raw.body };
+    const project = this.getProject(summary.project_id);
+    return { ...summary, readOnly: project.readOnly, body: raw.body };
   }
 
   /**
@@ -94,7 +100,7 @@ export class DocumentService {
   }
 
   async create(projectId: string, input: CreateDocumentRequest): Promise<Document> {
-    this.assertProjectExists(projectId);
+    this.assertProjectWritable(projectId);
     // Re-validate to apply defaults from the schema (status, tags).
     const parsed = CreateDocumentRequestSchema.parse(input);
 
@@ -146,6 +152,7 @@ export class DocumentService {
         status: frontmatter.status,
         path: relPath,
         tags: frontmatter.tags,
+        readOnly: false,
         body,
         created_at: frontmatter.created_at,
         updated_at: frontmatter.updated_at,
@@ -160,7 +167,7 @@ export class DocumentService {
     this.tagsService.rebuildForDocument(id, frontmatter.tags);
     this.graphService.invalidate(projectId);
 
-    return { ...frontmatter, project_id: projectId, path: relPath, body };
+    return { ...frontmatter, project_id: projectId, path: relPath, readOnly: false, body };
   }
 
   async update(
@@ -170,6 +177,7 @@ export class DocumentService {
   ): Promise<Document> {
     const summary = this.documentsRepo.find(id);
     if (!summary) throw new NotFoundError('DOCUMENT_NOT_FOUND', `Document not found: ${id}`);
+    this.assertProjectWritable(summary.project_id);
 
     if (ifMatch !== undefined && ifMatch !== summary.updated_at) {
       throw new ConflictError(
@@ -181,22 +189,27 @@ export class DocumentService {
     const existing = await this.fs.read(summary.path);
     const now = this.now();
     const nextStatus = input.status ?? summary.status;
-    const nextFrontmatter: Frontmatter = FrontmatterSchema.parse({
-      ...existing.frontmatter,
-      title: input.title ?? summary.title,
-      status: nextStatus,
-      tags: input.tags ?? summary.tags,
-      updated_at: now,
-    });
+    const nextFrontmatter = summary.readOnly
+      ? FrontmatterSchema.parse({
+          id: summary.id,
+          title: input.title ?? summary.title,
+          project: summary.project_id,
+          type: summary.type,
+          status: nextStatus,
+          created_at: summary.created_at,
+          updated_at: now,
+          tags: input.tags ?? summary.tags,
+        })
+      : buildUpdatedFrontmatter(summary, existing, input, nextStatus, now);
     const nextBody = input.body ?? existing.body;
 
     // Move the file when archive status changes.
     const nextPath =
       nextStatus !== summary.status
         ? nextStatus === 'archived'
-          ? toArchivedPath(summary.path)
+          ? archivePath(summary.path)
           : summary.status === 'archived'
-            ? fromArchivedPath(summary.path)
+            ? unarchivePath(summary.path)
             : summary.path
         : summary.path;
 
@@ -213,6 +226,7 @@ export class DocumentService {
       status: nextFrontmatter.status,
       path: nextPath,
       tags: nextFrontmatter.tags,
+      readOnly: false,
       body: nextBody,
       created_at: summary.created_at,
       updated_at: now,
@@ -231,6 +245,7 @@ export class DocumentService {
       ...nextFrontmatter,
       project_id: summary.project_id,
       path: nextPath,
+      readOnly: false,
       body: nextBody,
     };
   }
@@ -238,54 +253,80 @@ export class DocumentService {
   async delete(id: string): Promise<void> {
     const summary = this.documentsRepo.find(id);
     if (!summary) throw new NotFoundError('DOCUMENT_NOT_FOUND', `Document not found: ${id}`);
+    this.assertProjectWritable(summary.project_id);
+    if (!summary.readOnly) {
+      const existing = await this.fs.read(summary.path);
+      assertEditableBackloggerDocument(summary, existing);
+    }
     this.documentsRepo.delete(id);
     this.linkService.onDocumentDeleted(id);
     this.graphService.invalidate(summary.project_id);
     await this.fs.delete(summary.path).catch(() => undefined);
   }
 
-  private assertProjectExists(projectId: string): void {
-    if (!this.projectsRepo.exists(projectId)) {
+  private getProject(projectId: string): Project {
+    const project = this.projectsRepo.find(projectId);
+    if (!project) {
       throw new NotFoundError('PROJECT_NOT_FOUND', `Project not found: ${projectId}`);
     }
+    return project;
+  }
+
+  private assertProjectWritable(projectId: string): Project {
+    const project = this.getProject(projectId);
+    if (project.readOnly) {
+      throw new ConflictError(
+        'PROJECT_READ_ONLY',
+        'This project is read-only. Disable read-only mode before editing it.',
+      );
+    }
+    return project;
+  }
+
+  private applyProjectReadOnly(
+    project: Project,
+    documents: DocumentSummary[],
+  ): DocumentSummary[] {
+    return documents.map((doc) => ({ ...doc, readOnly: project.readOnly }));
   }
 }
 
-// ---------------------------------------------------------------------------
-// Archive invariant
-// ---------------------------------------------------------------------------
-// 1. A document with status "archived" MUST be stored under
-//    <project-root>/archived/<original-path>.
-// 2. A document with status "active" or "draft" MUST NOT be stored under
-//    <project-root>/archived/<...>.
-// 3. If a mismatch is detected during reindex, the filesystem path wins:
-//    - file under archived/  →  status set to "archived"
-//    - file not under archived/ + status "archived" in frontmatter
-//      →  status corrected to "active"
-// See docs/design/archive-invariants.md for the full rationale.
-// ---------------------------------------------------------------------------
-
-/**
- * Insert an `archived` segment immediately after the project-id in a
- * project-relative path. Thin alias over the shared `archivePath` helper,
- * kept for the service's existing call sites and tests.
- *
- * `my-project/notes/doc-abc.md` → `my-project/archived/notes/doc-abc.md`
- */
-export function toArchivedPath(currentPath: string): string {
-  return archivePath(currentPath);
+function buildUpdatedFrontmatter(
+  summary: DocumentSummary,
+  raw: RawDocument,
+  input: UpdateDocumentRequest,
+  nextStatus: Frontmatter['status'],
+  now: string,
+): Frontmatter {
+  assertEditableBackloggerDocument(summary, raw);
+  return FrontmatterSchema.parse({
+    ...raw.frontmatter,
+    title: input.title ?? summary.title,
+    status: nextStatus,
+    tags: input.tags ?? summary.tags,
+    updated_at: now,
+  });
 }
 
-/**
- * Remove the `archived` segment from an archived project-relative path. Thin
- * alias over the shared `unarchivePath` helper.
- *
- * `my-project/archived/notes/doc-abc.md` → `my-project/notes/doc-abc.md`
- *
- * If the path is not under `archived/`, it is returned unchanged.
- */
-export function fromArchivedPath(currentPath: string): string {
-  return unarchivePath(currentPath);
+function assertEditableBackloggerDocument(summary: DocumentSummary, raw: RawDocument): void {
+  const parsed = FrontmatterSchema.safeParse(raw.frontmatter);
+  if (
+    !parsed.success ||
+    parsed.data.id !== summary.id ||
+    parsed.data.project !== summary.project_id
+  ) {
+    throw new ConflictError(
+      'DERIVED_DOCUMENT_READ_ONLY',
+      'This document was indexed from plain Markdown and cannot be modified until Backlogger frontmatter is added.',
+    );
+  }
+  const pathStatus = isArchivedPath(summary.path) ? 'archived' : 'active';
+  if (pathStatus === 'archived' && parsed.data.status !== 'archived') {
+    throw new ConflictError(
+      'DERIVED_DOCUMENT_READ_ONLY',
+      'This document has inconsistent archive metadata and cannot be modified until it is reindexed.',
+    );
+  }
 }
 
 /**

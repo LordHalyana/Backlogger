@@ -1,0 +1,85 @@
+/* Settings dialog content and template table. */
+.settings-modal {
+  width: 560px;
+  max-width: 95vw;
+}
+
+.settings-section {
+  margin-bottom: 20px;
+}
+
+.settings-section h3 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-muted);
+  margin: 0 0 8px;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+  font-size: 13px;
+}
+
+.settings-row button {
+  background: var(--bg-panel);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.settings-row button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.settings-row button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.settings-row .theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.settings-template-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin-top: 8px;
+}
+
+.settings-template-table th {
+  text-align: left;
+  padding: 4px 8px;
+  color: var(--fg-muted);
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-template-table td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.template-source-badge {
+  display: inline-block;
+  border-radius: 8px;
+  padding: 1px 8px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border: 1px solid var(--border);
+  color: var(--fg-muted);
+}
+
+.template-source-badge.user {
+  color: var(--accent);
+  border-color: var(--accent);
+}

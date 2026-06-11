@@ -1,0 +1,243 @@
+/* Document workspace layout, editor host, metadata panel, and save/conflict state. */
+.document-workspace {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.workspace-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elev);
+  font-size: 12px;
+}
+
+.segmented {
+  display: inline-flex;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.segmented-option {
+  background: var(--bg-panel);
+  color: var(--fg-muted);
+  border: none;
+  padding: 2px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.segmented-option + .segmented-option {
+  border-left: 1px solid var(--border);
+}
+
+.segmented-option:hover {
+  color: var(--fg);
+}
+
+.segmented-option.active {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+.view-mode-toggle {
+  margin-left: auto;
+}
+
+.dirty-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ok);
+}
+
+.dirty-dot.dirty {
+  background: var(--accent);
+}
+
+.conflict-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--danger);
+  color: var(--danger);
+  font-size: 13px;
+}
+
+.conflict-banner button {
+  margin-left: auto;
+  background: var(--danger);
+  color: var(--accent-fg);
+  border: none;
+  border-radius: 4px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.workspace-grid {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.editor-host {
+  flex: 1;
+  min-width: 0;
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.editor-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-muted);
+  font-size: 13px;
+}
+
+.editor-host .cm-editor {
+  height: 100%;
+  font-size: 13px;
+}
+
+.editor-host .cm-scroller {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.document-preview {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  padding: 12px 16px;
+  overflow: auto;
+  border-right: 1px solid var(--border);
+}
+
+.workspace-grid.view-edit .document-preview {
+  display: none;
+}
+
+.workspace-grid.view-preview .editor-host {
+  display: none;
+}
+
+.metadata-panel {
+  flex: 0 0 320px;
+  padding: 12px 16px;
+  overflow: auto;
+  background: var(--bg-elev);
+  color: var(--fg);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.metadata-panel h3 {
+  margin: 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-muted);
+}
+
+.metadata-panel label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.metadata-panel input,
+.metadata-panel select {
+  background: var(--bg-panel);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 6px;
+  font: inherit;
+  font-size: 13px;
+}
+
+.metadata-panel input:disabled,
+.metadata-panel select:disabled,
+.metadata-panel button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.metadata-readonly {
+  margin: 0;
+  padding: 8px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  color: var(--accent);
+  background: var(--bg-panel);
+  font-size: 12px;
+}
+
+.metadata-info {
+  margin: 4px 0 0;
+  font-size: 12px;
+}
+
+.metadata-info dt {
+  color: var(--fg-muted);
+  margin-top: 6px;
+}
+
+.metadata-info dd {
+  margin: 2px 0 0;
+  word-break: break-all;
+}
+
+.metadata-panel .danger {
+  margin-top: auto;
+  background: transparent;
+  color: var(--danger);
+  border: 1px solid var(--danger);
+  border-radius: 4px;
+  padding: 6px;
+  cursor: pointer;
+}
+
+.metadata-panel .archive-toggle {
+  margin-top: 6px;
+  background: transparent;
+  color: var(--fg-muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px;
+  cursor: pointer;
+}
+
+.metadata-panel .archive-toggle:hover {
+  color: var(--fg);
+  border-color: var(--fg-muted);
+}
+
+.metadata-panel .archive-toggle--restore {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.metadata-panel .archive-toggle--restore:hover {
+  opacity: 0.85;
+}
+
+.workspace-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  color: var(--fg-muted);
+}

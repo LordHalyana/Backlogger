@@ -58,3 +58,11 @@ export function Modal({
     </div>
   );
 }
+
+interface ModalActionsProps {
+  children: React.ReactNode;
+}
+
+export function ModalActions({ children }: ModalActionsProps): JSX.Element {
+  return <div className="modal-actions">{children}</div>;
+}

@@ -151,6 +151,7 @@ describe('Projects API', () => {
     expect(res.status).toBe(201);
     expect(res.body.id).toBe('home-system');
     expect(res.body.name).toBe('Home System');
+    expect(res.body.readOnly).toBe(false);
     expect(res.body.created_at).toBeTypeOf('string');
 
     const folders = await fs.readdir(path.join(h.dataDir, 'projects', 'home-system'));
@@ -207,6 +208,17 @@ describe('Projects API', () => {
     expect(res.body.description).toBe('desc');
   });
 
+  it('toggles project read-only mode', async () => {
+    await request(h.app).post('/api/projects').send({ id: 'aa', name: 'A' });
+    const locked = await request(h.app).put('/api/projects/aa').send({ readOnly: true });
+    expect(locked.status).toBe(200);
+    expect(locked.body.readOnly).toBe(true);
+
+    const unlocked = await request(h.app).put('/api/projects/aa').send({ readOnly: false });
+    expect(unlocked.status).toBe(200);
+    expect(unlocked.body.readOnly).toBe(false);
+  });
+
   it('rejects empty update body', async () => {
     await request(h.app).post('/api/projects').send({ id: 'aa', name: 'A' });
     const res = await request(h.app).put('/api/projects/aa').send({});
@@ -222,6 +234,16 @@ describe('Projects API', () => {
     expect(get.status).toBe(404);
 
     await expect(fs.access(path.join(h.dataDir, 'projects', 'aa'))).rejects.toThrow();
+  });
+
+  it('blocks project deletion while read-only mode is enabled', async () => {
+    await request(h.app).post('/api/projects').send({ id: 'aa', name: 'A' });
+    await request(h.app).put('/api/projects/aa').send({ readOnly: true });
+
+    const res = await request(h.app).delete('/api/projects/aa');
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('PROJECT_READ_ONLY');
+    await expect(fs.access(path.join(h.dataDir, 'projects', 'aa'))).resolves.toBeUndefined();
   });
 
   it('delete returns 404 for missing project', async () => {
@@ -353,6 +375,45 @@ describe('Documents API', () => {
     ).rejects.toThrow();
   });
 
+  it('marks documents read-only and blocks writes when the project is read-only', async () => {
+    const created = await request(h.app)
+      .post('/api/projects/aa/documents')
+      .send({ title: 'Locked Doc', type: 'note', body: 'body' });
+    await request(h.app).put('/api/projects/aa').send({ readOnly: true });
+
+    const list = await request(h.app).get('/api/projects/aa/documents');
+    expect(list.status).toBe(200);
+    expect(list.body[0].readOnly).toBe(true);
+
+    const fetched = await request(h.app).get(`/api/documents/${created.body.id}`);
+    expect(fetched.status).toBe(200);
+    expect(fetched.body.readOnly).toBe(true);
+
+    const create = await request(h.app)
+      .post('/api/projects/aa/documents')
+      .send({ title: 'Blocked', type: 'note' });
+    expect(create.status).toBe(409);
+    expect(create.body.error.code).toBe('PROJECT_READ_ONLY');
+
+    const update = await request(h.app)
+      .put(`/api/documents/${created.body.id}`)
+      .send({ title: 'Blocked' });
+    expect(update.status).toBe(409);
+    expect(update.body.error.code).toBe('PROJECT_READ_ONLY');
+
+    const del = await request(h.app).delete(`/api/documents/${created.body.id}`);
+    expect(del.status).toBe(409);
+    expect(del.body.error.code).toBe('PROJECT_READ_ONLY');
+
+    await request(h.app).put('/api/projects/aa').send({ readOnly: false });
+    const unlocked = await request(h.app)
+      .put(`/api/documents/${created.body.id}`)
+      .send({ title: 'Unlocked' });
+    expect(unlocked.status).toBe(200);
+    expect(unlocked.body.title).toBe('Unlocked');
+    expect(unlocked.body.readOnly).toBe(false);
+  });
+
   it('downloads the raw markdown via /api/documents/:id/raw', async () => {
     const created = await request(h.app)
       .post('/api/projects/aa/documents')
@@ -417,6 +478,43 @@ describe('Documents API', () => {
     const list2 = await request(h.app).get('/api/projects/aa/documents');
     const ids = (list2.body as Array<{ id: string }>).map((d) => d.id).sort();
     expect(ids).toEqual([a.body.id, b.body.id].sort());
+  });
+
+  it('full reindex registers valid project folders instead of skipping their files', async () => {
+    const projectDir = path.join(h.dataDir, 'projects', 'mounted-docs');
+    await fs.mkdir(projectDir, { recursive: true });
+    await fs.writeFile(
+      path.join(projectDir, 'readme.md'),
+      '# Mounted Docs\n\nDocs from a mounted folder.',
+      'utf8',
+    );
+
+    const report = await request(h.app).post('/api/admin/reindex');
+    expect(report.status).toBe(200);
+    expect(report.body.inserted).toBe(1);
+    expect(report.body.skipped).toEqual([]);
+
+    const projects = await request(h.app).get('/api/projects');
+    expect(projects.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'mounted-docs',
+          name: 'Mounted Docs',
+          readOnly: true,
+        }),
+      ]),
+    );
+
+    const list = await request(h.app).get('/api/projects/mounted-docs/documents');
+    expect(list.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: 'Mounted Docs',
+          path: 'mounted-docs/readme.md',
+          readOnly: true,
+        }),
+      ]),
+    );
   });
 });
 
@@ -1121,6 +1219,18 @@ describe('Import API', () => {
       });
     expect(res.status).toBe(404);
   });
+
+  it('blocks imports while read-only mode is enabled', async () => {
+    await request(h.app).put('/api/projects/aa').send({ readOnly: true });
+    const res = await request(h.app)
+      .post('/api/projects/aa/import')
+      .send({
+        placement: { type: 'note', titleStrategy: 'h1', onDuplicate: 'skip' },
+        files: [{ filename: 'x.md', content: '# x' }],
+      });
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('PROJECT_READ_ONLY');
+  });
 });
 
 describe('Project Reload API', () => {
@@ -1191,6 +1301,160 @@ describe('Project Reload API', () => {
     expect(fresh.body.body).toContain('OUT_OF_BAND_BODY');
   });
 
+  it('indexes plain Markdown files and adopts them on first edit in editable projects', async () => {
+    const docsDir = path.join(h.dataDir, 'projects', 'aa', 'external-docs');
+    await fs.mkdir(docsDir, { recursive: true });
+    const filePath = path.join(docsDir, 'getting-started.md');
+    await fs.writeFile(filePath, '# Getting Started\n\nPlain mounted docs content.', 'utf8');
+
+    const reload = await request(h.app).post('/api/projects/aa/reload').send();
+    expect(reload.status).toBe(200);
+    expect(reload.body.added).toBe(1);
+    expect(reload.body.skipped).toEqual([]);
+
+    const list = await request(h.app).get('/api/projects/aa/documents');
+    expect(list.status).toBe(200);
+    const doc = (list.body as Array<{ id: string; title: string; type: string; path: string; readOnly: boolean }>).find(
+      (d) => d.path === 'aa/external-docs/getting-started.md',
+    );
+    expect(doc).toMatchObject({
+      title: 'Getting Started',
+      type: 'note',
+      path: 'aa/external-docs/getting-started.md',
+      readOnly: false,
+    });
+
+    const fetched = await request(h.app).get(`/api/documents/${doc!.id}`);
+    expect(fetched.status).toBe(200);
+    expect(fetched.body.readOnly).toBe(false);
+    expect(fetched.body.body).toContain('Plain mounted docs content.');
+
+    const update = await request(h.app)
+      .put(`/api/documents/${doc!.id}`)
+      .set('If-Match', fetched.body.updated_at)
+      .send({ title: 'Adopted', body: 'adopted body' });
+    expect(update.status).toBe(200);
+    expect(update.body).toMatchObject({
+      id: doc!.id,
+      title: 'Adopted',
+      readOnly: false,
+      path: 'aa/external-docs/getting-started.md',
+    });
+
+    const adopted = await fs.readFile(filePath, 'utf8');
+    expect(adopted).toContain(`id: ${doc!.id}`);
+    expect(adopted).toContain('project: aa');
+    expect(adopted).toContain('adopted body');
+  });
+
+  it('indexes files with mismatched frontmatter as repaired read-only metadata', async () => {
+    const docsDir = path.join(h.dataDir, 'projects', 'aa', 'external-docs');
+    await fs.mkdir(docsDir, { recursive: true });
+    const filePath = path.join(docsDir, 'wrong-project.md');
+    await fs.writeFile(
+      filePath,
+      [
+        '---',
+        'id: 11111111-2222-4333-8444-555555555555',
+        'title: Wrong Project',
+        'project: old-project',
+        'type: design_doc',
+        'status: active',
+        "created_at: '2026-06-01T00:00:00.000Z'",
+        "updated_at: '2026-06-01T00:00:00.000Z'",
+        'tags: [external]',
+        '---',
+        '',
+        '# Wrong Project',
+        '',
+        'Content from another project.',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const reload = await request(h.app).post('/api/projects/aa/reload').send();
+    expect(reload.status).toBe(200);
+    expect(reload.body.added).toBe(1);
+    expect(reload.body.skipped).toEqual([]);
+
+    const list = await request(h.app).get('/api/projects/aa/documents');
+    const doc = (list.body as Array<{
+      id: string;
+      title: string;
+      type: string;
+      path: string;
+      readOnly: boolean;
+      tags: string[];
+    }>).find((d) => d.path === 'aa/external-docs/wrong-project.md');
+    expect(doc).toMatchObject({
+      title: 'Wrong Project',
+      type: 'design_doc',
+      path: 'aa/external-docs/wrong-project.md',
+      readOnly: false,
+      tags: ['external'],
+    });
+    expect(doc!.id).not.toBe('11111111-2222-4333-8444-555555555555');
+
+    const fetched = await request(h.app).get(`/api/documents/${doc!.id}`);
+    expect(fetched.status).toBe(200);
+    expect(fetched.body.project_id).toBe('aa');
+    expect(fetched.body.readOnly).toBe(false);
+    expect(fetched.body.body).toContain('Content from another project.');
+  });
+
+  it('indexes malformed-frontmatter Markdown as plain Markdown', async () => {
+    const docsDir = path.join(h.dataDir, 'projects', 'aa', 'external-docs');
+    await fs.mkdir(docsDir, { recursive: true });
+    const filePath = path.join(docsDir, 'bad-frontmatter.md');
+    await fs.writeFile(
+      filePath,
+      ['---', 'title: [', '---', '# Bad Frontmatter', '', 'Still index this file.'].join('\n'),
+      'utf8',
+    );
+
+    const reload = await request(h.app).post('/api/projects/aa/reload').send();
+    expect(reload.status).toBe(200);
+    expect(reload.body.added).toBe(1);
+    expect(reload.body.skipped).toEqual([]);
+
+    const list = await request(h.app).get('/api/projects/aa/documents');
+    expect(list.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: 'Bad Frontmatter',
+          path: 'aa/external-docs/bad-frontmatter.md',
+        }),
+      ]),
+    );
+  });
+
+  it('keeps plain Markdown files read-only while the project is read-only', async () => {
+    const docsDir = path.join(h.dataDir, 'projects', 'aa', 'locked-docs');
+    await fs.mkdir(docsDir, { recursive: true });
+    const filePath = path.join(docsDir, 'readme.md');
+    await fs.writeFile(filePath, '# Read Me\n\nLocked mounted docs content.', 'utf8');
+    await request(h.app).put('/api/projects/aa').send({ readOnly: true }).expect(200);
+
+    const reload = await request(h.app).post('/api/projects/aa/reload').send();
+    expect(reload.status).toBe(200);
+
+    const list = await request(h.app).get('/api/projects/aa/documents');
+    const doc = (list.body as Array<{ id: string; path: string; readOnly: boolean }>).find(
+      (d) => d.path === 'aa/locked-docs/readme.md',
+    );
+    expect(doc).toMatchObject({ readOnly: true });
+
+    const fetched = await request(h.app).get(`/api/documents/${doc!.id}`);
+    expect(fetched.body.readOnly).toBe(true);
+
+    const update = await request(h.app)
+      .put(`/api/documents/${doc!.id}`)
+      .send({ body: 'should not be written' });
+    expect(update.status).toBe(409);
+    expect(update.body.error.code).toBe('PROJECT_READ_ONLY');
+    expect(await fs.readFile(filePath, 'utf8')).toContain('Locked mounted docs content.');
+  });
+
   it('returns 409 when a second reload of the same project overlaps', async () => {
     await request(h.app)
       .post('/api/projects/aa/documents')
@@ -1252,6 +1516,15 @@ describe('Project Folders API', () => {
     expect(res.body).toEqual({ folder: 'phases/p3/blocks' });
     const list = await request(h.app).get('/api/projects/pp/folders');
     expect(list.body).toEqual(expect.arrayContaining(['phases', 'phases/p3', 'phases/p3/blocks']));
+  });
+
+  it('POST blocks folder creation while read-only mode is enabled', async () => {
+    await request(h.app).put('/api/projects/pp').send({ readOnly: true });
+    const res = await request(h.app)
+      .post('/api/projects/pp/folders')
+      .send({ folder: 'locked' });
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('PROJECT_READ_ONLY');
   });
 
   it('POST rejects invalid folder paths with 400', async () => {

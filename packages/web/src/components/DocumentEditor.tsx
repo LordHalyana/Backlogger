@@ -89,10 +89,10 @@ export function DocumentEditor({
       view.destroy();
       viewRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     // Only recreate the CodeMirror EditorView when document identity or readOnly changes.
     // Extensions (theme, autocomplete) are updated in-place via compartments; rebuilding
     // on every change would destroy unsaved editor state and reset scroll position.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [documentKey, readOnly]);
 
   // Swap the theme without rebuilding the editor.

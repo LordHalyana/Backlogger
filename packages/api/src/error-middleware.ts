@@ -2,6 +2,7 @@ import type { ErrorRequestHandler } from 'express';
 import type { ApiErrorBody } from '@backlogger/shared';
 import { HttpError } from './errors.js';
 import { FsRepoError } from './fs/index.js';
+import { logger } from './logger.js';
 
 const FS_TO_HTTP: Record<string, number> = {
   PATH_OUTSIDE_DATA_DIR: 400,
@@ -27,8 +28,7 @@ export const errorMiddleware: ErrorRequestHandler = (err, _req, res, _next) => {
     res.status(status).json(body);
     return;
   }
-  // eslint-disable-next-line no-console
-  console.error('[backlogger] unhandled error', err);
+  logger.error('unhandled error', err);
   const body: ApiErrorBody = {
     error: { code: 'INTERNAL_ERROR', message: 'Internal server error' },
   };

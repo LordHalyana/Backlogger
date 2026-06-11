@@ -1,20 +1,15 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import type { Document } from '@backlogger/shared';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  documentKey,
   useDeleteDocument,
   useDocument,
   useDocuments,
-  useUpdateDocument,
 } from '../lib/documents.js';
-import { useDebouncedCallback } from '../lib/debounce.js';
-import { ApiError } from '../lib/api.js';
 import { useDialog } from '../lib/dialog.js';
 import { useTitles } from '../lib/links.js';
 import type { Theme } from '../lib/theme.js';
+import { useDocumentBuffer } from '../hooks/useDocumentBuffer.js';
 import { DocumentPreview } from './DocumentPreview.js';
-import { MetadataPanel, type MetadataPanelValue } from './MetadataPanel.js';
+import { MetadataPanel } from './MetadataPanel.js';
 import { SegmentedControl } from './SegmentedControl.js';
 import { StatusMessage } from './StatusMessage.js';
 
@@ -38,33 +33,6 @@ interface DocumentWorkspaceProps {
   onOpenDocument?: (projectId: string, documentId: string) => void;
 }
 
-interface Buffer {
-  body: string;
-  meta: MetadataPanelValue;
-  /** Server `updated_at` this buffer is rebased on. */
-  baseUpdatedAt: string;
-}
-
-const SAVE_DEBOUNCE_MS = 800;
-
-function bufferFromDoc(doc: Document): Buffer {
-  return {
-    body: doc.body,
-    meta: { title: doc.title, status: doc.status, tags: [...doc.tags] },
-    baseUpdatedAt: doc.updated_at,
-  };
-}
-
-function bufferDiffersFromDoc(buf: Buffer, doc: Document): boolean {
-  return (
-    buf.body !== doc.body ||
-    buf.meta.title !== doc.title ||
-    buf.meta.status !== doc.status ||
-    buf.meta.tags.length !== doc.tags.length ||
-    buf.meta.tags.some((t, i) => doc.tags[i] !== t)
-  );
-}
-
 export function DocumentWorkspace({
   projectId,
   documentId,
@@ -72,9 +40,7 @@ export function DocumentWorkspace({
   onDeleted,
   onOpenDocument,
 }: DocumentWorkspaceProps): JSX.Element {
-  const qc = useQueryClient();
   const { data: doc, isLoading, isError, error, refetch } = useDocument(documentId);
-  const update = useUpdateDocument(projectId);
   const del = useDeleteDocument(projectId);
   const titlesQuery = useTitles(projectId);
   const wikiTitles = useMemo<readonly string[]>(
@@ -82,93 +48,19 @@ export function DocumentWorkspace({
     [titlesQuery.data],
   );
   const docsQuery = useDocuments(projectId);
+  const isReadOnly = doc?.readOnly ?? false;
 
-  const [buffer, setBuffer] = useState<Buffer | null>(null);
-  const bufferRef = useRef<Buffer | null>(null);
-  const [dirty, setDirty] = useState(false);
-  const [conflict, setConflict] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const {
+    buffer,
+    dirty,
+    conflict,
+    saveError,
+    isSaving,
+    handleBodyChange,
+    handleMetaChange,
+    resetConflictToDocument,
+  } = useDocumentBuffer(projectId, doc);
   const [viewMode, setViewMode] = useState<ViewMode>('split');
-
-  // (Re)initialize buffer whenever the loaded document id/version changes.
-  useEffect(() => {
-    if (!doc) return;
-    const fresh = bufferFromDoc(doc);
-    setBuffer(fresh);
-    bufferRef.current = fresh;
-    setDirty(false);
-    setConflict(false);
-    setSaveError(null);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  // Only rebase the editor buffer when document identity or server version changes.
-  // Including `bufferFromDoc` would cause unnecessary resets on every render.
-  }, [doc?.id, doc?.updated_at]);
-
-  const flush = useCallback(() => {
-    const buf = bufferRef.current;
-    if (!buf || !doc) return;
-    if (!bufferDiffersFromDoc(buf, doc)) {
-      setDirty(false);
-      return;
-    }
-    update.mutate(
-      {
-        id: doc.id,
-        ifMatch: buf.baseUpdatedAt,
-        input: {
-          title: buf.meta.title,
-          status: buf.meta.status,
-          tags: buf.meta.tags,
-          body: buf.body,
-        },
-      },
-      {
-        onSuccess: (updated) => {
-          setDirty(false);
-          setSaveError(null);
-          // The useEffect on doc.updated_at will rebase the buffer.
-          qc.setQueryData(documentKey(updated.id), updated);
-        },
-        onError: (err) => {
-          if (err instanceof ApiError && err.status === 409) {
-            setConflict(true);
-          } else {
-            setSaveError(err.message);
-          }
-        },
-      },
-    );
-  }, [doc, qc, update]);
-
-  const debouncedFlush = useDebouncedCallback(flush, SAVE_DEBOUNCE_MS);
-
-  const handleBodyChange = useCallback(
-    (next: string) => {
-      setBuffer((prev) => {
-        if (!prev) return prev;
-        const updated = { ...prev, body: next };
-        bufferRef.current = updated;
-        return updated;
-      });
-      setDirty(true);
-      debouncedFlush();
-    },
-    [debouncedFlush],
-  );
-
-  const handleMetaChange = useCallback(
-    (next: MetadataPanelValue) => {
-      setBuffer((prev) => {
-        if (!prev) return prev;
-        const updated = { ...prev, meta: next };
-        bufferRef.current = updated;
-        return updated;
-      });
-      setDirty(true);
-      debouncedFlush();
-    },
-    [debouncedFlush],
-  );
 
   // beforeunload guard while dirty.
   useEffect(() => {
@@ -182,11 +74,9 @@ export function DocumentWorkspace({
   }, [dirty]);
 
   const reload = useCallback(() => {
-    setConflict(false);
-    setBuffer(null);
-    bufferRef.current = null;
+    resetConflictToDocument();
     void refetch();
-  }, [refetch]);
+  }, [refetch, resetConflictToDocument]);
 
   const dialog = useDialog();
   const handleDelete = useCallback(() => {
@@ -221,7 +111,7 @@ export function DocumentWorkspace({
       <div className="workspace-status">
         <span className={'dirty-dot ' + (dirty ? 'dirty' : 'clean')} aria-hidden="true" />
         <span className="status-label">
-          {update.isPending ? 'Saving…' : dirty ? 'Unsaved changes' : 'Saved'}
+          {isReadOnly ? 'Read-only' : isSaving ? 'Saving...' : dirty ? 'Unsaved changes' : 'Saved'}
         </span>
         {saveError && <span className="error">Save failed: {saveError}</span>}
         <SegmentedControl
@@ -231,7 +121,7 @@ export function DocumentWorkspace({
           options={VIEW_MODE_OPTIONS}
           onChange={setViewMode}
         />
-        {dirty || update.isPending ? (
+        {dirty || isSaving ? (
           <button
             type="button"
             className="btn btn--sm"
@@ -270,6 +160,7 @@ export function DocumentWorkspace({
               value={buffer.body}
               onChange={handleBodyChange}
               theme={theme}
+              readOnly={isReadOnly}
               wikiTitles={wikiTitles}
             />
           </Suspense>
@@ -291,6 +182,7 @@ export function DocumentWorkspace({
           updatedAt={buffer.baseUpdatedAt}
           onDelete={handleDelete}
           deleting={del.isPending}
+          readOnly={isReadOnly}
           onOpenDocument={onOpenDocument}
         />
       </div>

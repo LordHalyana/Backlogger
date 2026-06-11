@@ -1,0 +1,38 @@
+/* Project selector and read-only toggle in the topbar. */
+.project-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  justify-content: center;
+}
+
+.project-switcher select,
+.project-switcher button {
+  background: var(--bg-panel);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font: inherit;
+}
+
+.project-switcher button:hover {
+  border-color: var(--accent);
+  cursor: pointer;
+}
+
+.project-switcher button.danger {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.project-switcher .readonly-toggle {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+
+.project-switcher .readonly-toggle.locked {
+  color: var(--accent);
+  border-color: var(--accent);
+}

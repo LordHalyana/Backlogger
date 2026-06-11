@@ -9,7 +9,7 @@ import {
 } from '@backlogger/shared';
 import type { DocumentsRepo } from '../db/documents-repo.js';
 import type { DocumentService } from './document-service.js';
-import { HttpError, NotFoundError } from '../errors.js';
+import { ConflictError, HttpError, NotFoundError } from '../errors.js';
 
 export interface ImportServiceDeps {
   documentsRepo: DocumentsRepo;
@@ -48,6 +48,7 @@ export class ImportService {
         // Bubble project-not-found and similar API errors — those abort the
         // whole request rather than landing in per-file errors.
         if (err instanceof NotFoundError && err.code === 'PROJECT_NOT_FOUND') throw err;
+        if (err instanceof ConflictError && err.code === 'PROJECT_READ_ONLY') throw err;
         result.errors.push({
           filename: file.filename,
           code: 'INVALID_FRONTMATTER',
@@ -156,6 +157,7 @@ export class ImportService {
     } catch (err) {
       // Validation throws from DocumentService.create land here.
       if (err instanceof NotFoundError && err.code === 'PROJECT_NOT_FOUND') throw err;
+      if (err instanceof ConflictError && err.code === 'PROJECT_READ_ONLY') throw err;
       if (err instanceof HttpError) {
         result.errors.push({
           filename: file.filename,

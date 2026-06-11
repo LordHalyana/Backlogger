@@ -14,6 +14,8 @@ import {
 } from './templates/registry.js';
 import { ensureUserTemplatesDir, watchUserTemplates } from './templates/watcher.js';
 import { watchProjectFiles } from './fs/project-watcher.js';
+import { logger } from './logger.js';
+import { formatSkippedFiles } from './services/reindex-report.js';
 
 // Load .env from the repository root (this file is packages/api/src/server.ts → 4 ups).
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
@@ -36,10 +38,7 @@ const userDir = userTemplatesDir(dataDir);
 await ensureUserTemplatesDir(userDir);
 const { loaded, skipped } = await loadAllTemplates(builtinDir, userDir);
 templates.setAll(loaded);
-// eslint-disable-next-line no-console
-console.log(
-  `[backlogger] templates loaded=${loaded.length} skipped=${skipped.length}`,
-);
+logger.info(`templates loaded=${loaded.length} skipped=${skipped.length}`);
 const ctx = buildContext({ db, dataDir, templates, builtinTemplatesDir: builtinDir, userTemplatesDir: userDir });
 await ctx.fs.ensureRoot();
 
@@ -62,11 +61,13 @@ await discoverNewProjects(ctx.resolver.projectsRoot, ctx.projectsRepo, ctx.reind
 // adding docs would leave the new files unindexed until a manual reload.
 for (const project of ctx.projectsRepo.list()) {
   const report = await ctx.reindexService.runProject(project.id);
-  if (report.added > 0 || report.updated > 0 || report.removed > 0) {
-    // eslint-disable-next-line no-console
-    console.log(
-      `[backlogger] startup sync project="${project.id}" added=${report.added} updated=${report.updated} removed=${report.removed}`,
+  if (report.added > 0 || report.updated > 0 || report.removed > 0 || report.skipped.length > 0) {
+    logger.info(
+      `startup sync project="${project.id}" added=${report.added} updated=${report.updated} removed=${report.removed} skipped=${report.skipped.length}`,
     );
+    if (report.skipped.length > 0) {
+      logger.warn(`startup sync project="${project.id}" skipped files: ${formatSkippedFiles(report.skipped)}`);
+    }
   }
 }
 
@@ -74,10 +75,12 @@ for (const project of ctx.projectsRepo.list()) {
 // content (e.g. fresh DB after a restore or a manual file drop).
 if (ctx.documentsRepo.count() === 0 && (await hasAnyMarkdown(ctx.resolver.projectsRoot))) {
   const report = await ctx.reindexService.run();
-  // eslint-disable-next-line no-console
-  console.log(
-    `[backlogger] startup reindex: scanned=${report.scanned} inserted=${report.inserted} skipped=${report.skipped.length}`,
+  logger.info(
+    `startup reindex: scanned=${report.scanned} inserted=${report.inserted} skipped=${report.skipped.length}`,
   );
+  if (report.skipped.length > 0) {
+    logger.warn(`startup reindex skipped files: ${formatSkippedFiles(report.skipped)}`);
+  }
 }
 
 const app = createApp(ctx, { allowedOrigins });
@@ -98,19 +101,15 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 app.listen(port, host, () => {
-  // eslint-disable-next-line no-console
-  console.log(`[backlogger] api listening on http://${host}:${port}`);
-  // eslint-disable-next-line no-console
-  console.log(`[backlogger] data dir: ${dataDir}`);
-  // eslint-disable-next-line no-console
-  console.log(
-    `[backlogger] cors: ${allowedOrigins === '*' ? 'reflect-any' : allowedOrigins.join(', ') || 'disabled'}`,
+  logger.info(`api listening on http://${host}:${port}`);
+  logger.info(`data dir: ${dataDir}`);
+  logger.info(
+    `cors: ${allowedOrigins === '*' ? 'reflect-any' : allowedOrigins.join(', ') || 'disabled'}`,
   );
 });
 
 const shutdown = (): void => {
-  // eslint-disable-next-line no-console
-  console.log('[backlogger] shutting down');
+  logger.info('shutting down');
   stopWatcher();
   stopProjectWatcher();
   db.close();
@@ -187,15 +186,16 @@ async function discoverNewProjects(
       id,
       name: idToName(id),
       description: null,
+      readOnly: true,
       created_at: now,
       updated_at: now,
     });
 
     const report = await reindexService.runProject(id);
-    // eslint-disable-next-line no-console
-    console.log(
-      `[backlogger] discovered project '${id}': indexed ${report.added} doc(s), skipped ${report.skipped.length}`,
-    );
+    logger.info(`discovered project '${id}': indexed ${report.added} doc(s), skipped ${report.skipped.length}`);
+    if (report.skipped.length > 0) {
+      logger.warn(`discovered project '${id}' skipped files: ${formatSkippedFiles(report.skipped)}`);
+    }
   }
 }
 

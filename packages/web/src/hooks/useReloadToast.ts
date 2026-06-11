@@ -1,5 +1,6 @@
-import { useCallback } from 'react';
-import { useDialog } from '../lib/dialog.js';
+import { createElement, useCallback } from 'react';
+import { ReindexResultSummary } from '../components/ReindexResultSummary.js';
+import { toastError, useDialog } from '../lib/dialog.js';
 import { useReloadProject } from '../lib/projects.js';
 
 interface UseReloadToastOptions {
@@ -40,11 +41,25 @@ export function useReloadToast({
         dialog.toast(
           `Reloaded ${projectId}: +${r.added}/~${r.updated}/-${r.removed} in ${r.durationMs} ms`,
         );
+        if (r.skipped.length > 0) {
+          void dialog.alert({
+            title: 'Reload result',
+            message: createElement(ReindexResultSummary, {
+              counts: [
+                  { label: 'Added', value: r.added },
+                  { label: 'Updated', value: r.updated },
+                  { label: 'Removed', value: r.removed },
+                  { label: 'Skipped', value: r.skipped.length },
+                  { label: 'Duration', value: `${r.durationMs} ms` },
+                ],
+              skipped: r.skipped,
+            }),
+            confirmLabel: 'OK',
+          });
+        }
         if (r.removedIds.length > 0) onRemovedIds?.(r.removedIds);
       },
-      onError: (err) => {
-        dialog.toast(`Reload failed: ${err.message}`, { kind: 'error' });
-      },
+      onError: (err) => toastError(dialog, 'Reload failed', err),
     });
   }, [projectId, mutation, dialog, onRemovedIds]);
 

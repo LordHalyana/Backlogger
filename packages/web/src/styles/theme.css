@@ -12,6 +12,12 @@
   --danger: #ff6b6b;
   --ok: #5ad19a;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --overlay-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+  --drawer-shadow: -8px 0 24px rgba(0, 0, 0, 0.25);
+  --backdrop: rgba(0, 0, 0, 0.45);
+  --backdrop-strong: rgba(0, 0, 0, 0.5);
+  --backdrop-soft: rgba(0, 0, 0, 0.35);
+  --tag-active-hover: rgba(0, 0, 0, 0.15);
   /* Interaction states */
   --focus:    #4f8ef7;
   --hover:    rgba(255, 255, 255, 0.05);
@@ -31,6 +37,12 @@
   --danger: #d1242f;
   --ok: #1a7f37;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  --overlay-shadow: 0 24px 60px rgba(31, 35, 40, 0.18);
+  --drawer-shadow: -8px 0 24px rgba(31, 35, 40, 0.12);
+  --backdrop: rgba(31, 35, 40, 0.28);
+  --backdrop-strong: rgba(31, 35, 40, 0.35);
+  --backdrop-soft: rgba(31, 35, 40, 0.22);
+  --tag-active-hover: rgba(255, 255, 255, 0.18);
   /* Interaction states */
   --focus:    #2f6feb;
   --hover:    rgba(0, 0, 0, 0.05);

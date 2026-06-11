@@ -10,14 +10,14 @@ tags: []
 ---
 
 > **Historical archive.** This folder contains documents from earlier project phases and
-> is not current guidance. Current design docs live in `docs/design/`, current analysis
-> reports in `docs/reports/`, and operations docs in `docs/operations/`.
+> is not current guidance. Current design docs live in `docs/design/`, and operations
+> docs live in `docs/operations/`.
 
 # Backlogger — Documentation
 
 This is the source of truth for everything Backlogger: the original product
 design, the per-phase implementation plans, the block-level design notes,
-operations guides, and status reports.
+and operations guides.
 
 ## Layout
 
@@ -32,7 +32,6 @@ docs/
     design.md            # (p3 only — phase-scoped design doc)
     blocks/              # per-block design + §7 implementation notes
   operations/            # operator-facing guides (monitoring, etc.)
-  reports/               # dated status reports
 ```
 
 ## Conventions
@@ -44,8 +43,6 @@ docs/
   ✅ Done.
 - Cross-document links use relative paths (`../design/overview.md`,
   `./blocks/block-3-…`).
-- New status reports go under `reports/` and are named
-  `YYYY-MM-DD-<topic>.md`.
 
 ## Quick links
 
@@ -106,9 +103,5 @@ docs/
   [4 Edit audit log](p7/blocks/block-4-edit-audit-log.md) ·
   [5 Real-time presence](p7/blocks/block-5-presence.md)
 
-### Operations & reports
+### Operations
 - [Monitoring](operations/monitoring.md)
-- [Status report — 2026-05-31](reports/2026-05-31-status.md)
-- [Status report — 2026-06-01 · Folder management](reports/2026-06-01-folder-management.md)
-- [**Comprehensive project report — 2026-06-01**](reports/2026-06-01-comprehensive-project-report.md)
-- [Status report — 2026-06-02 · Phase 5 complete](reports/2026-06-02-phase-5.md)

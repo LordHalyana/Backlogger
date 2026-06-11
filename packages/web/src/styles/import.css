@@ -1,0 +1,36 @@
+/* Import dialog staged file list and import result summary. */
+.import-file-list {
+  list-style: none;
+  margin: 4px 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  max-height: 160px;
+  overflow-y: auto;
+  font-size: 12px;
+}
+
+.import-file-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.import-file-list li small {
+  color: var(--fg-muted);
+}
+
+.import-result {
+  margin: 8px 0;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-panel);
+  font-size: 13px;
+}
+
+.import-result ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}

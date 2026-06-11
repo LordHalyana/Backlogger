@@ -44,7 +44,7 @@ export function TagInput({
     <>
       <div className="tag-input-row">
         {value.map((t) => (
-          <TagChip key={t} tag={t} onRemove={remove} />
+          <TagChip key={t} tag={t} onRemove={disabled ? undefined : remove} />
         ))}
         <input
           type="text"

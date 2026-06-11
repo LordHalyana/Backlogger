@@ -38,7 +38,7 @@ describe('applyPlaceholders', () => {
 
 describe('loadTemplatesFromDir', () => {
   it('finds the built-in default dir', () => {
-    expect(defaultTemplatesDir()).toContain('packages/api/templates');
+    expect(defaultTemplatesDir().replace(/\\/g, '/')).toContain('packages/api/templates');
   });
 
   it('loads all six built-in templates', async () => {

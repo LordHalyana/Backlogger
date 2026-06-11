@@ -1,6 +1,8 @@
 import * as path from 'node:path';
 import chokidar from 'chokidar';
 import type { ReindexService } from '../services/reindex-service.js';
+import { logger } from '../logger.js';
+import { formatSkippedFiles } from '../services/reindex-report.js';
 
 const DEBOUNCE_MS = 800;
 
@@ -30,15 +32,16 @@ export function watchProjectFiles(opts: ProjectWatcherOptions): () => void {
       setTimeout(() => {
         timers.delete(projectId);
         reindexService.runProject(projectId).then((report) => {
-          // eslint-disable-next-line no-console
-          console.log(
-            `[backlogger] auto-reindex project="${projectId}" added=${report.added} updated=${report.updated} removed=${report.removed}`,
+          logger.info(
+            `auto-reindex project="${projectId}" added=${report.added} updated=${report.updated} removed=${report.removed} skipped=${report.skipped.length}`,
           );
+          if (report.skipped.length > 0) {
+            logger.warn(`auto-reindex project="${projectId}" skipped files: ${formatSkippedFiles(report.skipped)}`);
+          }
         }).catch((err: unknown) => {
           // ReloadInProgressError is normal when the user also clicks Reload; suppress it.
           const msg = err instanceof Error ? err.message : String(err);
-          // eslint-disable-next-line no-console
-          console.warn(`[backlogger] auto-reindex project="${projectId}" skipped: ${msg}`);
+          logger.warn(`auto-reindex project="${projectId}" skipped: ${msg}`);
         });
       }, DEBOUNCE_MS),
     );

@@ -82,17 +82,22 @@ Use after:
 - SQLite drift
 - manual project folder mounts
 
-### `npm run seed:docs`
-
-Seeds the docs project from repository docs.
-
-This writes runtime data. Use for dogfooding/demo setup, not against valuable production data unless you understand the target project id.
-
 ### `npm run register-docs`
 
 Registers the repository docs as a Backlogger project.
 
-Use for local dogfooding.
+Preferred for local dogfooding. This matches the mounted-docs workflow by
+registering the repository `docs/` folder in place, instead of copying it into
+runtime data.
+
+### `npm run seed:docs`
+
+Demo-only. Seeds the docs project by copying repository docs into runtime data.
+
+This deletes and recreates the `backlogger-docs` runtime project folder and DB
+row before writing copied files. Do not use it against valuable data. Prefer
+`npm run register-docs` unless you specifically need a disposable copied demo
+project.
 
 ## Bench And Audit Scripts
 

@@ -2,7 +2,7 @@
 
 Self-hosted Markdown workspace for ideas, design documents, implementation plans, and backlogs.
 
-> Status: Phase 5 complete. See [docs/design/roadmap.md](docs/design/roadmap.md) for the full roadmap.
+> Status: mounted-docs and maintainability cleanup in progress. See [docs/README.md](docs/README.md) for current documentation and [docs/design/roadmap.md](docs/design/roadmap.md) for current priorities.
 
 ## Features
 
@@ -35,7 +35,9 @@ Both the API and the Vite dev server bind `0.0.0.0` by default, so the app
 is reachable from another device on your LAN at
 `http://<your-lan-ip>:5173`. CORS defaults to reflect-any-origin
 (`BACKLOGGER_ALLOWED_ORIGINS=*`) so cross-device access works out of the
-box; set the env var to a comma-separated allow-list to lock it down.
+box. On untrusted networks, bind to localhost or set
+`BACKLOGGER_ALLOWED_ORIGINS` to a comma-separated allow-list before exposing
+the app.
 
 The web dev server proxies `/api` and `/health` to the API.
 
@@ -58,6 +60,8 @@ docker run -d \
 ```
 
 Any folder (or symlink) placed under `/app/data/projects/` is auto-discovered and registered on startup - no manual import needed. The folder name becomes the project ID.
+
+For details on mounted docs folders, indexing behavior, and current frontmatter requirements, see [docs/operations/data-storage.md](docs/operations/data-storage.md).
 
 **Build the image locally:**
 
@@ -95,12 +99,12 @@ docker build -t backlogger .
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `BACKLOGGER_HOST` | `0.0.0.0` | API bind address. `0.0.0.0` = LAN-reachable. |
+| `BACKLOGGER_HOST` | `0.0.0.0` | API bind address. Use `127.0.0.1` when the app should not be LAN-reachable. |
 | `BACKLOGGER_PORT` | `3333` | API listen port. |
 | `BACKLOGGER_WEB_PORT` | `5173` | Vite dev server port. |
 | `BACKLOGGER_DATA_DIR` | `./data` | Where `projects/` and `backlogger.sqlite` live. |
 | `BACKLOGGER_TEMPLATES_DIR` | `packages/api/templates` | Override the built-in document templates directory. |
-| `BACKLOGGER_ALLOWED_ORIGINS` | `*` | CORS allow-list. `*` reflects any origin; comma-separated list otherwise; empty disables CORS. |
+| `BACKLOGGER_ALLOWED_ORIGINS` | `*` | CORS allow-list. `*` reflects any origin; use a comma-separated list on untrusted networks; empty disables CORS. |
 
 `.env` at the repo root is loaded automatically by the API.
 
@@ -112,7 +116,7 @@ packages/
 |-- api/      # Express server
 `-- web/      # React + Vite app
 data/         # runtime data (gitignored) - filesystem source of truth
-docs/         # design + implementation plans
+docs/         # current docs, cleanup reports, and archived historical plans
 Dockerfile
 docker-compose.yml
 ```

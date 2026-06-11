@@ -1,8 +1,11 @@
 #!/usr/bin/env -S npx tsx
 /**
- * Seed (or re-seed) a `backlogger-docs` project from the repository's
- * `docs/` tree.  Idempotent: wipes the existing project folder + DB row
- * before recreating from scratch.
+ * Demo-only seed for a `backlogger-docs` project from the repository's
+ * `docs/` tree. This wipes the existing project folder + DB row before
+ * recreating from scratch.
+ *
+ * Prefer `npm run register-docs` for normal local dogfooding. That workflow
+ * uses the docs/ folder in place and matches the mounted-docs model.
  *
  * Layout mirrors the on-disk `docs/` hierarchy 1:1 using Backlogger's
  * arbitrary-folder feature:
@@ -10,9 +13,9 @@
  *   docs/README.md          → (project root)/readme.md
  *   docs/design/overview.md → design/overview.md
  *   docs/p3/blocks/block-1-search.md → p3/blocks/block-1-search.md
- *   docs/reports/2026-05-31-status.md → reports/2026-05-31-status.md
+ *   docs/findings/search-audit.md → findings/search-audit.md
  *
- * After running, the script invokes a project reindex so the new files
+ * After running, this script invokes a project reindex so the new files
  * are visible immediately — no server restart needed.
  */
 import * as path from 'node:path';
@@ -69,7 +72,7 @@ function classify(rel: string): { type: DocType; tags: string[] } {
   ) {
     return { type: 'design_doc', tags: [...tags] };
   }
-  if (parts[0] === 'reports') tags.add('status');
+  if (parts[0] === 'findings') tags.add('findings');
   if (parts[0] === 'operations') tags.add('operations');
   return { type: 'note', tags: [...tags] };
 }

@@ -1,23 +1,15 @@
 import { useMemo, useState } from 'react';
 import type { DocumentSummary } from '@backlogger/shared';
-import { FolderPathSchema, folderFromDocumentPath, isArchivedFolder } from '@backlogger/shared';
+import { FolderPathSchema } from '@backlogger/shared';
 import { useDocuments } from '../lib/documents.js';
 import { useFilteredDocuments } from '../lib/tags.js';
 import { useFolders, useCreateFolder, useDeleteFolder } from '../lib/folders.js';
-import { useDialog } from '../lib/dialog.js';
+import { toastError, useDialog } from '../lib/dialog.js';
+import { buildProjectTreeGroups, isAncestorCollapsed } from '../lib/project-tree-groups.js';
 import { TagChip } from './TagChip.js';
 import { NewDocumentDialog } from './NewDocumentDialog.js';
 import { StatusMessage } from './StatusMessage.js';
 import { FolderTreeGroup } from './FolderTreeGroup.js';
-
-/** True if any ancestor folder (not self) is in the collapsed set. */
-function isAncestorCollapsed(folder: string, collapsed: ReadonlySet<string>): boolean {
-  const parts = folder.split('/');
-  for (let i = 1; i < parts.length; i++) {
-    if (collapsed.has(parts.slice(0, i).join('/'))) return true;
-  }
-  return false;
-}
 
 interface ProjectTreeProps {
   projectId: string;
@@ -26,10 +18,7 @@ interface ProjectTreeProps {
   selectedTags?: readonly string[];
   onClearTags?: () => void;
   onRemoveTag?: (tag: string) => void;
-}
-
-function folderOf(projectId: string, path: string): string {
-  return folderFromDocumentPath(projectId, path);
+  readOnly?: boolean;
 }
 
 export function ProjectTree({
@@ -39,6 +28,7 @@ export function ProjectTree({
   selectedTags = [],
   onClearTags,
   onRemoveTag,
+  readOnly = false,
 }: ProjectTreeProps): JSX.Element {
   const allDocs = useDocuments(projectId);
   const filteredDocs = useFilteredDocuments(projectId, selectedTags);
@@ -62,33 +52,13 @@ export function ProjectTree({
     });
   };
 
-  const grouped = useMemo(() => {
-    const map = new Map<string, DocumentSummary[]>();
-    for (const d of data ?? []) {
-      const f = folderOf(projectId, d.path);
-      const arr = map.get(f) ?? [];
-      arr.push(d);
-      map.set(f, arr);
-    }
-    return map;
-  }, [data, projectId]);
-
-  const { activeFolders, archivedFolders } = useMemo(() => {
-    const s = new Set<string>(grouped.keys());
-    for (const f of folders.data ?? []) s.add(f);
-    s.delete('');
-    const active: string[] = [];
-    const archived: string[] = [];
-    for (const f of [...s].sort()) {
-      if (isArchivedFolder(f)) archived.push(f);
-      else active.push(f);
-    }
-    return { activeFolders: active, archivedFolders: archived };
-  }, [grouped, folders.data]);
-
-  const rootDocs = grouped.get('') ?? [];
+  const { grouped, rootDocs, activeFolders, archivedFolders } = useMemo(
+    () => buildProjectTreeGroups(projectId, data, folders.data),
+    [data, folders.data, projectId],
+  );
 
   const addFolder = async (): Promise<void> => {
+    if (readOnly) return;
     const name = await dialog.prompt({
       title: 'New Folder',
       message: 'Enter a folder path:',
@@ -102,12 +72,13 @@ export function ProjectTree({
     createFolder.mutate(
       { projectId, folder: name.trim() },
       {
-        onError: (e) => dialog.toast(`Failed to create folder: ${e.message}`, { kind: 'error' }),
+        onError: (e) => toastError(dialog, 'Failed to create folder', e),
       },
     );
   };
 
   const removeFolder = async (folder: string): Promise<void> => {
+    if (readOnly) return;
     const docs = grouped.get(folder) ?? [];
     if (docs.length > 0) {
       await dialog.confirm({
@@ -129,7 +100,7 @@ export function ProjectTree({
     deleteFolder.mutate(
       { projectId, folder },
       {
-        onError: (e) => dialog.toast(`Failed to delete folder: ${e.message}`, { kind: 'error' }),
+        onError: (e) => toastError(dialog, 'Failed to delete folder', e),
       },
     );
   };
@@ -147,6 +118,11 @@ export function ProjectTree({
         {d.status === 'archived' && (
           <span className="badge badge-archived" aria-hidden="true">
             archived
+          </span>
+        )}
+        {d.readOnly && (
+          <span className="badge badge-readonly" aria-hidden="true">
+            read-only
           </span>
         )}
       </button>
@@ -175,7 +151,12 @@ export function ProjectTree({
     <aside className="project-tree">
       <div className="project-tree-header">
         <h2>Documents</h2>
-        <button type="button" onClick={() => setShowNew(true)} title="New document">
+        <button
+          type="button"
+          onClick={() => setShowNew(true)}
+          title={readOnly ? 'Disable read-only mode before creating documents' : 'New document'}
+          disabled={readOnly}
+        >
           + New
         </button>
       </div>
@@ -185,7 +166,8 @@ export function ProjectTree({
           type="button"
           className="folder-add-btn"
           onClick={addFolder}
-          title="Add folder"
+          disabled={readOnly}
+          title={readOnly ? 'Disable read-only mode before adding folders' : 'Add folder'}
           aria-label="Add folder"
         >
           +
@@ -194,8 +176,9 @@ export function ProjectTree({
           type="button"
           className={'folder-manage-btn' + (manageFolders ? ' active' : '')}
           onClick={() => setManageFolders((v) => !v)}
+          disabled={readOnly}
           aria-pressed={manageFolders}
-          title="Toggle delete buttons"
+          title={readOnly ? 'Disable read-only mode before managing folders' : 'Toggle delete buttons'}
         >
           {manageFolders ? 'Done' : 'Manage'}
         </button>
@@ -216,7 +199,7 @@ export function ProjectTree({
         <StatusMessage kind="error">Failed to load: {error?.message}</StatusMessage>
       )}
       {!isLoading && !isError && (data?.length ?? 0) === 0 && activeFolders.length === 0 && archivedFolders.length === 0 && (
-        <StatusMessage kind="empty">No documents yet. Click "+ New" to create one.</StatusMessage>
+        <StatusMessage kind="empty">No documents yet. Click &quot;+ New&quot; to create one.</StatusMessage>
       )}
       <ul className="tree-groups">
         {activeFolders.map(renderFolder)}

@@ -25,7 +25,9 @@ Source data lives under:
 data/projects/<project-id>/**/*.md
 ```
 
-Each Markdown file contains frontmatter plus body content.
+Backlogger-authored Markdown files contain frontmatter plus body content. Plain
+Markdown files without Backlogger frontmatter can also be indexed with derived
+metadata from path, heading, and file stats.
 
 ## Derived Data
 
@@ -119,7 +121,8 @@ ReindexService.runProject
 Required updates:
 
 - Walk one project folder on disk.
-- Upsert present valid Markdown files.
+- Upsert present Backlogger Markdown files and plain Markdown files with
+  derived metadata.
 - Rebuild links and tags for each present file.
 - Delete database rows whose backing files disappeared.
 - Remove deleted document link state.
@@ -145,7 +148,8 @@ Required updates:
 - Truncate document metadata.
 - Truncate link and tag indexes.
 - Walk all projects.
-- Reinsert valid documents.
+- Reinsert Backlogger Markdown files and plain Markdown files with derived
+  metadata.
 - Rebuild links and tags.
 - Invalidate the entire graph cache.
 
@@ -192,6 +196,7 @@ If SQLite and disk drift:
 Coverage should exist for:
 
 - create/update/delete refreshing links and tags.
+- first-edit adoption of plain Markdown when a project is editable.
 - archive/unarchive path movement and status consistency.
 - import skip/copy/replace behavior.
 - project reload adding, updating, and removing rows.

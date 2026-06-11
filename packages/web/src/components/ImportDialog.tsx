@@ -6,12 +6,12 @@ import type {
 } from '@backlogger/shared';
 import { useImportFiles } from '../lib/documents.js';
 import { ApiError } from '../lib/api.js';
-import { Modal } from './Modal.js';
+import { Modal, ModalActions } from './Modal.js';
 
 interface ImportDialogProps {
   projectId: string;
   onClose: () => void;
-  onImported: (result: ImportResult) => void;
+  onImported?: (result: ImportResult) => void;
 }
 
 const TYPE_OPTIONS: Array<{ value: DocumentType; label: string }> = [
@@ -81,7 +81,7 @@ export function ImportDialog({
       {
         onSuccess: (r) => {
           setResult(r);
-          onImported(r);
+          onImported?.(r);
         },
       },
     );
@@ -172,7 +172,7 @@ export function ImportDialog({
               )}
             </div>
           )}
-          <div className="modal-actions">
+          <ModalActions>
             <button type="button" onClick={onClose}>
               {result ? 'Close' : 'Cancel'}
             </button>
@@ -184,7 +184,7 @@ export function ImportDialog({
             >
               {importMutation.isPending ? 'Importing…' : 'Import'}
             </button>
-          </div>
+          </ModalActions>
         </form>
     </Modal>
   );

@@ -1,4 +1,5 @@
 import type { QueryClient } from '@tanstack/react-query';
+import type { Document } from '@backlogger/shared';
 
 /**
  * Centralized React Query keys. Every query and mutation must reference keys
@@ -28,8 +29,52 @@ export function invalidateDocumentDerived(qc: QueryClient, projectId: string): v
   void qc.invalidateQueries({ queryKey: queryKeys.documents(projectId) });
   void qc.invalidateQueries({ queryKey: queryKeys.tags(projectId) });
   void qc.invalidateQueries({ queryKey: queryKeys.titles(projectId) });
+  void qc.invalidateQueries({ queryKey: queryKeys.graph(projectId) });
   // Backlinks are keyed per-document; invalidate the whole family.
   void qc.invalidateQueries({ queryKey: ['backlinks'] });
+}
+
+export function invalidateProjectList(qc: QueryClient): void {
+  void qc.invalidateQueries({ queryKey: queryKeys.projects() });
+}
+
+export function invalidateProjectFolders(qc: QueryClient, projectId: string): void {
+  void qc.invalidateQueries({ queryKey: queryKeys.folders(projectId) });
+}
+
+export function invalidateProjectStructure(qc: QueryClient, projectId: string): void {
+  invalidateProjectFolders(qc, projectId);
+  void qc.invalidateQueries({ queryKey: queryKeys.documents(projectId) });
+}
+
+export function setDocumentCache(qc: QueryClient, doc: Document): void {
+  qc.setQueryData(queryKeys.document(doc.id), doc);
+}
+
+export function removeDocumentCache(qc: QueryClient, id: string): void {
+  qc.removeQueries({ queryKey: queryKeys.document(id) });
+}
+
+export function invalidateProjectReload(
+  qc: QueryClient,
+  projectId: string,
+  removedIds: readonly string[],
+): void {
+  invalidateDocumentDerived(qc, projectId);
+  invalidateProjectFolders(qc, projectId);
+  clearDocumentBuffers(qc);
+  for (const id of removedIds) removeDocumentCache(qc, id);
+}
+
+export function invalidateGlobalReindex(qc: QueryClient): void {
+  invalidateProjectList(qc);
+  void qc.invalidateQueries({ queryKey: ['documents'] });
+  void qc.invalidateQueries({ queryKey: ['tags'] });
+  void qc.invalidateQueries({ queryKey: ['titles'] });
+  void qc.invalidateQueries({ queryKey: ['backlinks'] });
+  void qc.invalidateQueries({ queryKey: ['graph'] });
+  void qc.invalidateQueries({ queryKey: ['folders'] });
+  clearDocumentBuffers(qc);
 }
 
 /**

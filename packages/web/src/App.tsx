@@ -1,5 +1,4 @@
-import { useCallback, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import type { HealthStatus } from '@backlogger/shared';
 import { ProjectSwitcher } from './components/ProjectSwitcher.js';
 import { ProjectTree } from './components/ProjectTree.js';
@@ -11,13 +10,14 @@ import { HelpDrawer } from './components/HelpDrawer.js';
 import { KnowledgeGraph } from './components/KnowledgeGraph.js';
 import { TopbarAction } from './components/TopbarAction.js';
 import { TagExplorer } from './components/TagExplorer.js';
-import { readHelpSlugFromUrl } from './lib/help-link.js';
+import { Icon } from './components/Icon.js';
+import { useProjects } from './lib/projects.js';
 import { useTheme } from './lib/theme.js';
-import { queryKeys } from './lib/query-keys.js';
 import { useWikiLinkNavigation } from './hooks/useWikiLinkNavigation.js';
 import { useGlobalShortcuts } from './hooks/useGlobalShortcuts.js';
 import { useReloadToast } from './hooks/useReloadToast.js';
 import { useWorkspaceSelection } from './hooks/useWorkspaceSelection.js';
+import { useShellOverlays } from './hooks/useShellOverlays.js';
 
 async function fetchHealth(): Promise<HealthStatus> {
   const res = await fetch('/health');
@@ -38,14 +38,11 @@ export function App(): JSX.Element {
     removeTag,
     clearDocumentIfRemoved,
   } = useWorkspaceSelection();
-  const [paletteOpen, setPaletteOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [importOpen, setImportOpen] = useState(false);
-  const [graphOpen, setGraphOpen] = useState(false);
-  const [helpOpen, setHelpOpen] = useState<boolean>(() => readHelpSlugFromUrl() !== null);
-  const [helpSlug, setHelpSlug] = useState<string | null>(() => readHelpSlugFromUrl());
+  const overlays = useShellOverlays();
   const { theme, toggle: toggleTheme } = useTheme();
-  const qc = useQueryClient();
+  const projects = useProjects();
+  const selectedProject = projects.data?.find((p) => p.id === selectedProjectId);
+  const projectReadOnly = selectedProject?.readOnly ?? false;
   const { data, isLoading, isError } = useQuery({
     queryKey: ['health'],
     queryFn: fetchHealth,
@@ -53,11 +50,8 @@ export function App(): JSX.Element {
   });
 
   useGlobalShortcuts({
-    onToggleCommandPalette: useCallback(() => setPaletteOpen((open) => !open), []),
-    onToggleHelp: useCallback(() => {
-      setHelpSlug(null);
-      setHelpOpen((open) => !open);
-    }, []),
+    onToggleCommandPalette: overlays.togglePalette,
+    onToggleHelp: overlays.toggleHelp,
   });
 
   useWikiLinkNavigation({
@@ -85,7 +79,7 @@ export function App(): JSX.Element {
         <div className="topbar-right">
           <TopbarAction
             label="Search"
-            onClick={() => setPaletteOpen(true)}
+            onClick={overlays.openPalette}
             title="Search documents (Ctrl/Cmd+K)"
             className="search-button"
           >
@@ -95,8 +89,13 @@ export function App(): JSX.Element {
           {selectedProjectId && (
             <TopbarAction
               label="Import"
-              onClick={() => setImportOpen(true)}
-              title="Import Markdown files into this project"
+              onClick={overlays.openImport}
+              disabled={projectReadOnly}
+              title={
+                projectReadOnly
+                  ? 'Disable read-only mode before importing files'
+                  : 'Import Markdown files into this project'
+              }
               className="import-button"
             />
           )}
@@ -112,11 +111,14 @@ export function App(): JSX.Element {
           {selectedProjectId && (
             <TopbarAction
               label="Graph"
-              onClick={() => setGraphOpen(true)}
-              active={graphOpen}
+              onClick={overlays.openGraph}
+              active={overlays.graphOpen}
+              aria-label="Knowledge graph"
               title="View knowledge graph"
-              className="graph-button"
-            />
+              className="graph-button btn--icon"
+            >
+              <Icon name="graph" />
+            </TopbarAction>
           )}
           <span className={cls}>
             <span className="dot" />
@@ -124,23 +126,24 @@ export function App(): JSX.Element {
           </span>
           <TopbarAction
             label="?"
-            onClick={() => {
-              setHelpSlug(null);
-              setHelpOpen(true);
-            }}
-            active={helpOpen}
+            onClick={() => overlays.openHelp()}
+            active={overlays.helpOpen}
             title="Help (?)"
             aria-label="Help"
-            className="help-button"
-          />
+            className="help-button btn--icon"
+          >
+            <Icon name="help" />
+          </TopbarAction>
           <TopbarAction
             label="Settings"
-            onClick={() => setSettingsOpen(true)}
-            active={settingsOpen}
+            onClick={overlays.openSettings}
+            active={overlays.settingsOpen}
             title="Settings"
             aria-label="Settings"
-            className="settings-button"
-          />
+            className="settings-button btn--icon"
+          >
+            <Icon name="settings" />
+          </TopbarAction>
         </div>
       </header>
       <main className="content">
@@ -154,6 +157,7 @@ export function App(): JSX.Element {
                 selectedTags={selectedTags}
                 onClearTags={clearTags}
                 onRemoveTag={removeTag}
+                readOnly={projectReadOnly}
               />
               <TagExplorer
                 projectId={selectedProjectId}
@@ -180,41 +184,37 @@ export function App(): JSX.Element {
         )}
       </main>
       <CommandPalette
-        open={paletteOpen}
-        onClose={() => setPaletteOpen(false)}
+        open={overlays.paletteOpen}
+        onClose={overlays.closePalette}
         onOpenDocument={openDocument}
       />
-      {settingsOpen && (
+      {overlays.settingsOpen && (
         <SettingsDialog
           theme={theme}
           onToggleTheme={toggleTheme}
-          onClose={() => setSettingsOpen(false)}
+          onClose={overlays.closeSettings}
           onOpenHelp={() => {
-            setSettingsOpen(false);
-            setHelpSlug(null);
-            setHelpOpen(true);
+            overlays.closeSettings();
+            overlays.openHelp();
           }}
         />
       )}
       <HelpDrawer
-        open={helpOpen}
-        initialSlug={helpSlug}
-        onClose={() => setHelpOpen(false)}
+        open={overlays.helpOpen}
+        initialSlug={overlays.helpSlug}
+        onClose={overlays.closeHelp}
       />
-      {importOpen && selectedProjectId && (
+      {overlays.importOpen && selectedProjectId && !projectReadOnly && (
         <ImportDialog
           projectId={selectedProjectId}
-          onClose={() => setImportOpen(false)}
-          onImported={() => {
-            void qc.invalidateQueries({ queryKey: queryKeys.documents(selectedProjectId) });
-          }}
+          onClose={overlays.closeImport}
         />
       )}
-      {graphOpen && selectedProjectId && (
+      {overlays.graphOpen && selectedProjectId && (
         <KnowledgeGraph
           projectId={selectedProjectId}
           onOpenDocument={openDocument}
-          onClose={() => setGraphOpen(false)}
+          onClose={overlays.closeGraph}
         />
       )}
     </div>

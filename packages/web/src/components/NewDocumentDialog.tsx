@@ -1,10 +1,14 @@
 import { useMemo, useState } from 'react';
-import type { Document, DocumentType } from '@backlogger/shared';
+import {
+  DOCUMENT_TYPE_TO_SUBDIR,
+  type Document,
+  type DocumentType,
+} from '@backlogger/shared';
 import { useCreateDocument } from '../lib/documents.js';
 import { useTemplates } from '../lib/templates.js';
 import { useFolders, useCreateFolder } from '../lib/folders.js';
 import { ApiError } from '../lib/api.js';
-import { Modal } from './Modal.js';
+import { Modal, ModalActions } from './Modal.js';
 import { FolderField } from './FolderField.js';
 import { DOCUMENT_TYPE_LABELS } from '../lib/display.js';
 
@@ -28,7 +32,7 @@ export function NewDocumentDialog({
   const [type, setType] = useState<DocumentType>('idea');
   const [templateId, setTemplateId] = useState<string>(BLANK);
   const [folderValue, setFolderValue] = useState<string | undefined>(
-    initialFolder !== undefined ? initialFolder : undefined,
+    initialFolder ?? DOCUMENT_TYPE_TO_SUBDIR.idea,
   );
   const create = useCreateDocument(projectId);
   const createFolder = useCreateFolder();
@@ -81,8 +85,14 @@ export function NewDocumentDialog({
             aria-label="Document type"
             value={type}
             onChange={(e) => {
-              setType(e.target.value as DocumentType);
+              const nextType = e.target.value as DocumentType;
+              setType(nextType);
               setTemplateId(BLANK);
+              setFolderValue((current) =>
+                current === DOCUMENT_TYPE_TO_SUBDIR[type]
+                  ? DOCUMENT_TYPE_TO_SUBDIR[nextType]
+                  : current,
+              );
             }}
           >
             {(Object.entries(DOCUMENT_TYPE_LABELS) as Array<[DocumentType, string]>).map(
@@ -101,7 +111,7 @@ export function NewDocumentDialog({
           allowCreate
           placeholder="e.g. phases/p3/blocks"
         />
-        <small>Leave blank to use the default folder for this document type.</small>
+        <small>The default folder is selected from the document type. Choose another folder when needed.</small>
         <label>
           Template
           <select
@@ -132,7 +142,7 @@ export function NewDocumentDialog({
           />
         </label>
         {err && <p className="error">{err}</p>}
-        <div className="modal-actions">
+        <ModalActions>
           <button type="button" onClick={onClose}>
             Cancel
           </button>
@@ -142,7 +152,7 @@ export function NewDocumentDialog({
           >
             {create.isPending || createFolder.isPending ? 'Creating…' : 'Create'}
           </button>
-        </div>
+        </ModalActions>
       </form>
     </Modal>
   );

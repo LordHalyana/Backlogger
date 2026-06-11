@@ -48,6 +48,7 @@ export class ProjectService {
       id: input.id,
       name: input.name,
       description: input.description ?? null,
+      readOnly: false,
       created_at: now,
       updated_at: now,
     });
@@ -67,6 +68,7 @@ export class ProjectService {
     const updated = this.projectsRepo.update(id, {
       name: input.name,
       description: input.description,
+      readOnly: input.readOnly,
       updated_at: this.now(),
     });
     return updated!;
@@ -78,10 +80,17 @@ export class ProjectService {
    * orphaned folder.
    */
   async delete(id: string): Promise<void> {
-    const existed = this.projectsRepo.delete(id);
-    if (!existed) {
+    const project = this.projectsRepo.find(id);
+    if (!project) {
       throw new NotFoundError('PROJECT_NOT_FOUND', `Project not found: ${id}`);
     }
+    if (project.readOnly) {
+      throw new ConflictError(
+        'PROJECT_READ_ONLY',
+        'This project is read-only. Disable read-only mode before deleting it.',
+      );
+    }
+    this.projectsRepo.delete(id);
     await this.fs.removeProject(id).catch(() => undefined);
   }
 }

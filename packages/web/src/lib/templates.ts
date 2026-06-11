@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import type { TemplateSummary } from '@backlogger/shared';
 import { apiFetch } from './api.js';
-import { useDialog } from './dialog.js';
+import { toastError, useDialog } from './dialog.js';
 
 export const TEMPLATES_KEY = ['templates'] as const;
 
@@ -28,9 +28,7 @@ export function useReloadTemplates(): { run: () => void; isPending: boolean } {
       const skipNote = result.skipped.length ? ` (${result.skipped.length} skipped)` : '';
       dialog.toast(`Templates reloaded: ${result.loaded} loaded${skipNote}`);
     },
-    onError: (err) => {
-      dialog.toast(`Template reload failed: ${err.message}`, { kind: 'error' });
-    },
+    onError: (err) => toastError(dialog, 'Template reload failed', err),
   });
   return { run: () => mutation.mutate(), isPending: mutation.isPending };
 }

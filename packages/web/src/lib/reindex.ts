@@ -1,7 +1,9 @@
+import { createElement } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { ReindexResultSummary } from '../components/ReindexResultSummary.js';
 import { apiFetch } from './api.js';
-import { useDialog } from './dialog.js';
-import { queryKeys } from './query-keys.js';
+import { toastError, useDialog } from './dialog.js';
+import { invalidateGlobalReindex } from './query-keys.js';
 
 interface ReindexResult {
   scanned: number;
@@ -19,16 +21,26 @@ export function useReindex(): {
     mutationFn: () =>
       apiFetch<ReindexResult>('/api/admin/reindex', { method: 'POST' }),
     onSuccess: (result) => {
-      void qc.invalidateQueries({ queryKey: queryKeys.projects() });
-      // Prefix match: drop every project's document list after a global reindex.
-      void qc.invalidateQueries({ queryKey: ['documents'] });
+      invalidateGlobalReindex(qc);
       dialog.toast(
         `Reindex complete: ${result.inserted} of ${result.scanned} documents (${result.skipped.length} skipped)`,
       );
+      if (result.skipped.length > 0) {
+        void dialog.alert({
+          title: 'Reindex result',
+          message: createElement(ReindexResultSummary, {
+            counts: [
+              { label: 'Scanned', value: result.scanned },
+              { label: 'Indexed', value: result.inserted },
+              { label: 'Skipped', value: result.skipped.length },
+            ],
+            skipped: result.skipped,
+          }),
+          confirmLabel: 'OK',
+        });
+      }
     },
-    onError: (err) => {
-      dialog.toast(`Reindex failed: ${err.message}`, { kind: 'error' });
-    },
+    onError: (err) => toastError(dialog, 'Reindex failed', err),
   });
   return {
     run: () => mutation.mutate(),
