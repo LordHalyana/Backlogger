@@ -152,9 +152,8 @@ Indexing happens through:
 - the topbar project reload action
 - `POST /api/projects/:id/reload`
 - `POST /api/admin/reindex`
-- `npm run reindex`
 
-Project reload updates one project. Full reindex rebuilds all document metadata, links, tags, and search indexes.
+Project reload updates one project. Full reindex rebuilds all document metadata, links, tags, and search indexes. (`npm run reindex` is only a read-only filesystem summary and does not rebuild indexes.)
 
 ## Markdown File Indexing
 

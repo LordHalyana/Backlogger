@@ -48,7 +48,10 @@ in the project-relative path.
   filter documents by status without scanning the filesystem.
 
 Both representations are set atomically by `DocumentService.update()` whenever
-the status changes.
+the status changes. Because archiving and unarchiving go through
+`DocumentService.update()`, they are subject to read-only enforcement: archiving
+or unarchiving a document in a read-only project is rejected with
+`409 PROJECT_READ_ONLY`.
 
 ---
 

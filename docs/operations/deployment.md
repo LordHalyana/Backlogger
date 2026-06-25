@@ -104,8 +104,10 @@ See `docs/operations/data-storage.md` for the full storage and mounted-project c
 | `BACKLOGGER_PORT` | `3333` locally, `3002` in Docker | API port. |
 | `BACKLOGGER_WEB_PORT` | `5173` | Vite dev server port. |
 | `BACKLOGGER_DATA_DIR` | `./data` | Data root. |
-| `BACKLOGGER_TEMPLATES_DIR` | `packages/api/templates` | Built-in template directory. |
+| `BACKLOGGER_TEMPLATES_DIR` | `packages/api/templates` | Built-in template directory (resolved relative to the compiled API by default). |
 | `BACKLOGGER_ALLOWED_ORIGINS` | `*` | Browser CORS allow-list. |
+| `NODE_ENV` | unset locally, `production` in Docker | When `production`, the Express API also serves the built web app from `packages/web/dist`. |
+| `LOG_LEVEL` | `info` | Server log verbosity. |
 
 ## CORS
 
@@ -148,7 +150,8 @@ On startup the server:
 5. Watches user templates.
 6. Watches project files for reload/reindex work.
 7. Discovers project folders missing from the database.
-8. Runs a full reindex if the document table is empty but Markdown exists.
+8. Syncs known projects so Markdown changed while the server was stopped is picked up.
+9. Runs a full reindex if the document table is empty but Markdown exists.
 
 Startup discovery, startup sync, startup full reindex, and watcher-triggered
 sync log skipped Markdown files with path and reason details. Check these logs

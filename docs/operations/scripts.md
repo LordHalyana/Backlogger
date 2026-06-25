@@ -73,13 +73,19 @@ Use when upgrading schema or preparing a new environment.
 
 ### `npm run reindex`
 
-Walks project Markdown files and rebuilds metadata/indexes from disk.
+Prints a read-only summary of the Markdown files on disk (document counts per
+project and per `type`). It does **not** rebuild the SQLite `documents` table or
+any derived index — it is a filesystem sanity check.
 
-Use after:
+To actually rebuild metadata and indexes from disk, use the API: `POST
+/api/admin/reindex` (all projects) or `POST /api/projects/:id/reload` (one
+project). Startup also auto-reindexes when the documents table is empty.
+
+Use `npm run reindex` to confirm the filesystem layer sees the expected files
+after:
 
 - restoring a backup
 - large external file changes
-- SQLite drift
 - manual project folder mounts
 
 ### `npm run register-docs`

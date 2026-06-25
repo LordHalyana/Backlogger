@@ -11,7 +11,8 @@ tags: []
 
 # Folder Invariants
 
-> Related code: `packages/api/src/routes/projects.ts`  
+> Related code: `packages/api/src/routes/project-folders.ts` (folder lifecycle),
+> `packages/api/src/routes/project-reload.ts` (reload)  
 > Related concept: [Archive Invariants](./archive-invariants.md)
 
 ---
@@ -34,6 +35,8 @@ metadata cache records the folder path on each document row; no separate
   is derived from each document's `path` prefix.
 - If the folder already exists on disk the API returns `201` with the folder
   path unchanged (idempotent).
+- Folder creation is rejected with `409 PROJECT_READ_ONLY` when the project is
+  read-only.
 
 ---
 
@@ -46,7 +49,9 @@ b. **No documents in the database** have a path whose prefix matches the folder.
 
 The `DELETE /api/projects/:id/folders/*` handler enforces both checks before
 removing the directory. If either condition is violated it returns
-`409 FOLDER_NOT_EMPTY`.
+`409 FOLDER_NOT_EMPTY`; a folder that is not present returns `404
+FOLDER_NOT_FOUND`. Deletion on a read-only project is rejected with `409
+PROJECT_READ_ONLY` before either check runs.
 
 This two-check design prevents the database and filesystem from diverging:
 if one is stale (e.g. a manual file move was done outside Backlogger), the

@@ -61,17 +61,14 @@ After restoring a minimal backup, recreate or rediscover project rows and run re
 2. Replace `BACKLOGGER_DATA_DIR` with the backup.
 3. Start Backlogger.
 4. Check `/health`.
-5. Run reindex if data looks stale:
-
-```bash
-npm run reindex
-```
-
-or call:
+5. Rebuild derived data if it looks stale by calling the reindex endpoint:
 
 ```bash
 curl -X POST http://127.0.0.1:3333/api/admin/reindex
 ```
+
+(`npm run reindex` only prints a filesystem summary; it does not rebuild the
+database.)
 
 ## Restoring Into Docker
 
@@ -103,8 +100,8 @@ Use project reload from the app when possible. Use full reindex when many projec
 If SQLite is missing but project folders exist:
 
 - Startup may auto-discover valid project folders.
-- Reindex rebuilds document metadata from Backlogger frontmatter or derives
-  metadata for plain Markdown files.
+- A full reindex (`POST /api/admin/reindex`) rebuilds document metadata from
+  Backlogger frontmatter or derives metadata for plain Markdown files.
 
 Files with invalid Backlogger frontmatter or a mismatched `project` value are
 skipped and reported by reindex. Plain Markdown without Backlogger frontmatter

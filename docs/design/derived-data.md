@@ -34,10 +34,12 @@ metadata from path, heading, and file stats.
 SQLite and memory-derived data include:
 
 - `projects`: project registry.
-- `documents`: document metadata plus indexed body data.
-- `documents_fts`: full-text search index maintained from document rows.
-- `document_links`: outgoing wiki links and resolved targets.
-- `document_tags`: normalized tag rows/counts.
+- `documents`: document metadata plus indexed body data, including the
+  `read_only` flag derived during indexing.
+- `documents_fts`: full-text search index maintained from document rows by SQL
+  triggers (see `migrations/0003_search.sql`).
+- `links`: outgoing wiki links and resolved targets.
+- `tags` / `document_tags`: normalized tag rows and per-document tag membership.
 - `GraphService` cache: per-project graph payload.
 - React Query caches in the web client.
 
@@ -169,6 +171,7 @@ Central caches currently include:
 - `['titles', projectId]`
 - `['backlinks', documentId]`
 - `['graph', projectId]`
+- `['folders', projectId]`
 
 When document body/frontmatter changes, invalidate or update:
 
@@ -179,9 +182,13 @@ When document body/frontmatter changes, invalidate or update:
 - backlinks
 - graph
 
-Current gap:
-
-Cache keys and invalidation are scattered across `packages/web/src/lib/*`, hooks, and `App.tsx`. A small query-key helper would reduce missed invalidations.
+Query keys and invalidation are centralized in
+`packages/web/src/lib/query-keys.ts`. The `queryKeys` factory defines the keys
+above, and helpers — `invalidateDocumentDerived`, `invalidateProjectList`,
+`invalidateProjectFolders`, `invalidateProjectStructure`, `setDocumentCache`,
+`removeDocumentCache`, `invalidateProjectReload`, `invalidateGlobalReindex`, and
+`clearDocumentBuffers` — keep mutation paths from missing invalidations. New
+mutations should reuse these helpers instead of hand-writing query keys.
 
 ## Recovery Model
 

@@ -35,6 +35,9 @@ Structured errors use:
 }
 ```
 
+`details` is optional. It is present mainly on `VALIDATION_FAILED`, where it
+carries the field-level validation errors.
+
 Common codes include:
 
 - `VALIDATION_FAILED`
@@ -47,8 +50,15 @@ Common codes include:
 - `DOCUMENT_VERSION_MISMATCH`
 - `DERIVED_DOCUMENT_READ_ONLY`
 - `RELOAD_IN_PROGRESS`
+- `FOLDER_NOT_FOUND`
+- `FOLDER_NOT_EMPTY`
+- `TEMPLATE_NOT_FOUND`
 - `GRAPH_UNAVAILABLE`
+- `NOT_CONFIGURED`
 - `INTERNAL_ERROR`
+
+Filesystem validation also produces `PATH_OUTSIDE_DATA_DIR`, `INVALID_FILENAME`,
+`INVALID_RELATIVE_PATH`, and `SYMLINK_NOT_ALLOWED` (all `400`).
 
 ## Health
 
@@ -117,6 +127,11 @@ Returns `201` with the created project.
 
 Returns one project.
 
+### `GET /api/projects/:id/titles`
+
+Returns the project's document id-to-title list, used for wiki-link resolution
+in the editor and graph.
+
 ### `PUT /api/projects/:id`
 
 Body:
@@ -175,6 +190,11 @@ Body:
 
 `folder` is optional. When omitted, the API falls back to the legacy type-to-folder mapping.
 
+Valid `type` values are `idea`, `note`, `design_doc`, `implementation_plan`,
+`backlog_item`, and `finding` (note underscores). Valid `status` values are
+`draft`, `active`, and `archived`. `status`, `tags`, `body`, `template`, and
+`folder` are all optional.
+
 Returns `201` with the full document.
 
 Returns `409 PROJECT_READ_ONLY` while the project is in read-only mode.
@@ -197,6 +217,8 @@ Body can contain any of:
   "body": "Updated body\n"
 }
 ```
+
+At least one field is required. `type` cannot be changed through an update.
 
 Header:
 
@@ -238,12 +260,28 @@ Returns documents that link to this document.
 
 ### `GET /api/search?q=<query>`
 
+`q` is required (1–500 characters). Missing or invalid parameters return
+`400 VALIDATION_FAILED`.
+
 Optional query:
 
-- `projectId`
-- `limit`
+- `projectId` — restrict results to one project.
+- `limit` — integer 1–200 (default 50).
 
-Returns ranked search hits.
+Returns ranked search hits:
+
+```json
+[
+  {
+    "id": "5f8c5b7b-7d9e-4b4d-a017-d3ab3e1d9d31",
+    "project_id": "home-system",
+    "title": "Design Notes",
+    "type": "design_doc",
+    "snippet": "matched <b>text</b> ...",
+    "rank": -1.23
+  }
+]
+```
 
 ## Tags
 
@@ -321,9 +359,11 @@ Returns `409 PROJECT_READ_ONLY` while the project is in read-only mode.
 
 ### `DELETE /api/projects/:id/folders/*`
 
-Deletes an empty folder.
+Deletes an empty folder. The folder path is the URL-decoded wildcard segment.
 
 Returns `204`.
+
+Returns `404 FOLDER_NOT_FOUND` when the folder does not exist.
 
 Returns `409 FOLDER_NOT_EMPTY` when files or subfolders remain.
 

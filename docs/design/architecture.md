@@ -104,24 +104,31 @@ Repositories are the only modules that should talk directly to persistence:
 
 - `FsRepository`: safe Markdown file operations.
 - `ProjectsRepo`: `projects` table.
-- `DocumentsRepo`: `documents` table and FTS maintenance.
+- `DocumentsRepo`: `documents` table reads/writes, including the `body_indexed`
+  column. The `documents_fts` full-text index is maintained by SQL triggers
+  (`documents_ai` / `documents_ad` / `documents_au`) defined in
+  `migrations/0003_search.sql`, not by application code.
 
 `PathResolver` validates project ids, filenames, folder paths, project-relative paths, path containment, and symlink policy.
 
 ## Frontend Shape
 
-`App.tsx` is currently the top-level coordinator for:
+`App.tsx` is a thin shell (~220 lines) that composes hooks and renders the
+topbar, sidebar, workspace, and overlays. State that previously lived in
+`App.tsx` has been extracted into hooks under `packages/web/src/hooks`:
 
-- selected project
-- selected document
-- selected tags
-- dialogs and overlays
-- health polling
-- reload behavior
-- wiki-link navigation
-- global shortcuts
+- `useWorkspaceSelection` — selected project, document, and tags.
+- `useShellOverlays` — command palette, settings, import, graph, and help
+  overlay state, including help deep-links.
+- `useDocumentBuffer` — local editor buffer, debounced autosave, and optimistic
+  -lock (`If-Match`) conflict handling.
+- `useGlobalShortcuts` — global keyboard shortcuts.
+- `useWikiLinkNavigation` — wiki-link click navigation.
+- `useReloadToast` — reload/reindex result toasts.
 
-Server state uses React Query through hooks under `packages/web/src/lib`.
+Server state uses React Query. Query functions live under
+`packages/web/src/lib`; query keys and cache invalidation helpers are
+centralized in `packages/web/src/lib/query-keys.ts`.
 
 Main feature components:
 
@@ -137,6 +144,30 @@ Main feature components:
 - `SettingsDialog`
 - `HelpDrawer`
 - `KnowledgeGraph`
+
+Supporting components include `NewDocumentDialog`, `Modal`, `SegmentedControl`,
+`FolderField`, `FolderTreeGroup`, `TagChip`, `TagInput`, `StatusMessage`,
+`TopbarAction`, `ReindexResultSummary`, `Icon`, and `ErrorBoundary`.
+
+## Read-Only Mode
+
+Projects and documents can be read-only. Both `projects` and `documents` carry a
+`read_only` column (migrations `0006_document_readonly.sql` and
+`0007_project_readonly.sql`), surfaced as a `readOnly` boolean on API responses
+(default `false`).
+
+- Auto-discovered project folders, and documents indexed from plain or
+  mismatched Markdown, are stamped read-only during indexing, so mounted docs
+  are safe to browse without accidental writes.
+- `DocumentService`, `ProjectService`, and `ImportService` call
+  `assertProjectWritable` and reject writes to a read-only project with
+  `409 PROJECT_READ_ONLY`. The folder routes (`routes/project-folders.ts`)
+  enforce the same rule for folder create/delete.
+- A document indexed from plain Markdown (no Backlogger frontmatter) is guarded
+  by `DERIVED_DOCUMENT_READ_ONLY`; the first edit after the project is made
+  editable adopts the file by writing Backlogger frontmatter to the same path.
+- A project is unlocked for editing with `PUT /api/projects/:id` and
+  `{ "readOnly": false }`.
 
 ## Deployment Model
 
@@ -163,8 +194,18 @@ These are deliberate scope boundaries. New work should justify crossing them exp
 
 ## Known Architecture Risks
 
-- `App.tsx` is still a large coordinator.
-- React Query invalidation rules are scattered.
-- Some backend services remain optional in constructors/routes even though production context wires them.
-- Markdown rendering relies on trusted Markdown content.
-- `app.css` is large and mixed-responsibility.
+- Some backend services remain optional in constructors/routes even though the
+  production context wires them.
+- Markdown rendering relies on trusted Markdown content (raw HTML is disabled in
+  the renderer, but there is no separate sanitizer pass).
+- Read-only enforcement lives in the service layer (and is duplicated in the
+  folder routes); a write path added outside `DocumentService` could bypass it.
+
+Previously listed risks now addressed by the latest refactor:
+
+- `App.tsx` is no longer a large stateful coordinator — selection, overlay, and
+  editor-buffer state moved into dedicated hooks (`App.tsx` is ~220 lines).
+- React Query keys and invalidation are centralized in
+  `packages/web/src/lib/query-keys.ts`.
+- The monolithic `app.css` was split into per-surface stylesheets under
+  `packages/web/src/styles/`; `app.css` now holds residual app-shell rules.

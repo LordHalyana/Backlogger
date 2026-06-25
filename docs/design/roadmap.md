@@ -78,8 +78,14 @@ Already done:
 - Removed stale report files under `docs/reports/`.
 - Added `docs/README.md` as the current documentation index.
 - Added top-level analysis docs for cleanup review.
-- Centralized document/project cache invalidation helpers.
+- Centralized document/project cache invalidation helpers in
+  `packages/web/src/lib/query-keys.ts`.
 - Extracted ProjectTree grouping into a focused helper with tests.
+- Split the monolithic `app.css` into per-surface stylesheets.
+- Split the project API into focused routers (`project-folders`,
+  `project-graph`, `project-reload`, `project-titles`).
+- Extracted editor-buffer and shell-overlay state into the `useDocumentBuffer`
+  and `useShellOverlays` hooks.
 - Removed duplicated docs template body from `docs/docs-template.md`.
 - Labeled the original design overview as historical context.
 
