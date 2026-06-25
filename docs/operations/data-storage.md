@@ -152,8 +152,9 @@ Indexing happens through:
 - the topbar project reload action
 - `POST /api/projects/:id/reload`
 - `POST /api/admin/reindex`
+- `npm run reindex` (CLI full reindex)
 
-Project reload updates one project. Full reindex rebuilds all document metadata, links, tags, and search indexes. (`npm run reindex` is only a read-only filesystem summary and does not rebuild indexes.)
+Project reload updates one project. Full reindex rebuilds all document metadata, links, tags, and search indexes.
 
 ## Markdown File Indexing
 
@@ -296,9 +297,9 @@ For mounted docs, this turns "files did not appear" into an actionable migration
 
 ### 5. Separate Source Metadata From Backlogger Metadata
 
-For external docs, avoid requiring Backlogger fields in every source file. Store Backlogger-only metadata in SQLite or a sidecar file keyed by relative path.
+Status: done (opt-in per project).
 
-This would keep upstream docs clean while still supporting Backlogger features such as tags, type, status, graph display, and stable document identity.
+A project can be switched to **sidecar** metadata mode via the project switcher toggle, or `PUT /api/projects/:id {"metadataMode":"sidecar"}`. In sidecar mode, Backlogger-only metadata (id, type, status, tags, optional title) lives in `<project>/.backlogger/index.json` keyed by the document's project-relative path, so source `.md` files stay frontmatter-free. Plain Markdown is adopted on first edit by writing a sidecar entry instead of injecting frontmatter, archive state is metadata-only (the file is not moved), and SQLite remains rebuildable from `.md` content plus the sidecar. See [Sidecar Metadata](../design/sidecar-metadata.md).
 
 ### 6. Treat Folder Mounts As A First-Class UX
 
@@ -321,4 +322,3 @@ The next best improvements are optional upgrade paths:
 
 - First edit after unlocking writes Backlogger frontmatter and adopts the file.
 - The read-only toggle enables writes and archive moves for adopted files.
-- "Keep read-only" preserves the external docs exactly as they are.

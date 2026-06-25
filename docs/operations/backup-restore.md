@@ -61,14 +61,13 @@ After restoring a minimal backup, recreate or rediscover project rows and run re
 2. Replace `BACKLOGGER_DATA_DIR` with the backup.
 3. Start Backlogger.
 4. Check `/health`.
-5. Rebuild derived data if it looks stale by calling the reindex endpoint:
+5. Rebuild derived data if it looks stale, with either:
 
 ```bash
+npm run reindex
+# or, against a running server:
 curl -X POST http://127.0.0.1:3333/api/admin/reindex
 ```
-
-(`npm run reindex` only prints a filesystem summary; it does not rebuild the
-database.)
 
 ## Restoring Into Docker
 
@@ -107,5 +106,3 @@ Files with invalid Backlogger frontmatter or a mismatched `project` value are
 skipped and reported by reindex. Plain Markdown without Backlogger frontmatter
 is indexed with derived metadata; it can be adopted on first edit after the
 project is explicitly switched to editable mode.
-
-See `docs/operations/data-storage.md` for the data directory layout, project mount rules, and external docs folder constraints.

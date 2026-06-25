@@ -143,3 +143,13 @@ export const UpdateDocumentRequestSchema = z
   })
   .refine((v) => Object.keys(v).length > 0, { message: 'no fields to update' });
 export type UpdateDocumentRequest = z.infer<typeof UpdateDocumentRequestSchema>;
+
+/**
+ * Move a document to a different project-relative folder. An empty string
+ * targets the project root. The reserved `archived/` folder is rejected by the
+ * service — archive state is controlled through `status`, not the folder.
+ */
+export const MoveDocumentRequestSchema = z.object({
+  folder: z.union([z.literal(''), FolderPathSchema]),
+});
+export type MoveDocumentRequest = z.infer<typeof MoveDocumentRequestSchema>;

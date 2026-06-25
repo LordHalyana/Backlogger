@@ -1,7 +1,7 @@
 import { type DocumentStatus } from '@backlogger/shared';
 import { useBacklinks } from '../lib/links.js';
 import { TagInput } from './TagInput.js';
-import { DOCUMENT_STATUS_LABELS } from '../lib/display.js';
+import { DOCUMENT_STATUS_LABELS, formatRelativeTime } from '../lib/display.js';
 
 export interface MetadataPanelValue {
   title: string;
@@ -18,6 +18,9 @@ interface MetadataPanelProps {
   onDelete: () => void;
   deleting?: boolean;
   readOnly?: boolean;
+  currentFolder?: string;
+  onMove?: () => void;
+  moving?: boolean;
   onOpenDocument?: (projectId: string, documentId: string) => void;
 }
 
@@ -31,6 +34,9 @@ export function MetadataPanel({
   onDelete,
   deleting,
   readOnly = false,
+  currentFolder,
+  onMove,
+  moving,
   onOpenDocument,
 }: MetadataPanelProps): JSX.Element {
   const backlinks = useBacklinks(documentId);
@@ -76,13 +82,30 @@ export function MetadataPanel({
           onChange={(tags) => onChange({ ...value, tags })}
         />
       </label>
+      {currentFolder !== undefined && (
+        <div className="metadata-folder">
+          <span className="metadata-folder-label">Folder</span>
+          <code className="metadata-folder-path">{currentFolder || '(root)'}</code>
+          {onMove && (
+            <button
+              type="button"
+              className="btn btn--sm"
+              onClick={onMove}
+              disabled={moving}
+              title="Move to another folder"
+            >
+              {moving ? 'Moving…' : 'Move'}
+            </button>
+          )}
+        </div>
+      )}
       <dl className="metadata-info">
         <dt>Path</dt>
         <dd>
           <code>{documentPath}</code>
         </dd>
         <dt>Updated</dt>
-        <dd>{new Date(updatedAt).toLocaleString()}</dd>
+        <dd title={new Date(updatedAt).toLocaleString()}>{formatRelativeTime(updatedAt)}</dd>
       </dl>
       <button type="button" className="danger" onClick={onDelete} disabled={deleting || readOnly}>
         {deleting ? 'Deleting…' : 'Delete document'}

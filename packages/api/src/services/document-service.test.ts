@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { archivePath, isArchivedPath, unarchivePath } from '@backlogger/shared';
+import {
+  archivePath,
+  isArchivedFolder,
+  isArchivedPath,
+  unarchivePath,
+} from '@backlogger/shared';
 
 /**
  * Tests for the archive invariant:
@@ -33,5 +38,36 @@ describe('archive invariant', () => {
     const activePath = 'proj/notes/doc-abc12.md';
     expect(isArchivedPath(activePath)).toBe(false);
     expect(unarchivePath(activePath)).toBe(activePath);
+  });
+});
+
+/**
+ * Tests for the move invariant (see docs/design/folder-invariants.md):
+ * DocumentService.move keeps the filename, changes only the folder segment,
+ * preserves archive state, and refuses the reserved `archived/` folder.
+ */
+describe('move path computation', () => {
+  const filename = 'doc-abc12.md';
+
+  it('moves an active document into the target folder, keeping the filename', () => {
+    const next = `proj/ideas/${filename}`;
+    expect(isArchivedPath(next)).toBe(false);
+    expect(next).toBe('proj/ideas/doc-abc12.md');
+  });
+
+  it('moving to the project root drops the folder segment', () => {
+    expect(`proj/${filename}`).toBe('proj/doc-abc12.md');
+  });
+
+  it('keeps an archived document under archived/ when moving folders', () => {
+    const activeTarget = `proj/ideas/${filename}`;
+    expect(archivePath(activeTarget)).toBe('proj/archived/ideas/doc-abc12.md');
+    expect(isArchivedPath(archivePath(activeTarget))).toBe(true);
+  });
+
+  it('rejects the reserved archived/ folder as a move target', () => {
+    expect(isArchivedFolder('archived')).toBe(true);
+    expect(isArchivedFolder('archived/2025')).toBe(true);
+    expect(isArchivedFolder('ideas')).toBe(false);
   });
 });

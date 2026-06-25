@@ -108,3 +108,9 @@
   border-radius: 50%;
   box-shadow: 0 0 0 2px currentColor;
 }
+
+.graph-overlay__count {
+  font-size: 12px;
+  color: var(--fg-muted);
+  white-space: nowrap;
+}

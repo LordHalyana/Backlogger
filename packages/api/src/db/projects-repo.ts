@@ -1,4 +1,4 @@
-import type { Project } from '@backlogger/shared';
+import type { MetadataMode, Project } from '@backlogger/shared';
 import type { Db } from './database.js';
 
 interface ProjectRow {
@@ -6,6 +6,7 @@ interface ProjectRow {
   name: string;
   description: string | null;
   read_only: number;
+  metadata_mode: string;
   created_at: string;
   updated_at: string;
 }
@@ -16,6 +17,7 @@ function rowToProject(row: ProjectRow): Project {
     name: row.name,
     description: row.description,
     readOnly: row.read_only === 1,
+    metadataMode: row.metadata_mode === 'sidecar' ? 'sidecar' : 'frontmatter',
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
@@ -26,6 +28,7 @@ export interface ProjectInsertInput {
   name: string;
   description: string | null;
   readOnly?: boolean;
+  metadataMode?: MetadataMode;
   created_at: string;
   updated_at: string;
 }
@@ -34,6 +37,7 @@ export interface ProjectUpdateInput {
   name?: string;
   description?: string | null;
   readOnly?: boolean;
+  metadataMode?: MetadataMode;
   updated_at: string;
 }
 
@@ -64,10 +68,14 @@ export class ProjectsRepo {
   insert(input: ProjectInsertInput): Project {
     this.db
       .prepare(
-        `INSERT INTO projects (id, name, description, read_only, created_at, updated_at)
-         VALUES (@id, @name, @description, @read_only, @created_at, @updated_at)`,
+        `INSERT INTO projects (id, name, description, read_only, metadata_mode, created_at, updated_at)
+         VALUES (@id, @name, @description, @read_only, @metadata_mode, @created_at, @updated_at)`,
       )
-      .run({ ...input, read_only: input.readOnly ? 1 : 0 });
+      .run({
+        ...input,
+        read_only: input.readOnly ? 1 : 0,
+        metadata_mode: input.metadataMode ?? 'frontmatter',
+      });
     return this.find(input.id)!;
   }
 
@@ -80,6 +88,7 @@ export class ProjectsRepo {
       description:
         input.description === undefined ? existing.description : input.description,
       readOnly: input.readOnly ?? existing.readOnly,
+      metadataMode: input.metadataMode ?? existing.metadataMode,
       created_at: existing.created_at,
       updated_at: input.updated_at,
     };
@@ -89,10 +98,15 @@ export class ProjectsRepo {
             SET name = @name,
                 description = @description,
                 read_only = @read_only,
+                metadata_mode = @metadata_mode,
                 updated_at = @updated_at
           WHERE id = @id`,
       )
-      .run({ ...next, read_only: next.readOnly ? 1 : 0 });
+      .run({
+        ...next,
+        read_only: next.readOnly ? 1 : 0,
+        metadata_mode: next.metadataMode ?? 'frontmatter',
+      });
     return this.find(id);
   }
 

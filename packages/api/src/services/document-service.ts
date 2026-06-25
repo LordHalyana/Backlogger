@@ -4,6 +4,7 @@ import {
   CreateDocumentRequestSchema,
   DOCUMENT_TYPE_TO_SUBDIR,
   FrontmatterSchema,
+  isArchivedFolder,
   isArchivedPath,
   unarchivePath,
   type CreateDocumentRequest,
@@ -11,10 +12,11 @@ import {
   type DocumentSummary,
   type Frontmatter,
   type Project,
+  type SidecarEntry,
   type UpdateDocumentRequest,
 } from '@backlogger/shared';
 import { BadRequestError, ConflictError, NotFoundError } from '../errors.js';
-import type { FsRepository, RawDocument } from '../fs/index.js';
+import type { FsRepository, RawDocument, SidecarStore } from '../fs/index.js';
 import type { DocumentsRepo } from '../db/documents-repo.js';
 import type { LinkService } from './link-service.js';
 import type { TagsService } from './tags-service.js';
@@ -30,6 +32,7 @@ export interface DocumentServiceDeps {
   linkService: LinkService;
   tagsService: TagsService;
   graphService: GraphService;
+  sidecarStore: SidecarStore;
   now?: () => string;
   newId?: () => string;
 }
@@ -42,6 +45,7 @@ export class DocumentService {
   private readonly linkService: LinkService;
   private readonly tagsService: TagsService;
   private readonly graphService: GraphService;
+  private readonly sidecarStore: SidecarStore;
   private readonly now: () => string;
   private readonly newId: () => string;
 
@@ -53,6 +57,7 @@ export class DocumentService {
     this.linkService = deps.linkService;
     this.tagsService = deps.tagsService;
     this.graphService = deps.graphService;
+    this.sidecarStore = deps.sidecarStore;
     this.now = deps.now ?? (() => new Date().toISOString());
     this.newId = deps.newId ?? (() => uuidv4());
   }
@@ -100,7 +105,7 @@ export class DocumentService {
   }
 
   async create(projectId: string, input: CreateDocumentRequest): Promise<Document> {
-    this.assertProjectWritable(projectId);
+    const project = this.assertProjectWritable(projectId);
     // Re-validate to apply defaults from the schema (status, tags).
     const parsed = CreateDocumentRequestSchema.parse(input);
 
@@ -142,7 +147,16 @@ export class DocumentService {
       tags: parsed.tags ?? [],
     };
 
-    await this.fs.write(relPath, { frontmatter, body });
+    if (project.metadataMode === 'sidecar') {
+      await this.fs.writeRaw(relPath, body);
+      await this.sidecarStore.set(
+        projectId,
+        sidecarKeyOf(projectId, relPath),
+        sidecarEntryFromFrontmatter(frontmatter),
+      );
+    } else {
+      await this.fs.write(relPath, { frontmatter, body });
+    }
     try {
       this.documentsRepo.upsert({
         id,
@@ -160,6 +174,11 @@ export class DocumentService {
     } catch (err) {
       // Roll back disk write to keep DB+FS consistent.
       await this.fs.delete(relPath).catch(() => undefined);
+      if (project.metadataMode === 'sidecar') {
+        await this.sidecarStore
+          .delete(projectId, sidecarKeyOf(projectId, relPath))
+          .catch(() => undefined);
+      }
       throw err;
     }
 
@@ -177,7 +196,7 @@ export class DocumentService {
   ): Promise<Document> {
     const summary = this.documentsRepo.find(id);
     if (!summary) throw new NotFoundError('DOCUMENT_NOT_FOUND', `Document not found: ${id}`);
-    this.assertProjectWritable(summary.project_id);
+    const project = this.assertProjectWritable(summary.project_id);
 
     if (ifMatch !== undefined && ifMatch !== summary.updated_at) {
       throw new ConflictError(
@@ -188,6 +207,9 @@ export class DocumentService {
 
     const existing = await this.fs.read(summary.path);
     const now = this.now();
+    if (project.metadataMode === 'sidecar' && !hasOwnFrontmatter(summary, existing)) {
+      return this.updateViaSidecar(summary, existing, input, now);
+    }
     const nextStatus = input.status ?? summary.status;
     const nextFrontmatter = summary.readOnly
       ? FrontmatterSchema.parse({
@@ -250,18 +272,197 @@ export class DocumentService {
     };
   }
 
+  /**
+   * Update path for sidecar-mode documents: the `.md` file holds body only,
+   * and all Backlogger metadata (incl. archive `status`) lives in the sidecar.
+   * The file is never moved — archive state is metadata, not path.
+   */
+  private async updateViaSidecar(
+    summary: DocumentSummary,
+    existing: RawDocument,
+    input: UpdateDocumentRequest,
+    now: string,
+  ): Promise<Document> {
+    const nextTitle = input.title ?? summary.title;
+    const nextStatus = input.status ?? summary.status;
+    const nextTags = input.tags ?? summary.tags;
+    const nextBody = input.body ?? existing.body;
+    const entry: SidecarEntry = {
+      id: summary.id,
+      title: nextTitle,
+      type: summary.type,
+      status: nextStatus,
+      tags: nextTags,
+      created_at: summary.created_at,
+      updated_at: now,
+    };
+
+    await this.fs.writeRaw(summary.path, nextBody);
+    await this.sidecarStore.set(
+      summary.project_id,
+      sidecarKeyOf(summary.project_id, summary.path),
+      entry,
+    );
+
+    this.documentsRepo.upsert({
+      id: summary.id,
+      project_id: summary.project_id,
+      title: nextTitle,
+      type: summary.type,
+      status: nextStatus,
+      path: summary.path,
+      tags: nextTags,
+      readOnly: false,
+      body: nextBody,
+      created_at: summary.created_at,
+      updated_at: now,
+    });
+
+    this.linkService.rebuildForDocument(summary.id, nextTitle, nextBody, summary.title);
+    this.tagsService.rebuildForDocument(summary.id, nextTags);
+    this.graphService.invalidate(summary.project_id);
+
+    return {
+      id: summary.id,
+      project_id: summary.project_id,
+      title: nextTitle,
+      type: summary.type,
+      status: nextStatus,
+      path: summary.path,
+      tags: nextTags,
+      readOnly: false,
+      created_at: summary.created_at,
+      updated_at: now,
+      body: nextBody,
+    };
+  }
+
   async delete(id: string): Promise<void> {
     const summary = this.documentsRepo.find(id);
     if (!summary) throw new NotFoundError('DOCUMENT_NOT_FOUND', `Document not found: ${id}`);
-    this.assertProjectWritable(summary.project_id);
+    const project = this.assertProjectWritable(summary.project_id);
+
+    let viaSidecar = false;
     if (!summary.readOnly) {
       const existing = await this.fs.read(summary.path);
-      assertEditableBackloggerDocument(summary, existing);
+      viaSidecar = project.metadataMode === 'sidecar' && !hasOwnFrontmatter(summary, existing);
+      if (!viaSidecar) assertEditableBackloggerDocument(summary, existing);
     }
+
     this.documentsRepo.delete(id);
     this.linkService.onDocumentDeleted(id);
     this.graphService.invalidate(summary.project_id);
+    if (viaSidecar) {
+      await this.sidecarStore
+        .delete(summary.project_id, sidecarKeyOf(summary.project_id, summary.path))
+        .catch(() => undefined);
+    }
     await this.fs.delete(summary.path).catch(() => undefined);
+  }
+
+  /**
+   * Move a document to a different project-relative folder, preserving its id,
+   * title, body, and archive state. Only real Backlogger documents can be
+   * moved; derived plain-Markdown rows have path-derived ids that must not
+   * change. The reserved `archived/` folder is rejected — archive state is
+   * controlled through `status`, not the folder.
+   */
+  async move(id: string, targetFolder: string): Promise<Document> {
+    const summary = this.documentsRepo.find(id);
+    if (!summary) throw new NotFoundError('DOCUMENT_NOT_FOUND', `Document not found: ${id}`);
+    const project = this.assertProjectWritable(summary.project_id);
+
+    if (isArchivedFolder(targetFolder)) {
+      throw new BadRequestError(
+        'INVALID_FOLDER',
+        "Cannot move a document into the reserved 'archived' folder; archive it instead.",
+      );
+    }
+
+    const existing = await this.fs.read(summary.path);
+    const viaSidecar =
+      project.metadataMode === 'sidecar' && !hasOwnFrontmatter(summary, existing);
+    if (!viaSidecar) assertEditableBackloggerDocument(summary, existing);
+
+    const filename = summary.path.split('/').pop() ?? '';
+    const activePath = targetFolder
+      ? `${summary.project_id}/${targetFolder}/${filename}`
+      : `${summary.project_id}/${filename}`;
+    const nextPath = isArchivedPath(summary.path) ? archivePath(activePath) : activePath;
+
+    if (nextPath === summary.path) {
+      return { ...summary, readOnly: false, body: existing.body };
+    }
+
+    const now = this.now();
+
+    if (viaSidecar) {
+      await this.fs.writeRaw(nextPath, existing.body);
+      await this.fs.delete(summary.path).catch(() => undefined);
+      const fromKey = sidecarKeyOf(summary.project_id, summary.path);
+      const toKey = sidecarKeyOf(summary.project_id, nextPath);
+      await this.sidecarStore.rename(summary.project_id, fromKey, toKey);
+      const moved = await this.sidecarStore.get(summary.project_id, toKey);
+      if (moved) {
+        await this.sidecarStore.set(summary.project_id, toKey, { ...moved, updated_at: now });
+      }
+      this.documentsRepo.upsert({
+        id: summary.id,
+        project_id: summary.project_id,
+        title: summary.title,
+        type: summary.type,
+        status: summary.status,
+        path: nextPath,
+        tags: summary.tags,
+        readOnly: false,
+        body: existing.body,
+        created_at: summary.created_at,
+        updated_at: now,
+      });
+      this.graphService.invalidate(summary.project_id);
+      return {
+        id: summary.id,
+        project_id: summary.project_id,
+        title: summary.title,
+        type: summary.type,
+        status: summary.status,
+        path: nextPath,
+        tags: summary.tags,
+        readOnly: false,
+        created_at: summary.created_at,
+        updated_at: now,
+        body: existing.body,
+      };
+    }
+
+    const nextFrontmatter = FrontmatterSchema.parse({ ...existing.frontmatter, updated_at: now });
+
+    await this.fs.write(nextPath, { frontmatter: nextFrontmatter, body: existing.body });
+    await this.fs.delete(summary.path).catch(() => undefined);
+
+    this.documentsRepo.upsert({
+      id: summary.id,
+      project_id: summary.project_id,
+      title: nextFrontmatter.title,
+      type: nextFrontmatter.type,
+      status: nextFrontmatter.status,
+      path: nextPath,
+      tags: nextFrontmatter.tags,
+      readOnly: false,
+      body: existing.body,
+      created_at: summary.created_at,
+      updated_at: now,
+    });
+
+    this.graphService.invalidate(summary.project_id);
+
+    return {
+      ...nextFrontmatter,
+      project_id: summary.project_id,
+      path: nextPath,
+      readOnly: false,
+      body: existing.body,
+    };
   }
 
   private getProject(projectId: string): Project {
@@ -327,6 +528,30 @@ function assertEditableBackloggerDocument(summary: DocumentSummary, raw: RawDocu
       'This document has inconsistent archive metadata and cannot be modified until it is reindexed.',
     );
   }
+}
+
+/** Sidecar key for a document: its project-relative path without the project id. */
+function sidecarKeyOf(projectId: string, docPath: string): string {
+  const prefix = `${projectId}/`;
+  return docPath.startsWith(prefix) ? docPath.slice(prefix.length) : docPath;
+}
+
+function sidecarEntryFromFrontmatter(fm: Frontmatter): SidecarEntry {
+  return {
+    id: fm.id,
+    title: fm.title,
+    type: fm.type,
+    status: fm.status,
+    tags: fm.tags,
+    created_at: fm.created_at,
+    updated_at: fm.updated_at,
+  };
+}
+
+/** True when the on-disk file carries this document's own Backlogger frontmatter. */
+function hasOwnFrontmatter(summary: DocumentSummary, raw: RawDocument): boolean {
+  const fm = FrontmatterSchema.safeParse(raw.frontmatter);
+  return fm.success && fm.data.id === summary.id && fm.data.project === summary.project_id;
 }
 
 /**

@@ -69,6 +69,7 @@ export class ProjectService {
       name: input.name,
       description: input.description,
       readOnly: input.readOnly,
+      metadataMode: input.metadataMode,
       updated_at: this.now(),
     });
     return updated!;

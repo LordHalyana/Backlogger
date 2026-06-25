@@ -47,6 +47,11 @@ Markdown files under `data/projects/` are the durable source of truth for docume
 
 SQLite is a query and index layer. It can be rebuilt from disk with reindexing.
 
+Projects store Backlogger metadata in one of two modes (`metadataMode`): inside
+each file's frontmatter (default), or in a per-project sidecar
+(`<project>/.backlogger/index.json`) that keeps mounted source files
+frontmatter-free. See [Sidecar Metadata](sidecar-metadata.md).
+
 Document frontmatter carries:
 
 - stable document id
@@ -147,65 +152,4 @@ Main feature components:
 
 Supporting components include `NewDocumentDialog`, `Modal`, `SegmentedControl`,
 `FolderField`, `FolderTreeGroup`, `TagChip`, `TagInput`, `StatusMessage`,
-`TopbarAction`, `ReindexResultSummary`, `Icon`, and `ErrorBoundary`.
-
-## Read-Only Mode
-
-Projects and documents can be read-only. Both `projects` and `documents` carry a
-`read_only` column (migrations `0006_document_readonly.sql` and
-`0007_project_readonly.sql`), surfaced as a `readOnly` boolean on API responses
-(default `false`).
-
-- Auto-discovered project folders, and documents indexed from plain or
-  mismatched Markdown, are stamped read-only during indexing, so mounted docs
-  are safe to browse without accidental writes.
-- `DocumentService`, `ProjectService`, and `ImportService` call
-  `assertProjectWritable` and reject writes to a read-only project with
-  `409 PROJECT_READ_ONLY`. The folder routes (`routes/project-folders.ts`)
-  enforce the same rule for folder create/delete.
-- A document indexed from plain Markdown (no Backlogger frontmatter) is guarded
-  by `DERIVED_DOCUMENT_READ_ONLY`; the first edit after the project is made
-  editable adopts the file by writing Backlogger frontmatter to the same path.
-- A project is unlocked for editing with `PUT /api/projects/:id` and
-  `{ "readOnly": false }`.
-
-## Deployment Model
-
-Backlogger is intended for a trusted single-user environment. In development, Vite serves the web app and proxies API calls. In Docker/production, the Express API serves the built web app.
-
-Default bind/CORS behavior is LAN-friendly:
-
-- API host defaults to `0.0.0.0`.
-- CORS defaults to `*`.
-
-Lock this down for less trusted networks.
-
-## Current Non-Goals
-
-- Authentication and RBAC.
-- Multi-user collaboration.
-- Real-time editing.
-- Git integration.
-- Plugin system.
-- Kanban or project execution workflows.
-- AI workflow automation.
-
-These are deliberate scope boundaries. New work should justify crossing them explicitly.
-
-## Known Architecture Risks
-
-- Some backend services remain optional in constructors/routes even though the
-  production context wires them.
-- Markdown rendering relies on trusted Markdown content (raw HTML is disabled in
-  the renderer, but there is no separate sanitizer pass).
-- Read-only enforcement lives in the service layer (and is duplicated in the
-  folder routes); a write path added outside `DocumentService` could bypass it.
-
-Previously listed risks now addressed by the latest refactor:
-
-- `App.tsx` is no longer a large stateful coordinator — selection, overlay, and
-  editor-buffer state moved into dedicated hooks (`App.tsx` is ~220 lines).
-- React Query keys and invalidation are centralized in
-  `packages/web/src/lib/query-keys.ts`.
-- The monolithic `app.css` was split into per-surface stylesheets under
-  `packages/web/src/styles/`; `app.css` now holds residual app-shell rules.
+`TopbarAction`, `ReindexResultSum

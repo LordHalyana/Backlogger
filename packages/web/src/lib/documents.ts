@@ -17,6 +17,7 @@ import { apiFetch } from './api.js';
 import {
   queryKeys,
   invalidateDocumentDerived,
+  invalidateProjectStructure,
   removeDocumentCache,
   setDocumentCache,
 } from './query-keys.js';
@@ -105,6 +106,30 @@ export function useImportFiles(
         body: JSON.stringify(input),
       }),
     onSuccess: () => {
+      invalidateDocumentDerived(qc, projectId);
+    },
+  });
+}
+
+export interface MoveDocumentArgs {
+  id: string;
+  /** Project-relative destination folder; empty string targets the root. */
+  folder: string;
+}
+
+export function useMoveDocument(
+  projectId: string,
+): UseMutationResult<Document, Error, MoveDocumentArgs> {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, folder }) =>
+      apiFetch<Document>(`/api/documents/${id}/move`, {
+        method: 'POST',
+        body: JSON.stringify({ folder }),
+      }),
+    onSuccess: (doc) => {
+      setDocumentCache(qc, doc);
+      invalidateProjectStructure(qc, projectId);
       invalidateDocumentDerived(qc, projectId);
     },
   });

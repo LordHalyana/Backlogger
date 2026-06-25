@@ -3,7 +3,7 @@ import ForceGraph2D from 'react-force-graph-2d';
 import type { DocumentType } from '@backlogger/shared';
 import { useGraph, type GraphEdge, type GraphNode, type GraphPayload } from '../lib/graph.js';
 import { StatusMessage } from './StatusMessage.js';
-import { DOCUMENT_TYPE_COLORS, GRAPH_COLORS } from '../lib/display.js';
+import { DOCUMENT_TYPE_COLORS, DOCUMENT_TYPE_LABELS, GRAPH_COLORS } from '../lib/display.js';
 import { Icon } from './Icon.js';
 
 interface Props {
@@ -25,6 +25,13 @@ interface ForceGraphData {
 
 function toGraphNode(value: unknown): GraphNode {
   return value as GraphNode;
+}
+
+/** Force-graph rewrites link source/target into node objects after layout. */
+function linkEndId(end: unknown): string {
+  return typeof end === 'object' && end !== null
+    ? (end as { id: string }).id
+    : (end as string);
 }
 
 function toForceGraphData(data: ForceGraphData): never {
@@ -146,6 +153,18 @@ export function KnowledgeGraph({ projectId, onOpenDocument, onClose }: Props) {
     [highlightNodeIds],
   );
 
+  const linkColorFn = useCallback(
+    (link: unknown) => {
+      if (highlightNodeIds.size === 0) return GRAPH_COLORS.link;
+      const l = link as { source: unknown; target: unknown };
+      return highlightNodeIds.has(linkEndId(l.source)) &&
+        highlightNodeIds.has(linkEndId(l.target))
+        ? GRAPH_COLORS.link
+        : GRAPH_COLORS.linkDim;
+    },
+    [highlightNodeIds],
+  );
+
   return (
     <div className="graph-overlay" role="dialog" aria-label="Knowledge graph">
       <div className="graph-overlay__header">
@@ -158,6 +177,11 @@ export function KnowledgeGraph({ projectId, onOpenDocument, onClose }: Props) {
           onChange={(e) => setQuery(e.target.value)}
           aria-label="Filter graph nodes"
         />
+        {query.trim() && data && (
+          <span className="graph-overlay__count" aria-live="polite">
+            {filteredData.nodes.length} / {data.nodes.length}
+          </span>
+        )}
         <button
           type="button"
           className="graph-overlay__close"
@@ -180,7 +204,14 @@ export function KnowledgeGraph({ projectId, onOpenDocument, onClose }: Props) {
             Failed to load graph.
           </StatusMessage>
         )}
-        {data && (
+        {data && filteredData.nodes.length === 0 && (
+          <StatusMessage kind="empty" className="graph-overlay__state">
+            {data.nodes.length === 0
+              ? 'No documents to graph yet.'
+              : `No nodes match "${query.trim()}".`}
+          </StatusMessage>
+        )}
+        {data && filteredData.nodes.length > 0 && (
           <ForceGraph2D
             graphData={toForceGraphData(filteredData)}
             width={dimensions.width}
@@ -192,7 +223,7 @@ export function KnowledgeGraph({ projectId, onOpenDocument, onClose }: Props) {
             nodeColor={(n) => nodeColorFn(toGraphNode(n))}
             linkSource="source"
             linkTarget="target"
-            linkColor={() => GRAPH_COLORS.link}
+            linkColor={(l) => linkColorFn(l)}
             linkDirectionalArrowLength={4}
             linkDirectionalArrowRelPos={1}
             onNodeClick={(n) => handleNodeClick(toGraphNode(n))}
@@ -208,7 +239,7 @@ export function KnowledgeGraph({ projectId, onOpenDocument, onClose }: Props) {
               className="graph-overlay__legend-dot"
               style={{ background: colour }}
             />
-            {type}
+            {DOCUMENT_TYPE_LABELS[type as DocumentType]}
           </span>
         ))}
         <span className="graph-overlay__legend-item">

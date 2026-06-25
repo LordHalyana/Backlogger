@@ -1,48 +1,36 @@
 #!/usr/bin/env -S node --experimental-strip-types
 /**
- * Reindex summary script (Block 1).
+ * Full reindex CLI.
  *
- * Walks `<BACKLOGGER_DATA_DIR>/projects/` and prints counts per project and
- * per `type` frontmatter value. In later blocks this script will also
- * rebuild the SQLite `documents` table; for now it is a read-only summary
- * to confirm the filesystem layer works end-to-end.
+ * Rebuilds the SQLite `documents`, links, tags, and FTS indexes from the
+ * Markdown files under `<BACKLOGGER_DATA_DIR>/projects/`. This is the CLI
+ * equivalent of `POST /api/admin/reindex`; run it with the server stopped
+ * (e.g. after restoring a backup or large external file changes).
  */
-import { PathResolver, FsRepository } from '../packages/api/src/fs/index.ts';
+import * as path from 'node:path';
+import { openDatabase } from '../packages/api/src/db/database.ts';
+import { buildContext } from '../packages/api/src/context.ts';
 
-const dataDir = process.env.BACKLOGGER_DATA_DIR ?? './data';
+const dataDir = path.resolve(process.env.BACKLOGGER_DATA_DIR ?? './data');
+const dbFile = path.join(dataDir, 'backlogger.sqlite');
 
 async function main(): Promise<void> {
-  const resolver = new PathResolver({ dataDir });
-  const repo = new FsRepository({ resolver });
-  await repo.ensureRoot();
-
-  const perProject = new Map<string, number>();
-  const perType = new Map<string, number>();
-  let total = 0;
-
-  for await (const doc of repo.walk()) {
-    total += 1;
-    const projectId = doc.path.split('/')[0] ?? '<unknown>';
-    perProject.set(projectId, (perProject.get(projectId) ?? 0) + 1);
-    const type = typeof doc.frontmatter.type === 'string' ? doc.frontmatter.type : '<missing>';
-    perType.set(type, (perType.get(type) ?? 0) + 1);
-  }
-
-  // eslint-disable-next-line no-console
-  console.log(`Reindex summary (${resolver.projectsRoot})`);
-  // eslint-disable-next-line no-console
-  console.log(`  total documents: ${total}`);
-  // eslint-disable-next-line no-console
-  console.log('  by project:');
-  for (const [k, v] of [...perProject.entries()].sort()) {
+  const db = openDatabase({ file: dbFile });
+  try {
+    const ctx = buildContext({ db, dataDir });
+    await ctx.fs.ensureRoot();
+    const report = await ctx.reindexService.run();
     // eslint-disable-next-line no-console
-    console.log(`    ${k}: ${v}`);
-  }
-  // eslint-disable-next-line no-console
-  console.log('  by type:');
-  for (const [k, v] of [...perType.entries()].sort()) {
-    // eslint-disable-next-line no-console
-    console.log(`    ${k}: ${v}`);
+    console.log(
+      `[backlogger] reindex complete: scanned ${report.scanned}, ` +
+        `inserted ${report.inserted}, skipped ${report.skipped.length}`,
+    );
+    for (const s of report.skipped) {
+      // eslint-disable-next-line no-console
+      console.log(`  skipped ${s.path}: ${s.reason}`);
+    }
+  } finally {
+    db.close();
   }
 }
 

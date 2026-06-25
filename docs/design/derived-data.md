@@ -27,7 +27,10 @@ data/projects/<project-id>/**/*.md
 
 Backlogger-authored Markdown files contain frontmatter plus body content. Plain
 Markdown files without Backlogger frontmatter can also be indexed with derived
-metadata from path, heading, and file stats.
+metadata from path, heading, and file stats. In a sidecar-mode project, metadata
+comes from `<project>/.backlogger/index.json` instead of file frontmatter (see
+[Sidecar Metadata](sidecar-metadata.md)); SQLite stays rebuildable from `.md`
+content plus the sidecar.
 
 ## Derived Data
 
@@ -196,16 +199,4 @@ If SQLite and disk drift:
 
 1. Use project reload for one project.
 2. Use full reindex for all projects.
-3. If restoring from backup, restore files first, then run migration/reindex with the app stopped or before serving traffic.
-
-## Test Expectations
-
-Coverage should exist for:
-
-- create/update/delete refreshing links and tags.
-- first-edit adoption of plain Markdown when a project is editable.
-- archive/unarchive path movement and status consistency.
-- import skip/copy/replace behavior.
-- project reload adding, updating, and removing rows.
-- graph freshness after document change and reload.
-- React Query cache behavior for removed open documents.
+3. If restoring from backup, restore file

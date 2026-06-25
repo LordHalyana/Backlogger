@@ -48,6 +48,7 @@ export function ProjectSwitcher({ selectedId, onSelect }: ProjectSwitcherProps):
         + New Project
       </button>
       {selectedProject && <ProjectReadOnlyToggle project={selectedProject} />}
+      {selectedProject && <ProjectMetadataModeToggle project={selectedProject} />}
       {selectedId && (
         <DeleteProjectButton
           id={selectedId}
@@ -92,6 +93,45 @@ function ProjectReadOnlyToggle({ project }: { project: Project }): JSX.Element {
       aria-pressed={project.readOnly}
     >
       {project.readOnly ? 'Read-only' : 'Editable'}
+    </button>
+  );
+}
+
+function ProjectMetadataModeToggle({ project }: { project: Project }): JSX.Element {
+  const update = useUpdateProject();
+  const dialog = useDialog();
+  const sidecar = project.metadataMode === 'sidecar';
+  const next = sidecar ? 'frontmatter' : 'sidecar';
+  return (
+    <button
+      type="button"
+      className={sidecar ? 'metadata-mode-toggle sidecar' : 'metadata-mode-toggle'}
+      onClick={() => {
+        void dialog
+          .confirm({
+            title: 'Switch metadata mode',
+            message: sidecar
+              ? 'Switch to frontmatter mode? New documents and edits will write Backlogger frontmatter into the files themselves.'
+              : 'Switch to sidecar mode? Backlogger metadata is stored in .backlogger/index.json so source files stay frontmatter-free. Existing frontmatter documents keep their frontmatter.',
+            confirmLabel: 'Switch',
+          })
+          .then((ok) => {
+            if (!ok) return;
+            update.mutate(
+              { id: project.id, input: { metadataMode: next } },
+              { onError: (e) => toastError(dialog, 'Failed to change metadata mode', e) },
+            );
+          });
+      }}
+      disabled={update.isPending}
+      title={
+        sidecar
+          ? 'Sidecar mode: metadata lives in .backlogger/, source files stay frontmatter-free. Click to use frontmatter.'
+          : 'Frontmatter mode: metadata is written into each file. Click to store it in a sidecar instead.'
+      }
+      aria-pressed={sidecar}
+    >
+      {sidecar ? 'Sidecar' : 'Frontmatter'}
     </button>
   );
 }

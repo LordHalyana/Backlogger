@@ -1,7 +1,7 @@
 import type { Db } from './db/database.js';
 import { DocumentsRepo } from './db/documents-repo.js';
 import { ProjectsRepo } from './db/projects-repo.js';
-import { FsRepository, PathResolver } from './fs/index.js';
+import { FsRepository, PathResolver, SidecarStore } from './fs/index.js';
 import { DocumentService } from './services/document-service.js';
 import { HealthService } from './services/health-service.js';
 import { ImportService } from './services/import-service.js';
@@ -19,6 +19,7 @@ export interface AppContext {
   db: Db;
   resolver: PathResolver;
   fs: FsRepository;
+  sidecarStore: SidecarStore;
   projectsRepo: ProjectsRepo;
   documentsRepo: DocumentsRepo;
   projectService: ProjectService;
@@ -47,6 +48,7 @@ export interface BuildContextOptions {
 export function buildContext(opts: BuildContextOptions): AppContext {
   const resolver = new PathResolver({ dataDir: opts.dataDir });
   const fs = new FsRepository({ resolver });
+  const sidecarStore = new SidecarStore(resolver);
   const projectsRepo = new ProjectsRepo(opts.db);
   const documentsRepo = new DocumentsRepo(opts.db);
   const templates = opts.templates ?? new TemplateRegistry();
@@ -64,8 +66,9 @@ export function buildContext(opts: BuildContextOptions): AppContext {
     linkService,
     tagsService,
     graphService,
+    sidecarStore,
   });
-  const reindexService = new ReindexService({ documentsRepo, projectsRepo, fs, linkService, tagsService, graphService });
+  const reindexService = new ReindexService({ documentsRepo, projectsRepo, fs, linkService, tagsService, graphService, sidecarStore });
   const searchService = new SearchService(opts.db);
   const healthService = new HealthService({
     db: opts.db,
@@ -78,6 +81,7 @@ export function buildContext(opts: BuildContextOptions): AppContext {
     db: opts.db,
     resolver,
     fs,
+    sidecarStore,
     projectsRepo,
     documentsRepo,
     projectService,

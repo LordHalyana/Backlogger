@@ -73,16 +73,11 @@ Use when upgrading schema or preparing a new environment.
 
 ### `npm run reindex`
 
-Prints a read-only summary of the Markdown files on disk (document counts per
-project and per `type`). It does **not** rebuild the SQLite `documents` table or
-any derived index — it is a filesystem sanity check.
+Rebuilds the SQLite `documents`, links, tags, and FTS indexes from the Markdown
+files on disk — the CLI equivalent of `POST /api/admin/reindex`. Prints a
+summary (scanned / inserted / skipped) and lists any skipped files.
 
-To actually rebuild metadata and indexes from disk, use the API: `POST
-/api/admin/reindex` (all projects) or `POST /api/projects/:id/reload` (one
-project). Startup also auto-reindexes when the documents table is empty.
-
-Use `npm run reindex` to confirm the filesystem layer sees the expected files
-after:
+Use after:
 
 - restoring a backup
 - large external file changes
@@ -117,16 +112,4 @@ Use before release or after search/index changes.
 
 Runs graph latency benchmark.
 
-Use after graph service or link-index changes.
-
-### `npm run bundle-audit`
-
-Checks initial JavaScript gzip size against the current budget.
-
-Use after frontend dependency or graph/editor changes.
-
-## Safety Notes
-
-- Read script source before running against real data.
-- Back up `data/` before running scripts that seed, register, migrate, or reindex important workspaces.
-- Do not run formatting scripts if you are trying to keep a narrow diff.
+Use after grap

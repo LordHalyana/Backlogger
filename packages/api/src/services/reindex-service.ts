@@ -6,7 +6,10 @@ import {
   isArchivedPath,
   type DocumentStatus,
   type Frontmatter,
+  type SidecarEntry,
+  type SidecarIndex,
 } from '@backlogger/shared';
+import type { SidecarStore } from '../fs/index.js';
 import type { DocumentsRepo } from '../db/documents-repo.js';
 import type { ProjectsRepo } from '../db/projects-repo.js';
 import type { FsRepository, RawDocument } from '../fs/index.js';
@@ -45,6 +48,7 @@ export interface ReindexServiceDeps {
   linkService: LinkService;
   tagsService: TagsService;
   graphService: GraphService;
+  sidecarStore: SidecarStore;
 }
 
 /**
@@ -60,6 +64,7 @@ export class ReindexService {
   private readonly linkService: LinkService;
   private readonly tagsService: TagsService;
   private readonly graphService: GraphService;
+  private readonly sidecarStore: SidecarStore;
   private readonly inFlight = new Set<string>();
 
   constructor(deps: ReindexServiceDeps) {
@@ -69,6 +74,7 @@ export class ReindexService {
     this.linkService = deps.linkService;
     this.tagsService = deps.tagsService;
     this.graphService = deps.graphService;
+    this.sidecarStore = deps.sidecarStore;
   }
 
   async run(): Promise<ReindexReport> {
@@ -77,6 +83,7 @@ export class ReindexService {
     this.linkService.truncate();
     this.tagsService.truncate();
 
+    const sidecars = new Map<string, SidecarIndex>();
     for await (const doc of this.fs.walk()) {
       report.scanned += 1;
       const projectId = doc.path.split('/')[0] ?? '';
@@ -84,7 +91,12 @@ export class ReindexService {
         report.skipped.push({ path: doc.path, reason: 'invalid project folder' });
         continue;
       }
-      const indexed = metadataForIndex(doc, projectId);
+      let sidecar = sidecars.get(projectId);
+      if (sidecar === undefined) {
+        sidecar = await this.sidecarStore.load(projectId);
+        sidecars.set(projectId, sidecar);
+      }
+      const indexed = metadataForIndex(doc, projectId, sidecar);
       this.documentsRepo.upsert({
         id: indexed.frontmatter.id,
         project_id: projectId,
@@ -133,9 +145,10 @@ export class ReindexService {
       const existing = new Map(
         this.documentsRepo.listByProject(projectId).map((d) => [d.id, d] as const),
       );
+      const sidecar = await this.sidecarStore.load(projectId);
 
       for await (const doc of this.fs.walkProject(projectId)) {
-        const indexed = metadataForIndex(doc, projectId);
+        const indexed = metadataForIndex(doc, projectId, sidecar);
         const wasPresent = existing.has(indexed.frontmatter.id);
         this.documentsRepo.upsert({
           id: indexed.frontmatter.id,
@@ -197,7 +210,11 @@ interface IndexedMetadata {
   readOnly: boolean;
 }
 
-function metadataForIndex(doc: RawDocument, projectId: string): IndexedMetadata {
+function metadataForIndex(
+  doc: RawDocument,
+  projectId: string,
+  sidecar: SidecarIndex,
+): IndexedMetadata {
   const parsed = FrontmatterSchema.safeParse(doc.frontmatter);
   if (parsed.success) {
     if (parsed.data.project === projectId) {
@@ -209,7 +226,37 @@ function metadataForIndex(doc: RawDocument, projectId: string): IndexedMetadata 
     };
   }
 
+  // No valid Backlogger frontmatter. A sidecar entry (sidecar-mode projects)
+  // makes the file editable without writing frontmatter into the source file.
+  const entry = sidecar.entries[sidecarKey(projectId, doc.path)];
+  if (entry) {
+    return { frontmatter: frontmatterFromSidecar(doc, projectId, entry), readOnly: false };
+  }
+
   return { frontmatter: deriveFrontmatter(doc, projectId), readOnly: true };
+}
+
+/** Sidecar key for a document: its project-relative path without the project id. */
+function sidecarKey(projectId: string, docPath: string): string {
+  const prefix = `${projectId}/`;
+  return docPath.startsWith(prefix) ? docPath.slice(prefix.length) : docPath;
+}
+
+function frontmatterFromSidecar(
+  doc: RawDocument,
+  projectId: string,
+  entry: SidecarEntry,
+): Frontmatter {
+  return {
+    id: entry.id,
+    title: entry.title ?? deriveTitle(doc.path, doc.body),
+    project: projectId,
+    type: entry.type,
+    status: entry.status,
+    created_at: entry.created_at,
+    updated_at: entry.updated_at,
+    tags: entry.tags,
+  };
 }
 
 function repairMismatchedFrontmatter(

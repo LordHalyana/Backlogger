@@ -36,3 +36,12 @@
   color: var(--accent);
   border-color: var(--accent);
 }
+
+.project-switcher .metadata-mode-toggle {
+  color: var(--fg-muted);
+}
+
+.project-switcher .metadata-mode-toggle.sidecar {
+  color: var(--accent);
+  border-color: var(--accent);
+}

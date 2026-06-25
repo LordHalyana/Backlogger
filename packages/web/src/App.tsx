@@ -12,6 +12,7 @@ import { TopbarAction } from './components/TopbarAction.js';
 import { TagExplorer } from './components/TagExplorer.js';
 import { Icon } from './components/Icon.js';
 import { useProjects } from './lib/projects.js';
+import { formatUptime } from './lib/display.js';
 import { useTheme } from './lib/theme.js';
 import { useWikiLinkNavigation } from './hooks/useWikiLinkNavigation.js';
 import { useGlobalShortcuts } from './hooks/useGlobalShortcuts.js';
@@ -69,7 +70,17 @@ export function App(): JSX.Element {
     ? 'checking...'
     : isError
       ? 'api unreachable'
-      : `api ok - v${data!.version} - up ${Math.floor(data!.uptime)}s`;
+      : `v${data!.version} · up ${formatUptime(data!.uptime)}`;
+  const healthTitle = isError
+    ? 'API unreachable'
+    : !data
+      ? 'Checking API health...'
+      : [
+          `API: ${data.status}`,
+          `version ${data.version}`,
+          `uptime ${formatUptime(data.uptime)}`,
+          `database ${data.database} · storage ${data.storage} · templates ${data.templates} · fts ${data.fts}`,
+        ].join('\n');
 
   return (
     <div className="app-shell">
@@ -120,7 +131,7 @@ export function App(): JSX.Element {
               <Icon name="graph" />
             </TopbarAction>
           )}
-          <span className={cls}>
+          <span className={cls} title={healthTitle}>
             <span className="dot" />
             {label}
           </span>

@@ -71,21 +71,24 @@ folder listing reflects the current on-disk state.
 
 ## 4. Moving Documents
 
-There is no "move document" API endpoint. Documents can only be moved by:
+`POST /api/documents/:id/move` relocates a document to a different
+project-relative folder, preserving its id, title, body, and archive state. The
+metadata panel exposes a **Move** action that calls it.
 
-1. Editing the file path externally and then running a Reload.
-2. Deleting the document and creating a new one in the target folder.
+Rules enforced by `DocumentService.move`:
 
-The UI does not expose a move operation at this time.
+- The project must be editable, otherwise `409 PROJECT_READ_ONLY`.
+- Only real Backlogger documents can be moved; a derived plain-Markdown row is
+  rejected with `DERIVED_DOCUMENT_READ_ONLY` (its id is path-derived and must
+  not change until the file is adopted).
+- The reserved `archived/` folder cannot be a move target (`400 INVALID_FOLDER`);
+  archive state is controlled through `status`, not the folder. Moving an
+  archived document keeps it under `archived/<new-folder>/`.
+
+External moves still work too: edit the file path on disk and run a **Reload**.
 
 ---
 
 ## 5. The `archived/` Folder
 
 The `archived/` subdirectory is a **special** folder managed automatically by
-the system. Documents are moved into `archived/<original-folder>/` when their
-status is changed to `archived`, and moved back when they are unarchived.
-
-The folder is **not** listed in the normal folder tree and cannot be created
-or deleted via the folder API. See [Archive Invariants](./archive-invariants.md)
-for the full rules.

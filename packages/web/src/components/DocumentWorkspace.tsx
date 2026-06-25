@@ -3,8 +3,10 @@ import {
   useDeleteDocument,
   useDocument,
   useDocuments,
+  useMoveDocument,
 } from '../lib/documents.js';
-import { useDialog } from '../lib/dialog.js';
+import { toastError, useDialog } from '../lib/dialog.js';
+import { FolderPathSchema, folderFromDocumentPath, unarchivePath } from '@backlogger/shared';
 import { useTitles } from '../lib/links.js';
 import type { Theme } from '../lib/theme.js';
 import { useDocumentBuffer } from '../hooks/useDocumentBuffer.js';
@@ -12,6 +14,7 @@ import { DocumentPreview } from './DocumentPreview.js';
 import { MetadataPanel } from './MetadataPanel.js';
 import { SegmentedControl } from './SegmentedControl.js';
 import { StatusMessage } from './StatusMessage.js';
+import { DOCUMENT_STATUS_LABELS } from '../lib/display.js';
 
 const DocumentEditor = lazy(() =>
   import('./DocumentEditor.js').then((m) => ({ default: m.DocumentEditor })),
@@ -42,6 +45,7 @@ export function DocumentWorkspace({
 }: DocumentWorkspaceProps): JSX.Element {
   const { data: doc, isLoading, isError, error, refetch } = useDocument(documentId);
   const del = useDeleteDocument(projectId);
+  const moveDoc = useMoveDocument(projectId);
   const titlesQuery = useTitles(projectId);
   const wikiTitles = useMemo<readonly string[]>(
     () => titlesQuery.data?.map((t) => t.title) ?? [],
@@ -94,6 +98,44 @@ export function DocumentWorkspace({
       });
   }, [del, dialog, doc, onDeleted]);
 
+  const handleMove = useCallback(() => {
+    if (!doc) return;
+    if (dirty || isSaving) {
+      void dialog.confirm({
+        title: 'Save first',
+        message: 'Save your changes before moving this document.',
+        confirmLabel: 'OK',
+        cancelLabel: '',
+      });
+      return;
+    }
+    const current = folderFromDocumentPath(projectId, unarchivePath(doc.path));
+    void dialog
+      .prompt({
+        title: 'Move document',
+        message: `Current folder: ${current || '(root)'}. Enter a destination folder (leave blank for the project root).`,
+        defaultValue: current,
+        placeholder: 'e.g. notes/ideas',
+        confirmLabel: 'Move',
+        validate: (v) => {
+          const t = v.trim();
+          if (t === '') return null;
+          return FolderPathSchema.safeParse(t).success
+            ? null
+            : 'Invalid path - use lowercase letters, numbers, hyphens, and forward slashes only.';
+        },
+      })
+      .then((folder) => {
+        if (folder === null) return;
+        const target = folder.trim();
+        if (target === current) return;
+        moveDoc.mutate(
+          { id: doc.id, folder: target },
+          { onError: (e) => toastError(dialog, 'Failed to move document', e) },
+        );
+      });
+  }, [doc, dirty, isSaving, dialog, projectId, moveDoc]);
+
   if (isLoading || !doc || !buffer) {
     return (
       <div className="workspace-empty">
@@ -108,6 +150,18 @@ export function DocumentWorkspace({
 
   return (
     <div className="document-workspace">
+      <div className="workspace-header">
+        <span className="workspace-title" title={doc.path}>
+          {buffer.meta.title || 'Untitled'}
+        </span>
+        <span
+          className={'doc-status-chip status-' + buffer.meta.status}
+          aria-hidden="true"
+        >
+          {DOCUMENT_STATUS_LABELS[buffer.meta.status]}
+        </span>
+        <code className="workspace-path">{doc.path}</code>
+      </div>
       <div className="workspace-status">
         <span className={'dirty-dot ' + (dirty ? 'dirty' : 'clean')} aria-hidden="true" />
         <span className="status-label">
@@ -183,6 +237,9 @@ export function DocumentWorkspace({
           onDelete={handleDelete}
           deleting={del.isPending}
           readOnly={isReadOnly}
+          currentFolder={folderFromDocumentPath(projectId, unarchivePath(doc.path))}
+          onMove={isReadOnly ? undefined : handleMove}
+          moving={moveDoc.isPending}
           onOpenDocument={onOpenDocument}
         />
       </div>

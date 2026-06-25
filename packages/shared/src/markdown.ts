@@ -4,8 +4,13 @@ import { parseWikiLinks } from './wiki-link.js';
 type StateInline = Parameters<Parameters<MarkdownIt['inline']['ruler']['before']>[2]>[0];
 
 // Single shared markdown-it instance configured for both server and client.
-// Phase 1: GitHub-style line breaks, autolinks, HTML disabled for safety.
-// Phase 2: wiki-link inline rule emits `<a class="wiki-link" data-title="…">`.
+// GitHub-style soft line breaks (a single newline becomes <br>), autolinks,
+// HTML disabled for safety. The wiki-link inline rule emits
+// `<a class="wiki-link" data-title="…">`.
+//
+// `breaks: true` keeps casual notes — where each newline is meant as a line
+// break — readable in preview. Hard-wrapped Markdown shows those wraps as
+// breaks; author such docs with soft wrapping (one line per paragraph).
 //
 // SECURITY: html must remain false to prevent XSS via dangerouslySetInnerHTML.
 // See packages/web/src/components/DocumentPreview.tsx and HelpDrawer.tsx.
@@ -13,7 +18,7 @@ type StateInline = Parameters<Parameters<MarkdownIt['inline']['ruler']['before']
 const md = new MarkdownIt({
   html: false,
   linkify: true,
-  breaks: false,
+  breaks: true,
   typographer: false,
 });
 

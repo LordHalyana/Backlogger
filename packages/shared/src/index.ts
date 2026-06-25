@@ -27,3 +27,4 @@ export * from './search.js';
 export * from './wiki-link.js';
 export * from './tags.js';
 export * from './import.js';
+export * from './sidecar.js';

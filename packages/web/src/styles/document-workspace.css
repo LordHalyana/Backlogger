@@ -7,6 +7,55 @@
   height: 100%;
 }
 
+.workspace-header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  min-width: 0;
+}
+
+.workspace-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 0 1 auto;
+  max-width: 45%;
+}
+
+.workspace-path {
+  color: var(--fg-muted);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1 1 auto;
+}
+
+.doc-status-chip {
+  flex: none;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 6px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  color: var(--fg-muted);
+}
+
+.doc-status-chip.status-active {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+
+.doc-status-chip.status-archived {
+  opacity: 0.7;
+}
+
 .workspace-status {
   display: flex;
   align-items: center;
@@ -171,8 +220,40 @@
 .metadata-panel input:disabled,
 .metadata-panel select:disabled,
 .metadata-panel button:disabled {
-  opacity: 0.6;
+  opacity: 0.45;
   cursor: not-allowed;
+  background: var(--bg-elev);
+  color: var(--fg-muted);
+}
+
+/* A disabled destructive button should read as inert, not live-red. */
+.metadata-panel button.danger:disabled {
+  background: var(--bg-elev);
+  color: var(--fg-muted);
+  border-color: var(--border);
+}
+
+.metadata-folder {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.metadata-folder-label {
+  color: var(--fg-muted);
+}
+
+.metadata-folder-path {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.metadata-folder .btn--sm {
+  flex: none;
 }
 
 .metadata-readonly {

@@ -120,7 +120,7 @@ export function ProjectTree({
             archived
           </span>
         )}
-        {d.readOnly && (
+        {d.readOnly && !readOnly && (
           <span className="badge badge-readonly" aria-hidden="true">
             read-only
           </span>

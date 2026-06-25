@@ -8,6 +8,7 @@ import {
   ProjectNotFoundError,
 } from './errors.js';
 import { PathResolver, PROJECT_SUBDIRS } from './path-resolver.js';
+import { SIDECAR_DIR } from '@backlogger/shared';
 
 /** A parsed Markdown document on disk. */
 export interface RawDocument {
@@ -109,6 +110,7 @@ export class FsRepository {
       for (const e of entries) {
         if (!e.isDirectory()) continue;
         if (e.isSymbolicLink()) continue;
+        if (e.name === SIDECAR_DIR) continue; // reserved sidecar metadata dir
         const childRel = rel ? `${rel}/${e.name}` : e.name;
         out.push(childRel);
         await visit(path.join(dir, e.name), childRel);
@@ -219,6 +221,35 @@ export class FsRepository {
     }
   }
 
+  /**
+   * Atomically write raw file content with NO frontmatter serialization.
+   * Used by sidecar-mode projects so source `.md` files stay frontmatter-free.
+   */
+  async writeRaw(relativePath: string, content: string): Promise<void> {
+    const absolute = this.resolver.resolveRelative(relativePath);
+    await this.resolver.assertNoSymlinks(absolute);
+    await fs.mkdir(path.dirname(absolute), { recursive: true });
+
+    const tmpName = `${path.basename(absolute)}.tmp.${process.pid}.${randomBytes(6).toString('hex')}`;
+    const tmpPath = path.join(path.dirname(absolute), tmpName);
+
+    let handle: fs.FileHandle | undefined;
+    try {
+      handle = await fs.open(tmpPath, 'wx');
+      await handle.writeFile(content, 'utf8');
+      await handle.sync();
+    } finally {
+      await handle?.close().catch(() => undefined);
+    }
+
+    try {
+      await fs.rename(tmpPath, absolute);
+    } catch (err) {
+      await fs.rm(tmpPath, { force: true }).catch(() => undefined);
+      throw err;
+    }
+  }
+
   /** Delete a document file. Throws `DocumentNotFoundError` if missing. */
   async delete(relativePath: string): Promise<void> {
     const absolute = await this.resolver.resolveRelativeSafe(relativePath);
@@ -269,6 +300,7 @@ async function* walkMarkdown(
     const abs = path.join(dir, entry.name);
     if (entry.isSymbolicLink()) continue; // skip symlinks defensively
     if (entry.isDirectory()) {
+      if (entry.name === SIDECAR_DIR) continue; // reserved sidecar metadata dir
       yield* walkMarkdown(abs, rootForRelative);
     } else if (entry.isFile() && entry.name.endsWith('.md')) {
       const rel = toForwardSlash(path.relative(rootForRelative, abs));
