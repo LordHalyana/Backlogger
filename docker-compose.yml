@@ -15,6 +15,9 @@ services:
       - /opt/dev-local/Backlogger/docs:/app/data/projects/backlogger-docs
       - /opt/dev-local/background-swapper/docs:/app/data/projects/background-swapper
       - /opt/dev-local/project-epsilon/docs:/app/data/projects/home-system
+      - /opt/dev-local/porfolio-page/docs:/app/data/projects/portfolio-page
+      - /opt/dev-local/devtoolsh/docs:/app/data/projects/devtoolsh
+      - /opt/dev-local/sjallabais.dev/sjallabais.dev/docs:/app/data/projects/sjallabais-dev
       #
     environment:
       BACKLOGGER_DATA_DIR: /app/data
