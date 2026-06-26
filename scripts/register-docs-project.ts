@@ -20,6 +20,7 @@ import * as fs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { openDatabase } from '../packages/api/src/db/database.ts';
 import { buildContext } from '../packages/api/src/context.ts';
+import { type DocType, extractTitle, walkMarkdown } from './lib/docs-project.ts';
 
 const PROJECT_ID = 'backlogger-docs';
 const PROJECT_NAME = 'Backlogger Documentation';
@@ -34,8 +35,6 @@ const dbFile = path.join(dataDir, 'backlogger.sqlite');
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-type DocType = 'design_doc' | 'implementation_plan' | 'note';
 
 function classify(rel: string): { type: DocType; tags: string[]; status: 'active' | 'archived' } {
   const parts = rel.split(path.sep);
@@ -61,11 +60,6 @@ function classify(rel: string): { type: DocType; tags: string[]; status: 'active
   if ((status === 'archived' ? parts[1] : parts[0]) === 'findings') tags.add('findings');
   if ((status === 'archived' ? parts[1] : parts[0]) === 'operations') tags.add('operations');
   return { type: 'note', tags: [...tags], status };
-}
-
-function extractTitle(body: string, fallback: string): string {
-  const m = body.match(/^#\s+(.+?)\s*$/m);
-  return (m ? m[1] : fallback).slice(0, 200);
 }
 
 /** Parse the leading `---…---` block from raw file content.
@@ -130,26 +124,6 @@ function buildFrontmatter(
   return lines.join('\n');
 }
 
-async function walkMarkdown(root: string): Promise<string[]> {
-  const out: string[] = [];
-  async function visit(dir: string): Promise<void> {
-    const entries = await fs.readdir(dir, { withFileTypes: true });
-    for (const e of entries) {
-      const full = path.join(dir, e.name);
-      if (e.isSymbolicLink()) {
-        // Follow one level of symlinks for the project root itself but
-        // don't recurse into nested symlinks to avoid cycles.
-        continue;
-      }
-      if (e.isDirectory()) await visit(full);
-      else if (e.isFile() && e.name.endsWith('.md')) out.push(full);
-    }
-  }
-  await visit(root);
-  out.sort();
-  return out;
-}
-
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
@@ -186,7 +160,7 @@ async function main(): Promise<void> {
     }
 
     // 2. Walk files and stamp frontmatter where missing.
-    const files = await walkMarkdown(projectDir);
+    const files = await walkMarkdown(projectDir, { skipSymlinks: true });
     let stamped = 0;
     let skipped = 0;
 

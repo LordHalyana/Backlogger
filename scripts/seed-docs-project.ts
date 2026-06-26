@@ -23,6 +23,7 @@ import * as fs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { openDatabase } from '../packages/api/src/db/database.ts';
 import { buildContext } from '../packages/api/src/context.ts';
+import { type DocType, extractTitle, walkMarkdown } from './lib/docs-project.ts';
 
 const PROJECT_ID = 'backlogger-docs';
 const PROJECT_NAME = 'Backlogger Documentation';
@@ -38,8 +39,6 @@ const dataDir = path.resolve(
 const docsDir = path.join(repoRoot, 'docs');
 const projectDir = path.join(dataDir, 'projects', PROJECT_ID);
 const dbFile = path.join(dataDir, 'backlogger.sqlite');
-
-type DocType = 'design_doc' | 'implementation_plan' | 'note';
 
 function slugSegment(seg: string): string {
   return seg
@@ -85,26 +84,6 @@ function slugifyName(rel: string): string {
     .replace(/^[-_]+|[-_]+$/g, '');
   if (!/^[a-z0-9]/.test(s)) s = `doc-${s}`;
   return `${s.slice(0, 124)}.md`;
-}
-
-function extractTitle(body: string, fallback: string): string {
-  const m = body.match(/^#\s+(.+?)\s*$/m);
-  return (m ? m[1] : fallback).slice(0, 200);
-}
-
-async function walkMarkdown(root: string): Promise<string[]> {
-  const out: string[] = [];
-  async function visit(dir: string): Promise<void> {
-    const entries = await fs.readdir(dir, { withFileTypes: true });
-    for (const e of entries) {
-      const full = path.join(dir, e.name);
-      if (e.isDirectory()) await visit(full);
-      else if (e.isFile() && e.name.endsWith('.md')) out.push(full);
-    }
-  }
-  await visit(root);
-  out.sort();
-  return out;
 }
 
 async function main(): Promise<void> {

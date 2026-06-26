@@ -14,11 +14,8 @@
  *   1 — over budget or setup failed
  */
 import * as fs from 'node:fs/promises';
-import * as os from 'node:os';
-import * as path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { openDatabase } from '../packages/api/src/db/database.ts';
 import { buildContext } from '../packages/api/src/context.ts';
+import { createBenchContext, percentile } from './lib/bench.ts';
 
 interface Args {
   docs: number;
@@ -41,20 +38,9 @@ function parseArgs(argv: string[]): Args {
   return out;
 }
 
-function percentile(sorted: number[], p: number): number {
-  const idx = Math.min(sorted.length - 1, Math.max(0, Math.ceil((p / 100) * sorted.length) - 1));
-  return sorted[idx]!;
-}
-
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'backlogger-bench-graph-'));
-  const dataDir = path.join(tmp, 'data');
-  await fs.mkdir(dataDir, { recursive: true });
-
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  const migrationsDir = path.resolve(here, '..', 'migrations');
-  const db = openDatabase({ file: path.join(tmp, 'bench.sqlite'), migrationsDir });
+  const { db, tmp, dataDir } = await createBenchContext('backlogger-bench-graph-');
 
   try {
     const ctx = buildContext({ db, dataDir });
