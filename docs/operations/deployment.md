@@ -106,6 +106,7 @@ See `docs/operations/data-storage.md` for the full storage and mounted-project c
 | `BACKLOGGER_DATA_DIR` | `./data` | Data root. |
 | `BACKLOGGER_TEMPLATES_DIR` | `packages/api/templates` | Built-in template directory (resolved relative to the compiled API by default). |
 | `BACKLOGGER_ALLOWED_ORIGINS` | `*` | Browser CORS allow-list. |
+| `BACKLOGGER_WATCH` | `1` | Set `0` to disable filesystem auto-reindex. See [File Watching](#file-watching). |
 | `NODE_ENV` | unset locally, `production` in Docker | When `production`, the Express API also serves the built web app from `packages/web/dist`. |
 | `LOG_LEVEL` | `info` | Server log verbosity. |
 
@@ -126,6 +127,31 @@ BACKLOGGER_ALLOWED_ORIGINS=http://home.local,http://127.0.0.1:5173
 ```
 
 An empty value disables cross-origin browser access.
+
+## File Watching
+
+Backlogger watches `BACKLOGGER_DATA_DIR/projects` and auto-reindexes a project
+when its Markdown changes on disk. On Linux this uses inotify, which has a
+per-user watch limit (`fs.inotify.max_user_watches`). Large document trees —
+especially inside containers — can exhaust it, producing:
+
+```text
+Error: ENOSPC: System limit for number of file watchers reached
+```
+
+The watcher catches this and **self-disables for the session**: the server keeps
+running, and startup sync plus the manual **Reload** button still re-index. To
+restore live watching, raise the limit on the **host** (containers share the
+host kernel):
+
+```bash
+sudo sysctl fs.inotify.max_user_watches=524288
+echo 'fs.inotify.max_user_watches=524288' | sudo tee /etc/sysctl.d/99-backlogger.conf
+sudo sysctl --system
+```
+
+To turn file watching off entirely, set `BACKLOGGER_WATCH=0`; the server then
+relies on startup sync and manual Reload.
 
 ## Templates
 
@@ -148,7 +174,7 @@ On startup the server:
 3. Loads built-in and user templates.
 4. Ensures data directories exist.
 5. Watches user templates.
-6. Watches project files for reload/reindex work.
+6. Watches project files for reload/reindex work (unless `BACKLOGGER_WATCH=0`).
 7. Discovers project folders missing from the database.
 8. Syncs known projects so Markdown changed while the server was stopped is picked up.
 9. Runs a full reindex if the document table is empty but Markdown exists.

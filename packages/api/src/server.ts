@@ -26,6 +26,11 @@ const port = Number(process.env.BACKLOGGER_PORT ?? 3333);
 const dataDir = path.resolve(process.env.BACKLOGGER_DATA_DIR ?? './data');
 const dbFile = path.join(dataDir, 'backlogger.sqlite');
 
+// File watching auto-reindexes on external changes. Disable with
+// BACKLOGGER_WATCH=0 on hosts with a low inotify limit or very large trees
+// (the watcher also self-disables on ENOSPC). Manual Reload still re-syncs.
+const watchFiles = process.env.BACKLOGGER_WATCH !== '0';
+
 // Comma-separated. `*` reflects any origin (LAN-friendly for self-hosting).
 // Default `*` keeps the "access from another device on the local network"
 // use case working out of the box; lock it down by setting the env var.
@@ -43,10 +48,15 @@ const ctx = buildContext({ db, dataDir, templates, builtinTemplatesDir: builtinD
 await ctx.fs.ensureRoot();
 
 const stopWatcher = watchUserTemplates({ builtinDir, userDir, registry: templates });
-const stopProjectWatcher = watchProjectFiles({
-  projectsRoot: ctx.resolver.projectsRoot,
-  reindexService: ctx.reindexService,
-});
+let stopProjectWatcher: () => void = () => {};
+if (watchFiles) {
+  stopProjectWatcher = watchProjectFiles({
+    projectsRoot: ctx.resolver.projectsRoot,
+    reindexService: ctx.reindexService,
+  });
+} else {
+  logger.info('project file watcher disabled (BACKLOGGER_WATCH=0)');
+}
 
 // Auto-discover project folders (or symlinks) that exist on disk but have
 // no DB row yet. This handles Docker volume mounts and manual folder drops:

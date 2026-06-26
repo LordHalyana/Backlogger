@@ -1,5 +1,6 @@
 import * as fs from 'node:fs/promises';
 import chokidar from 'chokidar';
+import { logger } from '../logger.js';
 import type { TemplateRegistry } from './registry.js';
 import { loadAllTemplates } from './registry.js';
 
@@ -32,7 +33,14 @@ export function watchUserTemplates(opts: TemplateWatcherOptions): () => void {
   };
 
   const watcher = chokidar.watch(userDir, { ignoreInitial: true });
-  watcher.on('add', debounced).on('change', debounced).on('unlink', debounced);
+  watcher
+    .on('add', debounced)
+    .on('change', debounced)
+    .on('unlink', debounced)
+    .on('error', (err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn(`template watcher error: ${msg}`);
+    });
 
   return () => {
     if (timer) clearTimeout(timer);

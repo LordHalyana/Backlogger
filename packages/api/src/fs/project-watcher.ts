@@ -68,7 +68,23 @@ export function watchProjectFiles(opts: ProjectWatcherOptions): () => void {
   watcher
     .on('add', handleChange)
     .on('change', handleChange)
-    .on('unlink', handleChange);
+    .on('unlink', handleChange)
+    .on('error', (err: unknown) => {
+      const code = (err as NodeJS.ErrnoException).code;
+      const msg = err instanceof Error ? err.message : String(err);
+      if (code === 'ENOSPC') {
+        // OS inotify watch limit reached — common for large trees inside
+        // containers. Degrade gracefully: stop watching but keep the server
+        // running. Startup sync and the manual Reload button still pick up
+        // changes; the previous behaviour crashed the whole process here.
+        logger.warn(
+          'project watcher hit the OS file-watch limit (ENOSPC); live auto-reindex is disabled for this session. Raise fs.inotify.max_user_watches on the host, or set BACKLOGGER_WATCH=0 to disable watching. Manual Reload and startup sync still work.',
+        );
+        void watcher.close();
+        return;
+      }
+      logger.warn(`project watcher error: ${msg}`);
+    });
 
   return () => {
     for (const timer of timers.values()) clearTimeout(timer);
