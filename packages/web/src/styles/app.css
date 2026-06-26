@@ -28,7 +28,7 @@ a {
 .topbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 10px;
   padding: 8px 16px;
   background: var(--bg-elev);
   border-bottom: 1px solid var(--border);
@@ -38,6 +38,30 @@ a {
   margin: 0;
   font-size: 16px;
   font-weight: 600;
+}
+
+.topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.topbar-logo {
+  width: 20px;
+  height: 20px;
+  color: var(--accent);
+}
+
+.topbar-divider {
+  width: 1px;
+  height: 22px;
+  background: var(--border);
+  flex: 0 0 auto;
+}
+
+.topbar-spacer {
+  flex: 1 1 auto;
 }
 
 .health {
@@ -308,6 +332,8 @@ a {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
 }
 
 .topbar-right .search-button kbd {
@@ -323,4 +349,14 @@ a {
 /* Reload button: show progress cursor while pending */
 .topbar-right .reload-button:disabled {
   cursor: progress;
+}
+
+.topbar-right .reload-button:disabled .icon {
+  animation: topbar-spin 0.8s linear infinite;
+}
+
+@keyframes topbar-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }

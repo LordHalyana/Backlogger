@@ -1,40 +1,19 @@
-import type { Theme } from '../lib/theme.js';
 import { useReindex } from '../lib/reindex.js';
 import { useReloadTemplates, useTemplates } from '../lib/templates.js';
-import { Icon } from './Icon.js';
 import { Modal } from './Modal.js';
 
 interface SettingsDialogProps {
-  theme: Theme;
-  onToggleTheme: () => void;
   onClose: () => void;
   onOpenHelp?: () => void;
 }
 
-export function SettingsDialog({ theme, onToggleTheme, onClose, onOpenHelp }: SettingsDialogProps): JSX.Element {
+export function SettingsDialog({ onClose, onOpenHelp }: SettingsDialogProps): JSX.Element {
   const reindex = useReindex();
   const reloadTemplates = useReloadTemplates();
   const templates = useTemplates();
 
   return (
     <Modal title="Settings" onClose={onClose} className="settings-modal">
-      <section className="settings-section">
-        <h3>Appearance</h3>
-        <div className="settings-row">
-          <span>Theme</span>
-          <button
-            type="button"
-            className="theme-toggle"
-            onClick={onToggleTheme}
-            aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
-            title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
-          >
-            <Icon name={theme === 'dark' ? 'sun' : 'moon'} />
-            <span>{theme === 'dark' ? 'Light' : 'Dark'}</span>
-          </button>
-        </div>
-      </section>
-
       <section className="settings-section">
         <h3>Data</h3>
         <div className="settings-row">

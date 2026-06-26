@@ -10,6 +10,8 @@ import { TagChip } from './TagChip.js';
 import { NewDocumentDialog } from './NewDocumentDialog.js';
 import { StatusMessage } from './StatusMessage.js';
 import { FolderTreeGroup } from './FolderTreeGroup.js';
+import { Icon } from './Icon.js';
+import { DOCUMENT_TYPE_COLORS } from '../lib/display.js';
 
 interface ProjectTreeProps {
   projectId: string;
@@ -114,6 +116,11 @@ export function ProjectTree({
         title={d.path}
         aria-label={d.title}
       >
+        <span
+          className="tree-item-dot"
+          style={{ background: DOCUMENT_TYPE_COLORS[d.type] }}
+          aria-hidden="true"
+        />
         <span className="tree-item-title">{d.title}</span>
         {d.status === 'archived' && (
           <span className="badge badge-archived" aria-hidden="true">
@@ -214,9 +221,10 @@ export function ProjectTree({
                 aria-label={(collapsed.has('') ? 'Expand' : 'Collapse') + ' root folder'}
                 title={collapsed.has('') ? 'Expand' : 'Collapse'}
               >
-                <span className="folder-caret" aria-hidden="true">
-                  {collapsed.has('') ? '>' : 'v'}
-                </span>
+                <Icon
+                  name="chevron"
+                  className={'folder-chevron' + (collapsed.has('') ? '' : ' folder-chevron--open')}
+                />
                 <span className="folder-name muted">(root)</span>
                 <span className="folder-count" aria-hidden="true">
                   {rootDocs.length}
@@ -236,9 +244,10 @@ export function ProjectTree({
               onClick={() => setArchiveSectionCollapsed((v) => !v)}
               aria-expanded={!archiveSectionCollapsed}
             >
-              <span className="folder-caret" aria-hidden="true">
-                {archiveSectionCollapsed ? '>' : 'v'}
-              </span>
+              <Icon
+                name="chevron"
+                className={'folder-chevron' + (archiveSectionCollapsed ? '' : ' folder-chevron--open')}
+              />
               Archived
             </button>
           </div>

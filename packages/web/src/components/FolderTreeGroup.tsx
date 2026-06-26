@@ -1,4 +1,5 @@
 import type { DocumentSummary } from '@backlogger/shared';
+import { Icon } from './Icon.js';
 
 interface FolderTreeGroupProps {
   folder: string;
@@ -42,9 +43,10 @@ export function FolderTreeGroup({
           aria-label={(collapsed ? 'Expand' : 'Collapse') + ' folder ' + folder}
           title={folder}
         >
-          <span className="folder-caret" aria-hidden="true">
-            {collapsed ? '▸' : '▾'}
-          </span>
+          <Icon
+            name="chevron"
+            className={'folder-chevron' + (collapsed ? '' : ' folder-chevron--open')}
+          />
           <span className="folder-name" title={folder}>
             {displayName}
           </span>

@@ -13,7 +13,6 @@ import { TagExplorer } from './components/TagExplorer.js';
 import { Icon } from './components/Icon.js';
 import { useProjects } from './lib/projects.js';
 import { formatUptime } from './lib/display.js';
-import { useTheme } from './lib/theme.js';
 import { useWikiLinkNavigation } from './hooks/useWikiLinkNavigation.js';
 import { useGlobalShortcuts } from './hooks/useGlobalShortcuts.js';
 import { useReloadToast } from './hooks/useReloadToast.js';
@@ -40,7 +39,6 @@ export function App(): JSX.Element {
     clearDocumentIfRemoved,
   } = useWorkspaceSelection();
   const overlays = useShellOverlays();
-  const { theme, toggle: toggleTheme } = useTheme();
   const projects = useProjects();
   const selectedProject = projects.data?.find((p) => p.id === selectedProjectId);
   const projectReadOnly = selectedProject?.readOnly ?? false;
@@ -70,7 +68,7 @@ export function App(): JSX.Element {
     ? 'checking...'
     : isError
       ? 'api unreachable'
-      : `v${data!.version} · up ${formatUptime(data!.uptime)}`;
+      : `v${data!.version}`;
   const healthTitle = isError
     ? 'API unreachable'
     : !data
@@ -85,8 +83,14 @@ export function App(): JSX.Element {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <h1>Backlogger</h1>
+        <div className="topbar-brand">
+          <Icon name="book" className="topbar-logo" />
+          <h1>Backlogger</h1>
+        </div>
+        <span className="topbar-divider" aria-hidden="true" />
         <ProjectSwitcher selectedId={selectedProjectId} onSelect={selectProject} />
+        <span className="topbar-spacer" />
+        <span className="topbar-divider" aria-hidden="true" />
         <div className="topbar-right">
           <TopbarAction
             label="Search"
@@ -94,12 +98,14 @@ export function App(): JSX.Element {
             title="Search documents (Ctrl/Cmd+K)"
             className="search-button"
           >
+            <Icon name="search" />
             <span>Search</span>
             <kbd>{navigator.platform.toLowerCase().includes('mac') ? 'Cmd' : 'Ctrl'}+K</kbd>
           </TopbarAction>
           {selectedProjectId && (
             <TopbarAction
               label="Import"
+              aria-label="Import"
               onClick={overlays.openImport}
               disabled={projectReadOnly}
               title={
@@ -107,17 +113,22 @@ export function App(): JSX.Element {
                   ? 'Disable read-only mode before importing files'
                   : 'Import Markdown files into this project'
               }
-              className="import-button"
-            />
+              className="import-button btn--icon"
+            >
+              <Icon name="upload" />
+            </TopbarAction>
           )}
           {selectedProjectId && (
             <TopbarAction
-              label={reload.isPending ? 'Reloading...' : 'Reload'}
+              label="Reload"
+              aria-label={reload.isPending ? 'Reloading…' : 'Reload'}
               disabled={reload.isPending}
               onClick={reload.trigger}
               title="Re-sync this project from disk"
-              className="reload-button"
-            />
+              className="reload-button btn--icon"
+            >
+              <Icon name="refresh" />
+            </TopbarAction>
           )}
           {selectedProjectId && (
             <TopbarAction
@@ -180,7 +191,7 @@ export function App(): JSX.Element {
               <DocumentWorkspace
                 projectId={selectedProjectId}
                 documentId={selectedDocumentId}
-                theme={theme}
+                theme="dark"
                 onDeleted={() => selectDocument(null)}
                 onOpenDocument={openDocument}
               />
@@ -201,8 +212,6 @@ export function App(): JSX.Element {
       />
       {overlays.settingsOpen && (
         <SettingsDialog
-          theme={theme}
-          onToggleTheme={toggleTheme}
           onClose={overlays.closeSettings}
           onOpenHelp={() => {
             overlays.closeSettings();

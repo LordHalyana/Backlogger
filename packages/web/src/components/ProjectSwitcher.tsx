@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Project } from '@backlogger/shared';
 import {
   useCreateProject,
@@ -9,6 +9,7 @@ import {
 import { ApiError } from '../lib/api.js';
 import { toastError, useDialog } from '../lib/dialog.js';
 import { Modal } from './Modal.js';
+import { Icon } from './Icon.js';
 
 interface ProjectSwitcherProps {
   selectedId: string | null;
@@ -49,14 +50,12 @@ export function ProjectSwitcher({ selectedId, onSelect }: ProjectSwitcherProps):
       </button>
       {selectedProject && <ProjectReadOnlyToggle project={selectedProject} />}
       {selectedProject && <ProjectMetadataModeToggle project={selectedProject} />}
-      {selectedId && (
-        <DeleteProjectButton
-          id={selectedId}
-          name={selectedProject?.name ?? selectedId}
-          readOnly={selectedProject?.readOnly ?? false}
-          onDeleted={() => onSelect(null)}
-        />
-      )}
+      <ProjectMenu
+        projectId={selectedId}
+        projectName={selectedProject?.name ?? selectedId ?? ''}
+        readOnly={selectedProject?.readOnly ?? false}
+        onDeleted={() => onSelect(null)}
+      />
       {showNew && (
         <NewProjectDialog
           onClose={() => setShowNew(false)}
@@ -92,6 +91,7 @@ function ProjectReadOnlyToggle({ project }: { project: Project }): JSX.Element {
       }
       aria-pressed={project.readOnly}
     >
+      <Icon name="lock" />
       {project.readOnly ? 'Read-only' : 'Editable'}
     </button>
   );
@@ -131,6 +131,7 @@ function ProjectMetadataModeToggle({ project }: { project: Project }): JSX.Eleme
       }
       aria-pressed={sidecar}
     >
+      <Icon name="file" />
       {sidecar ? 'Sidecar' : 'Frontmatter'}
     </button>
   );
@@ -208,51 +209,84 @@ function NewProjectDialog({ onClose, onCreated }: NewProjectDialogProps): JSX.El
   );
 }
 
-interface DeleteProjectButtonProps {
-  id: string;
-  name: string;
+interface ProjectMenuProps {
+  projectId: string | null;
+  projectName: string;
   readOnly: boolean;
   onDeleted: () => void;
 }
 
-function DeleteProjectButton({
-  id,
-  name,
-  readOnly,
-  onDeleted,
-}: DeleteProjectButtonProps): JSX.Element {
+/** Overflow (⋮) menu for less-common, destructive project actions. */
+function ProjectMenu({ projectId, projectName, readOnly, onDeleted }: ProjectMenuProps): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
   const del = useDeleteProject();
   const dialog = useDialog();
-  const handle = (): void => {
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent): void => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const handleDelete = (): void => {
+    setOpen(false);
+    if (!projectId) return;
     void dialog
       .prompt({
-        title: `Delete project "${name}"`,
-        message: `This permanently removes the project and all its documents. Type the project id (${id}) to confirm.`,
-        placeholder: id,
+        title: `Delete project "${projectName}"`,
+        message: `This permanently removes the project and all its documents. Type the project id (${projectId}) to confirm.`,
+        placeholder: projectId,
         confirmLabel: 'Delete',
-        validate: (v) => (v === id ? null : `Type "${id}" to confirm.`),
+        validate: (v) => (v === projectId ? null : `Type "${projectId}" to confirm.`),
       })
       .then((typed) => {
-        if (typed !== id) return;
-        del.mutate(id, {
+        if (typed !== projectId) return;
+        del.mutate(projectId, {
           onSuccess: onDeleted,
           onError: (e) => toastError(dialog, 'Failed to delete project', e),
         });
       });
   };
+
   return (
-    <button
-      type="button"
-      className="danger"
-      onClick={handle}
-      disabled={del.isPending || readOnly}
-      title={
-        readOnly
-          ? 'Disable read-only mode before deleting this project'
-          : `Delete project "${name}"`
-      }
-    >
-      Delete
-    </button>
+    <div className="project-menu" ref={ref}>
+      <button
+        type="button"
+        className="project-menu-btn"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="Project actions"
+        title="Project actions"
+      >
+        <Icon name="dots" />
+      </button>
+      {open && (
+        <div className="project-menu-popover" role="menu">
+          <button
+            type="button"
+            role="menuitem"
+            className="project-menu-item project-menu-item--danger"
+            onClick={handleDelete}
+            disabled={!projectId || readOnly || del.isPending}
+            title={readOnly ? 'Disable read-only mode before deleting this project' : undefined}
+          >
+            <Icon name="trash" />
+            Delete project
+          </button>
+        </div>
+      )}
+    </div>
   );
 }

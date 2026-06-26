@@ -1,4 +1,19 @@
-type IconName = 'help' | 'settings' | 'graph' | 'sun' | 'moon' | 'close';
+type IconName =
+  | 'help'
+  | 'settings'
+  | 'graph'
+  | 'sun'
+  | 'moon'
+  | 'close'
+  | 'chevron'
+  | 'book'
+  | 'search'
+  | 'upload'
+  | 'refresh'
+  | 'lock'
+  | 'file'
+  | 'dots'
+  | 'trash';
 
 interface IconProps {
   name: IconName;
@@ -56,6 +71,58 @@ const ICON_PATHS: Record<IconName, JSX.Element> = {
     <>
       <path d="M6 6l12 12" />
       <path d="M18 6 6 18" />
+    </>
+  ),
+  chevron: <path d="m9 6 6 6-6 6" />,
+  book: (
+    <>
+      <path d="M6.5 4H18a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H6.5A2.5 2.5 0 0 1 4 17.5v-11A2.5 2.5 0 0 1 6.5 4z" />
+      <path d="M4 17.5A2.5 2.5 0 0 1 6.5 15H19" />
+    </>
+  ),
+  search: (
+    <>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m21 21-4.35-4.35" />
+    </>
+  ),
+  upload: (
+    <>
+      <path d="M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3" />
+      <path d="M12 15V4" />
+      <path d="m8 8 4-4 4 4" />
+    </>
+  ),
+  refresh: (
+    <>
+      <path d="M20 11a8 8 0 1 0-2.3 5.7" />
+      <path d="M20 5v6h-6" />
+    </>
+  ),
+  lock: (
+    <>
+      <rect x="5" y="11" width="14" height="9" rx="2" />
+      <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+    </>
+  ),
+  file: (
+    <>
+      <path d="M13.5 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8.5z" />
+      <path d="M13.5 3v5.5H19" />
+    </>
+  ),
+  dots: (
+    <>
+      <circle cx="12" cy="5" r="1.4" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="19" r="1.4" fill="currentColor" stroke="none" />
+    </>
+  ),
+  trash: (
+    <>
+      <path d="M4 7h16" />
+      <path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+      <path d="m6 7 1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13" />
     </>
   ),
 };

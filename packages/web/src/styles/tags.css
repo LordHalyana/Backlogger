@@ -71,8 +71,7 @@
 
 .tag-explorer-title {
   font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.02em;
   color: var(--fg-muted);
   margin: 0 0 6px;
 }

@@ -2,9 +2,22 @@
 .project-switcher {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  flex: 1;
-  justify-content: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  justify-content: flex-start;
+}
+
+.project-switcher .readonly-toggle,
+.project-switcher .metadata-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.project-switcher .readonly-toggle .icon,
+.project-switcher .metadata-mode-toggle .icon {
+  width: 14px;
+  height: 14px;
 }
 
 .project-switcher select,
@@ -44,4 +57,70 @@
 .project-switcher .metadata-mode-toggle.sidecar {
   color: var(--accent);
   border-color: var(--accent);
+}
+
+.project-switcher .project-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.project-switcher .project-menu-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.project-switcher .project-menu-btn .icon {
+  width: 16px;
+  height: 16px;
+}
+
+.project-menu-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 170px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: var(--overlay-shadow);
+  padding: 4px;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.project-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: var(--fg);
+  padding: 6px 10px;
+  border-radius: 4px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.project-menu-item:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.project-menu-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.project-menu-item--danger {
+  color: var(--danger);
+}
+
+.project-menu-item .icon {
+  width: 15px;
+  height: 15px;
 }
