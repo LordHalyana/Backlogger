@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { createProject } from './helpers.js';
 
 /**
  * Folder management e2e:
@@ -17,10 +18,7 @@ test('user can create a folder, place a doc in it, and delete it once empty', as
   await page.goto('/');
 
   // ── Create the project ─────────────────────────────────────────────
-  await page.getByRole('button', { name: '+ New Project' }).click();
-  await page.getByLabel('ID').fill(projectId);
-  await page.getByLabel('Name', { exact: true }).fill(projectName);
-  await page.getByRole('button', { name: 'Create' }).click();
+  await createProject(page, { id: projectId, name: projectName });
 
   // ── Add a folder via the sidebar toolbar (window.prompt) ────────────
   page.once('dialog', (d) => d.accept(folderName));

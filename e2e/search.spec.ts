@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { createProject, createDocument, expectSaved } from './helpers.js';
 
 /**
  * Full-text search (Block 1):
@@ -14,34 +15,25 @@ test('search unique phrase opens the correct document', async ({ page }) => {
   await page.goto('/');
 
   // Create project.
-  await page.getByRole('button', { name: '+ New Project' }).click();
-  await page.getByLabel('ID').fill(projectId);
-  await page.getByLabel('Name', { exact: true }).fill(projectId);
-  await page.getByRole('button', { name: 'Create' }).click();
+  await createProject(page, { id: projectId });
 
   // Create a "noise" doc (should not appear in results).
-  await page.getByRole('button', { name: '+ New', exact: true }).click();
-  await page.getByRole('dialog', { name: 'New Document' }).getByLabel('Title').fill('Noise Doc One');
-  await page.getByRole('button', { name: 'Create' }).click();
-  await expect(page.locator('.status-label')).toHaveText('Saved', { timeout: 5000 });
+  await createDocument(page, { title: 'Noise Doc One' });
+  await expectSaved(page);
 
   // Create the target doc containing the unique phrase.
-  await page.getByRole('button', { name: '+ New', exact: true }).click();
-  await page.getByRole('dialog', { name: 'New Document' }).getByLabel('Title').fill('Target Document');
-  await page.getByRole('button', { name: 'Create' }).click();
+  await createDocument(page, { title: 'Target Document' });
   const editor = page.locator('.cm-content');
   await editor.click();
   await page.keyboard.press('End');
   await editor.pressSequentially(' ' + uniquePhrase, { delay: 20 });
   // Confirm the edit was captured before waiting for autosave.
   await expect(page.locator('.status-label')).toHaveText('Unsaved changes', { timeout: 3000 });
-  await expect(page.locator('.status-label')).toHaveText('Saved', { timeout: 5000 });
+  await expectSaved(page);
 
   // Create another noise doc.
-  await page.getByRole('button', { name: '+ New', exact: true }).click();
-  await page.getByRole('dialog', { name: 'New Document' }).getByLabel('Title').fill('Noise Doc Two');
-  await page.getByRole('button', { name: 'Create' }).click();
-  await expect(page.locator('.status-label')).toHaveText('Saved', { timeout: 5000 });
+  await createDocument(page, { title: 'Noise Doc Two' });
+  await expectSaved(page);
 
   // Open command palette via topbar Search button.
   await page.locator('.search-button').click();

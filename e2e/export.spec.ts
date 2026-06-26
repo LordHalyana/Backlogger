@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { createProject, createDocument, expectSaved } from './helpers.js';
 
 /**
  * Block 4 (Markdown Export) e2e:
@@ -16,24 +17,16 @@ test('toolbar Download streams the raw markdown for the active document', async 
 
   await page.goto('/');
 
-  await page.getByRole('button', { name: '+ New Project' }).click();
-  await page.getByLabel('ID').fill(projectId);
-  await page.getByLabel('Name', { exact: true }).fill(projectName);
-  await page.getByRole('button', { name: 'Create' }).click();
+  await createProject(page, { id: projectId, name: projectName });
 
-  await page.getByRole('button', { name: '+ New', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'New Document' });
-  await dialog.getByLabel('Type').selectOption('note');
-  await dialog.getByLabel('Title').fill(docTitle);
-  await page.getByRole('button', { name: 'Create' }).click();
+  await createDocument(page, { title: docTitle, type: 'note' });
 
   // Type something and let it autosave so the on-disk file is current.
   const editor = page.locator('.cm-content');
   await editor.click();
   await page.keyboard.press('End');
   await editor.pressSequentially(bodyToken, { delay: 15 });
-  const status = page.locator('.status-label');
-  await expect(status).toHaveText('Saved', { timeout: 5000 });
+  await expectSaved(page);
 
   // Trigger the download and capture it.
   const downloadLink = page.getByRole('link', { name: 'Download' });

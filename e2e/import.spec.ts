@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { createProject } from './helpers.js';
 
 /**
  * Block 3 (Markdown Import) e2e:
@@ -11,10 +12,7 @@ test('topbar Import ingests a .md file via the file picker', async ({ page }) =>
 
   await page.goto('/');
 
-  await page.getByRole('button', { name: '+ New Project' }).click();
-  await page.getByLabel('ID').fill(projectId);
-  await page.getByLabel('Name', { exact: true }).fill(projectName);
-  await page.getByRole('button', { name: 'Create' }).click();
+  await createProject(page, { id: projectId, name: projectName });
 
   // Open the import dialog.
   await page.getByRole('button', { name: 'Import' }).click();

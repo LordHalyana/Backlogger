@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { createProject, createDocument, expectSaved } from './helpers.js';
 
 /**
  * Tag explorer (Block 3):
@@ -15,15 +16,10 @@ test('clicking a tag in the explorer filters the document tree', async ({ page }
   await page.goto('/');
 
   // Create project.
-  await page.getByRole('button', { name: '+ New Project' }).click();
-  await page.getByLabel('ID').fill(projectId);
-  await page.getByLabel('Name', { exact: true }).fill(projectId);
-  await page.getByRole('button', { name: 'Create' }).click();
+  await createProject(page, { id: projectId });
 
   // Create doc.
-  await page.getByRole('button', { name: '+ New', exact: true }).click();
-  await page.getByRole('dialog', { name: 'New Document' }).getByLabel('Title').fill(docTitle);
-  await page.getByRole('button', { name: 'Create' }).click();
+  await createDocument(page, { title: docTitle });
 
   // Add a tag via the MetadataPanel tag input.
   const tagInput = page.locator('.tag-input');
@@ -31,7 +27,7 @@ test('clicking a tag in the explorer filters the document tree', async ({ page }
   await tagInput.press('Enter');
 
   // Wait for autosave.
-  await expect(page.locator('.status-label')).toHaveText('Saved', { timeout: 5000 });
+  await expectSaved(page);
 
   // The TagExplorer (in the sidebar) should now show the tag.
   const tagExplorer = page.locator('.tag-explorer');
@@ -59,26 +55,19 @@ test('clearing the tag filter restores the full document list', async ({ page })
 
   await page.goto('/');
 
-  await page.getByRole('button', { name: '+ New Project' }).click();
-  await page.getByLabel('ID').fill(projectId);
-  await page.getByLabel('Name', { exact: true }).fill(projectId);
-  await page.getByRole('button', { name: 'Create' }).click();
+  await createProject(page, { id: projectId });
 
   // Create doc A with a tag.
-  await page.getByRole('button', { name: '+ New', exact: true }).click();
-  await page.getByRole('dialog', { name: 'New Document' }).getByLabel('Title').fill(docA);
-  await page.getByRole('button', { name: 'Create' }).click();
+  await createDocument(page, { title: docA });
   await page.locator('.tag-input').fill(tag);
   await page.locator('.tag-input').press('Enter');
   // Confirm the tag was captured (status goes Unsaved) before waiting for save.
   await expect(page.locator('.status-label')).toHaveText('Unsaved changes', { timeout: 3000 });
-  await expect(page.locator('.status-label')).toHaveText('Saved', { timeout: 5000 });
+  await expectSaved(page);
 
   // Create doc B without any tags.
-  await page.getByRole('button', { name: '+ New', exact: true }).click();
-  await page.getByRole('dialog', { name: 'New Document' }).getByLabel('Title').fill(docB);
-  await page.getByRole('button', { name: 'Create' }).click();
-  await expect(page.locator('.status-label')).toHaveText('Saved', { timeout: 5000 });
+  await createDocument(page, { title: docB });
+  await expectSaved(page);
 
   // Filter by tag — doc B should disappear.
   const tagChip = page.locator('.tag-explorer').locator('.tag-chip', { hasText: tag });

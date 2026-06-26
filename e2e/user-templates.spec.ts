@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { createProject } from './helpers.js';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
@@ -38,10 +39,7 @@ test('user template appears in new-document dialog after reload', async ({ page 
     await page.goto('/');
 
     // Create a project so the New button is available.
-    await page.getByRole('button', { name: '+ New Project' }).click();
-    await page.getByLabel('ID').fill(projectId);
-    await page.getByLabel('Name', { exact: true }).fill(projectId);
-    await page.getByRole('button', { name: 'Create' }).click();
+    await createProject(page, { id: projectId });
 
     // Open Settings and trigger a template reload.
     await page.getByRole('button', { name: 'Settings' }).click();

@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { createProject, createDocument, expectSaved } from './helpers.js';
 
 /**
  * Document linking & backlinks (Block 2):
@@ -14,21 +15,14 @@ test('wiki-link creates backlink on target document', async ({ page }) => {
   await page.goto('/');
 
   // Create project.
-  await page.getByRole('button', { name: '+ New Project' }).click();
-  await page.getByLabel('ID').fill(projectId);
-  await page.getByLabel('Name', { exact: true }).fill(projectId);
-  await page.getByRole('button', { name: 'Create' }).click();
+  await createProject(page, { id: projectId });
 
   // Create doc B (the link target).
-  await page.getByRole('button', { name: '+ New', exact: true }).click();
-  await page.getByRole('dialog', { name: 'New Document' }).getByLabel('Title').fill(titleB);
-  await page.getByRole('button', { name: 'Create' }).click();
-  await expect(page.locator('.status-label')).toHaveText('Saved', { timeout: 5000 });
+  await createDocument(page, { title: titleB });
+  await expectSaved(page);
 
   // Create doc A and type a wiki-link pointing to doc B.
-  await page.getByRole('button', { name: '+ New', exact: true }).click();
-  await page.getByRole('dialog', { name: 'New Document' }).getByLabel('Title').fill(titleA);
-  await page.getByRole('button', { name: 'Create' }).click();
+  await createDocument(page, { title: titleA });
 
   const editor = page.locator('.cm-content');
   await editor.click();
@@ -37,7 +31,7 @@ test('wiki-link creates backlink on target document', async ({ page }) => {
 
   // Confirm the edit was captured before waiting for autosave.
   await expect(page.locator('.status-label')).toHaveText('Unsaved changes', { timeout: 3000 });
-  await expect(page.locator('.status-label')).toHaveText('Saved', { timeout: 5000 });
+  await expectSaved(page);
 
   // Navigate to doc B by clicking it in the project tree.
   await page.locator('button.tree-item').filter({ hasText: titleB }).click();

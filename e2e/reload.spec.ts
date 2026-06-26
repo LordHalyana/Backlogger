@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { createProject, createDocument } from './helpers.js';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
@@ -18,16 +19,9 @@ test('topbar Reload picks up an out-of-band edit on disk', async ({ page }) => {
 
   await page.goto('/');
 
-  await page.getByRole('button', { name: '+ New Project' }).click();
-  await page.getByLabel('ID').fill(projectId);
-  await page.getByLabel('Name', { exact: true }).fill(projectName);
-  await page.getByRole('button', { name: 'Create' }).click();
+  await createProject(page, { id: projectId, name: projectName });
 
-  await page.getByRole('button', { name: '+ New', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'New Document' });
-  await dialog.getByLabel('Type').selectOption('note');
-  await dialog.getByLabel('Title').fill(docTitle);
-  await page.getByRole('button', { name: 'Create' }).click();
+  await createDocument(page, { title: docTitle, type: 'note' });
 
   // Wait until the editor is mounted with the new doc so the file is on disk.
   const editor = page.locator('.cm-content');

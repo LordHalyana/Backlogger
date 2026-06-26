@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { createProject, createDocument } from './helpers.js';
 
 /**
  * Smoke flow (exit criterion for P1 Block 6, kept as regression guard):
@@ -17,20 +18,10 @@ test('create project, create doc from template, edit, reload, content intact', a
   await page.goto('/');
 
   // Create project.
-  await page.getByRole('button', { name: '+ New Project' }).click();
-  await page.getByLabel('ID').fill(projectId);
-  await page.getByLabel('Name', { exact: true }).fill(projectName);
-  await page.getByRole('button', { name: 'Create' }).click();
+  await createProject(page, { id: projectId, name: projectName });
 
   // Project should auto-select. Open the new-document dialog.
-  await page.getByRole('button', { name: '+ New', exact: true }).click();
-
-  // Pick design_doc type so the design-document template is available.
-  const newDocDialog = page.getByRole('dialog', { name: 'New Document' });
-  await newDocDialog.getByLabel('Type').selectOption('design_doc');
-  await newDocDialog.getByLabel('Template').selectOption('design-document');
-  await newDocDialog.getByLabel('Title').fill(docTitle);
-  await page.getByRole('button', { name: 'Create' }).click();
+  await createDocument(page, { title: docTitle, type: 'design_doc', template: 'design-document' });
 
   // Editor opens with template body. Append extra text.
   const editor = page.locator('.cm-content');

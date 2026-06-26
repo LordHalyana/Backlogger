@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { createProject, createDocument, expectSaved } from './helpers.js';
 
 /**
  * Knowledge Graph overlay (P5 Block 4, task 9):
@@ -11,27 +12,27 @@ import { test, expect } from '@playwright/test';
  * the overlay is dismissed (i.e. onOpenDocument + onClose fired).
  */
 
+const openOverlay = async (page: import('@playwright/test').Page) => {
+  await page.locator('button.graph-button').click();
+  const overlay = page.locator('[role="dialog"][aria-label="Knowledge graph"]');
+  await expect(overlay).toBeVisible({ timeout: 5000 });
+  return overlay;
+};
+
 const setup = async (page: import('@playwright/test').Page) => {
   const id = `graph-${Date.now()}`;
   const titleA = `Graph-A-${id}`;
   const titleB = `Graph-B-${id}`;
 
   await page.goto('/');
-  await page.getByRole('button', { name: '+ New Project' }).click();
-  await page.getByLabel('ID').fill(id);
-  await page.getByLabel('Name', { exact: true }).fill(id);
-  await page.getByRole('button', { name: 'Create' }).click();
+  await createProject(page, { id });
 
   // Doc B (link target).
-  await page.getByRole('button', { name: '+ New', exact: true }).click();
-  await page.getByRole('dialog', { name: 'New Document' }).getByLabel('Title').fill(titleB);
-  await page.getByRole('button', { name: 'Create' }).click();
-  await expect(page.locator('.status-label')).toHaveText('Saved', { timeout: 5000 });
+  await createDocument(page, { title: titleB });
+  await expectSaved(page);
 
   // Doc A (link source) with a wikilink to B.
-  await page.getByRole('button', { name: '+ New', exact: true }).click();
-  await page.getByRole('dialog', { name: 'New Document' }).getByLabel('Title').fill(titleA);
-  await page.getByRole('button', { name: 'Create' }).click();
+  await createDocument(page, { title: titleA });
 
   const editor = page.locator('.cm-content');
   await editor.click();
@@ -39,18 +40,15 @@ const setup = async (page: import('@playwright/test').Page) => {
   await editor.pressSequentially(` [[${titleB}]]`, { delay: 20 });
 
   await expect(page.locator('.status-label')).toHaveText('Unsaved changes', { timeout: 3000 });
-  await expect(page.locator('.status-label')).toHaveText('Saved', { timeout: 5000 });
+  await expectSaved(page);
 
   return { projectId: id, titleA, titleB };
 };
 
 test('Graph button is visible when a project is selected', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: '+ New Project' }).click();
   const id = `graph-btn-${Date.now()}`;
-  await page.getByLabel('ID').fill(id);
-  await page.getByLabel('Name', { exact: true }).fill(id);
-  await page.getByRole('button', { name: 'Create' }).click();
+  await createProject(page, { id });
 
   await expect(page.locator('button.graph-button')).toBeVisible();
 });
@@ -63,10 +61,7 @@ test('Graph button is not visible when no project is selected', async ({ page })
 test('clicking Graph opens the overlay with title and canvas', async ({ page }) => {
   await setup(page);
 
-  await page.locator('button.graph-button').click();
-
-  const overlay = page.locator('[role="dialog"][aria-label="Knowledge graph"]');
-  await expect(overlay).toBeVisible({ timeout: 5000 });
+  const overlay = await openOverlay(page);
   await expect(overlay.locator('.graph-overlay__title')).toHaveText('Knowledge Graph');
 
   // The canvas wrapper should be present (canvas rendered inside it).
@@ -79,9 +74,7 @@ test('clicking Graph opens the overlay with title and canvas', async ({ page }) 
 test('overlay shows a canvas element after data loads', async ({ page }) => {
   await setup(page);
 
-  await page.locator('button.graph-button').click();
-  const overlay = page.locator('[role="dialog"][aria-label="Knowledge graph"]');
-  await expect(overlay).toBeVisible({ timeout: 5000 });
+  const overlay = await openOverlay(page);
 
   // react-force-graph-2d renders a <canvas> inside the canvas wrapper.
   // Wait for it to appear (data fetch + render tick).
@@ -91,9 +84,7 @@ test('overlay shows a canvas element after data loads', async ({ page }) => {
 test('filter input is usable and narrows the node query', async ({ page }) => {
   const { titleA } = await setup(page);
 
-  await page.locator('button.graph-button').click();
-  const overlay = page.locator('[role="dialog"][aria-label="Knowledge graph"]');
-  await expect(overlay).toBeVisible({ timeout: 5000 });
+  const overlay = await openOverlay(page);
 
   // Canvas appears before we attempt to interact with the filter.
   await expect(overlay.locator('.graph-overlay__canvas canvas')).toBeVisible({ timeout: 8000 });
@@ -113,9 +104,7 @@ test('filter input is usable and narrows the node query', async ({ page }) => {
 test('close button dismisses the overlay', async ({ page }) => {
   await setup(page);
 
-  await page.locator('button.graph-button').click();
-  const overlay = page.locator('[role="dialog"][aria-label="Knowledge graph"]');
-  await expect(overlay).toBeVisible({ timeout: 5000 });
+  const overlay = await openOverlay(page);
 
   await overlay.locator('button[aria-label="Close graph"]').click();
   await expect(overlay).not.toBeVisible({ timeout: 3000 });
@@ -124,9 +113,7 @@ test('close button dismisses the overlay', async ({ page }) => {
 test('Escape key dismisses the overlay', async ({ page }) => {
   await setup(page);
 
-  await page.locator('button.graph-button').click();
-  const overlay = page.locator('[role="dialog"][aria-label="Knowledge graph"]');
-  await expect(overlay).toBeVisible({ timeout: 5000 });
+  const overlay = await openOverlay(page);
 
   await page.keyboard.press('Escape');
   await expect(overlay).not.toBeVisible({ timeout: 3000 });
@@ -135,9 +122,7 @@ test('Escape key dismisses the overlay', async ({ page }) => {
 test('reopening graph after close works', async ({ page }) => {
   await setup(page);
 
-  await page.locator('button.graph-button').click();
-  const overlay = page.locator('[role="dialog"][aria-label="Knowledge graph"]');
-  await expect(overlay).toBeVisible({ timeout: 5000 });
+  const overlay = await openOverlay(page);
   await overlay.locator('button[aria-label="Close graph"]').click();
   await expect(overlay).not.toBeVisible({ timeout: 3000 });
 
@@ -150,9 +135,7 @@ test('reopening graph after close works', async ({ page }) => {
 test('clicking a node closes the overlay and opens the document', async ({ page }) => {
   await setup(page);
 
-  await page.locator('button.graph-button').click();
-  const overlay = page.locator('[role="dialog"][aria-label="Knowledge graph"]');
-  await expect(overlay).toBeVisible({ timeout: 5000 });
+  const overlay = await openOverlay(page);
 
   const canvas = overlay.locator('.graph-overlay__canvas canvas');
   await expect(canvas).toBeVisible({ timeout: 8000 });
