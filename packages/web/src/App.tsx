@@ -18,6 +18,20 @@ import { useGlobalShortcuts } from './hooks/useGlobalShortcuts.js';
 import { useReloadToast } from './hooks/useReloadToast.js';
 import { useWorkspaceSelection } from './hooks/useWorkspaceSelection.js';
 import { useShellOverlays } from './hooks/useShellOverlays.js';
+import { useState } from 'react';
+// PROTOTYPE (issue #9) — remove with the prototype branch.
+import { BoardPrototype } from './prototype/board/BoardPrototype.js';
+
+function readBoardParam(): string | null {
+  if (!import.meta.env.DEV) return null;
+  return new URLSearchParams(window.location.search).get('board');
+}
+function writeBoardParam(v: string | null): void {
+  const url = new URL(window.location.href);
+  if (v) url.searchParams.set('board', v);
+  else url.searchParams.delete('board');
+  window.history.replaceState(window.history.state, '', url);
+}
 
 async function fetchHealth(): Promise<HealthStatus> {
   const res = await fetch('/health');
@@ -39,6 +53,11 @@ export function App(): JSX.Element {
     clearDocumentIfRemoved,
   } = useWorkspaceSelection();
   const overlays = useShellOverlays();
+  const [boardVariant, setBoardVariantState] = useState<string | null>(readBoardParam);
+  const setBoardVariant = (v: string | null): void => {
+    writeBoardParam(v);
+    setBoardVariantState(v);
+  };
   const projects = useProjects();
   const selectedProject = projects.data?.find((p) => p.id === selectedProjectId);
   const projectReadOnly = selectedProject?.readOnly ?? false;
@@ -130,6 +149,17 @@ export function App(): JSX.Element {
               <Icon name="refresh" />
             </TopbarAction>
           )}
+          {import.meta.env.DEV && selectedProjectId && (
+            <TopbarAction
+              label="Board"
+              onClick={() => setBoardVariant(boardVariant ? null : 'A')}
+              active={!!boardVariant}
+              title="PROTOTYPE: task board"
+              className="btn--sm"
+            >
+              <span>Board</span>
+            </TopbarAction>
+          )}
           {selectedProjectId && (
             <TopbarAction
               label="Graph"
@@ -187,7 +217,27 @@ export function App(): JSX.Element {
                 onToggle={toggleTag}
               />
             </div>
-            {selectedDocumentId ? (
+            {boardVariant ? (
+              <BoardPrototype
+                variant={boardVariant}
+                projectId={selectedProjectId}
+                projectReadOnly={projectReadOnly}
+                documentId={selectedDocumentId}
+                onOpen={selectDocument}
+                onVariantChange={setBoardVariant}
+                onExit={() => setBoardVariant(null)}
+                renderDocument={(id) => (
+                  <DocumentWorkspace
+                    key={id}
+                    projectId={selectedProjectId}
+                    documentId={id}
+                    theme="dark"
+                    onDeleted={() => selectDocument(null)}
+                    onOpenDocument={openDocument}
+                  />
+                )}
+              />
+            ) : selectedDocumentId ? (
               <DocumentWorkspace
                 projectId={selectedProjectId}
                 documentId={selectedDocumentId}
