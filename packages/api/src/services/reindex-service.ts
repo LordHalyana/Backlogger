@@ -16,6 +16,7 @@ import type { FsRepository, RawDocument } from '../fs/index.js';
 import type { LinkService } from './link-service.js';
 import type { TagsService } from './tags-service.js';
 import type { GraphService } from './graph-service.js';
+import type { ProjectQueue } from './project-queue.js';
 
 export interface ReindexReport {
   scanned: number;
@@ -49,6 +50,8 @@ export interface ReindexServiceDeps {
   tagsService: TagsService;
   graphService: GraphService;
   sidecarStore: SidecarStore;
+  /** Per-project mutation queue, shared with the document service. */
+  queue: ProjectQueue;
 }
 
 /**
@@ -65,6 +68,7 @@ export class ReindexService {
   private readonly tagsService: TagsService;
   private readonly graphService: GraphService;
   private readonly sidecarStore: SidecarStore;
+  private readonly queue: ProjectQueue;
   private readonly inFlight = new Set<string>();
 
   constructor(deps: ReindexServiceDeps) {
@@ -75,6 +79,7 @@ export class ReindexService {
     this.tagsService = deps.tagsService;
     this.graphService = deps.graphService;
     this.sidecarStore = deps.sidecarStore;
+    this.queue = deps.queue;
   }
 
   async run(): Promise<ReindexReport> {
@@ -129,64 +134,68 @@ export class ReindexService {
       throw new ReloadInProgressError(projectId);
     }
     this.inFlight.add(projectId);
-    const started = Date.now();
     try {
-      const report: ReloadReport = {
-        projectId,
-        added: 0,
-        updated: 0,
-        removed: 0,
-        skipped: [],
-        durationMs: 0,
-        removedIds: [],
-      };
-
-      // Snapshot what we already have on disk-of-record.
-      const existing = new Map(
-        this.documentsRepo.listByProject(projectId).map((d) => [d.id, d] as const),
-      );
-      const sidecar = await this.sidecarStore.load(projectId);
-
-      for await (const doc of this.fs.walkProject(projectId)) {
-        const indexed = metadataForIndex(doc, projectId, sidecar);
-        const wasPresent = existing.has(indexed.frontmatter.id);
-        this.documentsRepo.upsert({
-          id: indexed.frontmatter.id,
-          project_id: projectId,
-          title: indexed.frontmatter.title,
-          type: indexed.frontmatter.type,
-          status: statusFromPath(doc.path, indexed.frontmatter.status),
-          path: doc.path,
-          tags: indexed.frontmatter.tags,
-          readOnly: indexed.readOnly,
-          body: doc.body,
-          created_at: indexed.frontmatter.created_at,
-          updated_at: indexed.frontmatter.updated_at,
-        });
-        this.linkService.rebuildForDocument(indexed.frontmatter.id, indexed.frontmatter.title, doc.body);
-        this.tagsService.rebuildForDocument(indexed.frontmatter.id, indexed.frontmatter.tags);
-        if (wasPresent) report.updated += 1;
-        else report.added += 1;
-        existing.delete(indexed.frontmatter.id);
-      }
-
-      // Anything still in `existing` lost its backing file → purge.
-      for (const [id] of existing) {
-        this.documentsRepo.delete(id);
-        this.linkService.onDocumentDeleted(id);
-        report.removedIds.push(id);
-        report.removed += 1;
-      }
-
-      // Documents/links/tags for this project changed → drop its graph cache so
-      // GET /:id/graph rebuilds instead of serving a stale (TTL-cached) payload.
-      this.graphService.invalidate(projectId);
-
-      report.durationMs = Date.now() - started;
-      return report;
+      return await this.queue.run(projectId, () => this.reindexProjectInQueue(projectId));
     } finally {
       this.inFlight.delete(projectId);
     }
+  }
+
+  private async reindexProjectInQueue(projectId: string): Promise<ReloadReport> {
+    const started = Date.now();
+    const report: ReloadReport = {
+      projectId,
+      added: 0,
+      updated: 0,
+      removed: 0,
+      skipped: [],
+      durationMs: 0,
+      removedIds: [],
+    };
+
+    // Snapshot what we already have on disk-of-record.
+    const existing = new Map(
+      this.documentsRepo.listByProject(projectId).map((d) => [d.id, d] as const),
+    );
+    const sidecar = await this.sidecarStore.load(projectId);
+
+    for await (const doc of this.fs.walkProject(projectId)) {
+      const indexed = metadataForIndex(doc, projectId, sidecar);
+      const wasPresent = existing.has(indexed.frontmatter.id);
+      this.documentsRepo.upsert({
+        id: indexed.frontmatter.id,
+        project_id: projectId,
+        title: indexed.frontmatter.title,
+        type: indexed.frontmatter.type,
+        status: statusFromPath(doc.path, indexed.frontmatter.status),
+        path: doc.path,
+        tags: indexed.frontmatter.tags,
+        readOnly: indexed.readOnly,
+        body: doc.body,
+        created_at: indexed.frontmatter.created_at,
+        updated_at: indexed.frontmatter.updated_at,
+      });
+      this.linkService.rebuildForDocument(indexed.frontmatter.id, indexed.frontmatter.title, doc.body);
+      this.tagsService.rebuildForDocument(indexed.frontmatter.id, indexed.frontmatter.tags);
+      if (wasPresent) report.updated += 1;
+      else report.added += 1;
+      existing.delete(indexed.frontmatter.id);
+    }
+
+    // Anything still in `existing` lost its backing file → purge.
+    for (const [id] of existing) {
+      this.documentsRepo.delete(id);
+      this.linkService.onDocumentDeleted(id);
+      report.removedIds.push(id);
+      report.removed += 1;
+    }
+
+    // Documents/links/tags for this project changed → drop its graph cache so
+    // GET /:id/graph rebuilds instead of serving a stale (TTL-cached) payload.
+    this.graphService.invalidate(projectId);
+
+    report.durationMs = Date.now() - started;
+    return report;
   }
 
   private ensureProjectForIndex(projectId: string): boolean {

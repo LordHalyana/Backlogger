@@ -7,6 +7,7 @@ import { HealthService } from './services/health-service.js';
 import { ImportService } from './services/import-service.js';
 import { LinkService } from './services/link-service.js';
 import { ProjectService } from './services/project-service.js';
+import { ProjectQueue } from './services/project-queue.js';
 import { ReindexService } from './services/reindex-service.js';
 import { SearchService } from './services/search-service.js';
 import { GraphService } from './services/graph-service.js';
@@ -58,6 +59,7 @@ export function buildContext(opts: BuildContextOptions): AppContext {
   const linkService = new LinkService(opts.db);
   const tagsService = new TagsService(opts.db);
   const graphService = new GraphService(opts.db);
+  const queue = new ProjectQueue();
   const documentService = new DocumentService({
     documentsRepo,
     projectsRepo,
@@ -67,8 +69,18 @@ export function buildContext(opts: BuildContextOptions): AppContext {
     tagsService,
     graphService,
     sidecarStore,
+    queue,
   });
-  const reindexService = new ReindexService({ documentsRepo, projectsRepo, fs, linkService, tagsService, graphService, sidecarStore });
+  const reindexService = new ReindexService({
+    documentsRepo,
+    projectsRepo,
+    fs,
+    linkService,
+    tagsService,
+    graphService,
+    sidecarStore,
+    queue,
+  });
   const searchService = new SearchService(opts.db);
   const healthService = new HealthService({
     db: opts.db,

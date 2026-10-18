@@ -23,6 +23,7 @@ import type { TagsService } from './tags-service.js';
 import type { GraphService } from './graph-service.js';
 import type { ProjectsRepo } from '../db/projects-repo.js';
 import { applyPlaceholders, type TemplateRegistry } from '../templates/registry.js';
+import type { ProjectQueue } from './project-queue.js';
 
 export interface DocumentServiceDeps {
   documentsRepo: DocumentsRepo;
@@ -33,6 +34,8 @@ export interface DocumentServiceDeps {
   tagsService: TagsService;
   graphService: GraphService;
   sidecarStore: SidecarStore;
+  /** Per-project mutation queue, shared with the reindex service. */
+  queue: ProjectQueue;
   now?: () => string;
   newId?: () => string;
 }
@@ -46,6 +49,7 @@ export class DocumentService {
   private readonly tagsService: TagsService;
   private readonly graphService: GraphService;
   private readonly sidecarStore: SidecarStore;
+  private readonly queue: ProjectQueue;
   private readonly now: () => string;
   private readonly newId: () => string;
 
@@ -58,6 +62,7 @@ export class DocumentService {
     this.tagsService = deps.tagsService;
     this.graphService = deps.graphService;
     this.sidecarStore = deps.sidecarStore;
+    this.queue = deps.queue;
     this.now = deps.now ?? (() => new Date().toISOString());
     this.newId = deps.newId ?? (() => uuidv4());
   }
@@ -105,6 +110,11 @@ export class DocumentService {
   }
 
   async create(projectId: string, input: CreateDocumentRequest): Promise<Document> {
+    this.getProject(projectId);
+    return this.queue.run(projectId, () => this.createInQueue(projectId, input));
+  }
+
+  private async createInQueue(projectId: string, input: CreateDocumentRequest): Promise<Document> {
     const project = this.assertProjectWritable(projectId);
     // Re-validate to apply defaults from the schema (status, tags).
     const parsed = CreateDocumentRequestSchema.parse(input);
@@ -194,8 +204,14 @@ export class DocumentService {
     input: UpdateDocumentRequest,
     ifMatch?: string,
   ): Promise<Document> {
-    const summary = this.documentsRepo.find(id);
-    if (!summary) throw new NotFoundError('DOCUMENT_NOT_FOUND', `Document not found: ${id}`);
+    return this.inDocumentQueue(id, (summary) => this.updateInQueue(summary, input, ifMatch));
+  }
+
+  private async updateInQueue(
+    summary: DocumentSummary,
+    input: UpdateDocumentRequest,
+    ifMatch?: string,
+  ): Promise<Document> {
     const project = this.assertProjectWritable(summary.project_id);
 
     if (ifMatch !== undefined && ifMatch !== summary.updated_at) {
@@ -338,8 +354,11 @@ export class DocumentService {
   }
 
   async delete(id: string): Promise<void> {
-    const summary = this.documentsRepo.find(id);
-    if (!summary) throw new NotFoundError('DOCUMENT_NOT_FOUND', `Document not found: ${id}`);
+    return this.inDocumentQueue(id, (summary) => this.deleteInQueue(summary));
+  }
+
+  private async deleteInQueue(summary: DocumentSummary): Promise<void> {
+    const id = summary.id;
     const project = this.assertProjectWritable(summary.project_id);
 
     let viaSidecar = false;
@@ -368,8 +387,10 @@ export class DocumentService {
    * controlled through `status`, not the folder.
    */
   async move(id: string, targetFolder: string): Promise<Document> {
-    const summary = this.documentsRepo.find(id);
-    if (!summary) throw new NotFoundError('DOCUMENT_NOT_FOUND', `Document not found: ${id}`);
+    return this.inDocumentQueue(id, (summary) => this.moveInQueue(summary, targetFolder));
+  }
+
+  private async moveInQueue(summary: DocumentSummary, targetFolder: string): Promise<Document> {
     const project = this.assertProjectWritable(summary.project_id);
 
     if (isArchivedFolder(targetFolder)) {
@@ -463,6 +484,26 @@ export class DocumentService {
       readOnly: false,
       body: existing.body,
     };
+  }
+
+  /**
+   * Run a mutation of one document inside its project's queue. The summary is
+   * re-read once the operation holds the queue, so it reflects every mutation
+   * that committed before it (a deleted document is a 404, a moved or archived
+   * one has its new path).
+   */
+  private async inDocumentQueue<T>(
+    id: string,
+    operation: (summary: DocumentSummary) => Promise<T>,
+  ): Promise<T> {
+    const before = this.findOrThrow(id);
+    return this.queue.run(before.project_id, () => operation(this.findOrThrow(id)));
+  }
+
+  private findOrThrow(id: string): DocumentSummary {
+    const summary = this.documentsRepo.find(id);
+    if (!summary) throw new NotFoundError('DOCUMENT_NOT_FOUND', `Document not found: ${id}`);
+    return summary;
   }
 
   private getProject(projectId: string): Project {
