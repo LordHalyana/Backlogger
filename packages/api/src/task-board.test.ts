@@ -472,3 +472,174 @@ describe('Board read: GET /api/projects/:projectId/board', () => {
     }
   });
 });
+
+describe('Moving a card: PUT task_state', () => {
+  let h: Harness;
+  beforeEach(async () => {
+    h = await setup();
+    await createProject(h);
+  });
+  afterEach(() => teardown(h));
+
+  async function revisionOf(id: string): Promise<string> {
+    const res = await request(h.app).get(`/api/documents/${id}`);
+    expect(res.status).toBe(200);
+    return res.body.revision as string;
+  }
+
+  it('writes only task_state (after status) and updated_at, byte for byte', async () => {
+    const before = await writeMarkdown(h, 'backlog/legacy.md', {
+      id: ID.a,
+      title: 'Legacy',
+      created_at: '2026-01-01T00:00:00.000Z',
+    });
+    await reload(h);
+
+    const res = await request(h.app)
+      .put(`/api/documents/${ID.a}`)
+      .set('If-Match', await revisionOf(ID.a))
+      .send({ task_state: 'in_progress' });
+    expect(res.status).toBe(200);
+
+    const expected = before
+      .replace('status: active\n', 'status: active\ntask_state: in_progress\n')
+      .replace(
+        "updated_at: '2026-01-01T00:00:00.000Z'",
+        `updated_at: '${res.body.updated_at}'`,
+      );
+    expect(await readDisk(h, `${PROJECT}/backlog/legacy.md`)).toBe(expected);
+    expect(ids((await getBoard(h)).in_progress)).toEqual([ID.a]);
+  });
+
+  it('replaces an unrecognised value in place on a state change', async () => {
+    const before = await writeMarkdown(
+      h,
+      'backlog/doing.md',
+      { id: ID.a, title: 'Doing', created_at: '2026-01-01T00:00:00.000Z' },
+      ['task_state: Doing'],
+    );
+    await reload(h);
+
+    const res = await request(h.app)
+      .put(`/api/documents/${ID.a}`)
+      .set('If-Match', await revisionOf(ID.a))
+      .send({ task_state: 'done' });
+    expect(res.status).toBe(200);
+
+    const expected = before
+      .replace('task_state: Doing\n', 'task_state: done\n')
+      .replace(
+        "updated_at: '2026-01-01T00:00:00.000Z'",
+        `updated_at: '${res.body.updated_at}'`,
+      );
+    expect(await readDisk(h, `${PROJECT}/backlog/doing.md`)).toBe(expected);
+  });
+
+  it('keeps the value, unrecognised included, through title/body/tags edits and a folder move', async () => {
+    await writeMarkdown(
+      h,
+      'backlog/keep.md',
+      { id: ID.a, title: 'Keep', created_at: '2026-01-01T00:00:00.000Z' },
+      ['task_state: Doing'],
+    );
+    await writeMarkdown(
+      h,
+      'backlog/keep-done.md',
+      { id: ID.b, title: 'Keep done', created_at: '2026-01-02T00:00:00.000Z' },
+      ['task_state: done'],
+    );
+    await reload(h);
+
+    for (const id of [ID.a, ID.b]) {
+      const edit = await request(h.app)
+        .put(`/api/documents/${id}`)
+        .set('If-Match', await revisionOf(id))
+        .send({ title: 'Renamed', body: 'New body\n', tags: ['moved'] });
+      expect(edit.status).toBe(200);
+      const moved = await request(h.app).post(`/api/documents/${id}/move`).send({ folder: 'later' });
+      expect(moved.status).toBe(200);
+    }
+
+    const keep = await readDisk(h, (await request(h.app).get(`/api/documents/${ID.a}`)).body.path);
+    expect(keep).toContain('status: active\ntask_state: Doing\n');
+    const done = await readDisk(h, (await request(h.app).get(`/api/documents/${ID.b}`)).body.path);
+    expect(done).toContain('status: active\ntask_state: done\n');
+    expect(ids((await getBoard(h)).done)).toEqual([ID.b]);
+  });
+
+  it('rejects an unrecognised task_state with 400', async () => {
+    const doc = await createDoc(h, { title: 'Blocked?' });
+    const before = await readDisk(h, doc.path);
+    const res = await request(h.app)
+      .put(`/api/documents/${doc.id}`)
+      .set('If-Match', doc.revision)
+      .send({ task_state: 'blocked' });
+    expect(res.status).toBe(400);
+    expect(await readDisk(h, doc.path)).toBe(before);
+  });
+
+  it('rejects task_state on a non-backlog document with 400', async () => {
+    const note = await createDoc(h, { title: 'A note', type: 'note' });
+    const before = await readDisk(h, note.path);
+    const res = await request(h.app)
+      .put(`/api/documents/${note.id}`)
+      .set('If-Match', note.revision)
+      .send({ task_state: 'done' });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('TASK_STATE_NOT_ALLOWED');
+    expect(await readDisk(h, note.path)).toBe(before);
+  });
+
+  it('preserves task_state on a non-backlog document through edits, without the board showing it', async () => {
+    await writeMarkdown(
+      h,
+      'notes/note.md',
+      { id: ID.a, title: 'Note', type: 'note', created_at: '2026-01-01T00:00:00.000Z' },
+      ['task_state: in_progress'],
+    );
+    await reload(h);
+    const edit = await request(h.app)
+      .put(`/api/documents/${ID.a}`)
+      .set('If-Match', await revisionOf(ID.a))
+      .send({ body: 'Edited\n' });
+    expect(edit.status).toBe(200);
+    expect(await readDisk(h, `${PROJECT}/notes/note.md`)).toContain('task_state: in_progress\n');
+    expect((await getBoard(h)).in_progress).toEqual([]);
+  });
+
+  it('refuses a move in a read-only project with 409 and leaves the file unchanged', async () => {
+    const before = await writeMarkdown(h, 'backlog/ro.md', {
+      id: ID.a,
+      title: 'RO',
+      created_at: '2026-01-01T00:00:00.000Z',
+    });
+    await reload(h);
+    const revision = await revisionOf(ID.a);
+    await request(h.app).put(`/api/projects/${PROJECT}`).send({ readOnly: true });
+
+    const res = await request(h.app)
+      .put(`/api/documents/${ID.a}`)
+      .set('If-Match', revision)
+      .send({ task_state: 'done' });
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('PROJECT_READ_ONLY');
+    expect(await readDisk(h, `${PROJECT}/backlog/ro.md`)).toBe(before);
+  });
+
+  it('refuses a stale move with 409 and leaves the file unchanged', async () => {
+    const doc = await createDoc(h, { title: 'Stale' });
+    const first = await request(h.app)
+      .put(`/api/documents/${doc.id}`)
+      .set('If-Match', doc.revision)
+      .send({ task_state: 'in_progress' });
+    expect(first.status).toBe(200);
+    const before = await readDisk(h, doc.path);
+
+    const stale = await request(h.app)
+      .put(`/api/documents/${doc.id}`)
+      .set('If-Match', doc.revision)
+      .send({ task_state: 'done' });
+    expect(stale.status).toBe(409);
+    expect(await readDisk(h, doc.path)).toBe(before);
+  });
+});

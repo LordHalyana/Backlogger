@@ -216,12 +216,15 @@ Body can contain any of:
 {
   "title": "New Title",
   "status": "active",
+  "task_state": "in_progress",
   "tags": ["docs"],
   "body": "Updated body\n"
 }
 ```
 
 At least one field is required. `type` cannot be changed through an update.
+
+`task_state` moves a backlog item between board columns. Only `todo`, `in_progress` and `done` are accepted (`400 VALIDATION_FAILED` otherwise), and only on a `backlog_item` (`400 TASK_STATE_NOT_ALLOWED` on other types and on sidecar-backed documents). It is written to the frontmatter immediately after `status`. An update without `task_state` keeps the stored value as written, including unrecognised values. Archiving or restoring (`status`) never changes it.
 
 Header:
 

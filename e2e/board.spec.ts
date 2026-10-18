@@ -86,3 +86,43 @@ test('board view switch shows a legacy backlog item in To do, and survives a ref
   await page.reload();
   await expect(column(page, 'To do').getByRole('article', { name: 'Legacy item' })).toBeVisible();
 });
+
+test('dragging a card to In progress persists across a reload', async ({ page }) => {
+  const projectId = `board-drag-${Date.now()}`;
+  await page.goto('/');
+  await createProject(page, { id: projectId });
+  const { file } = await writeBacklogItem(projectId, { title: 'Drag me' });
+  await reloadUntilIndexed(page, 'Drag me');
+  await openBoard(page);
+
+  const card = column(page, 'To do').getByRole('article', { name: 'Drag me' });
+  await card.dragTo(column(page, 'In progress'));
+  const moved = column(page, 'In progress').getByRole('article', { name: 'Drag me' });
+  await expect(moved).toBeVisible();
+  await expect(moved.getByText('Saving…')).toHaveCount(0);
+
+  await page.reload();
+  await expect(column(page, 'In progress').getByRole('article', { name: 'Drag me' })).toBeVisible();
+  expect(await fs.readFile(file, 'utf8')).toContain('status: active\ntask_state: in_progress\n');
+});
+
+test('cards in a read-only project are marked and cannot be moved', async ({ page }) => {
+  const projectId = `board-ro-${Date.now()}`;
+  await page.goto('/');
+  await createProject(page, { id: projectId });
+  const { file } = await writeBacklogItem(projectId, { title: 'Mounted item' });
+  await reloadUntilIndexed(page, 'Mounted item');
+  const res = await page.request.put(`/api/projects/${projectId}`, { data: { readOnly: true } });
+  expect(res.ok()).toBe(true);
+  const before = await fs.readFile(file, 'utf8');
+
+  await page.goto(`/projects/${projectId}/board`);
+  const card = column(page, 'To do').getByRole('article', { name: 'Mounted item' });
+  await expect(card.getByText('Read-only')).toBeVisible();
+  await expect(card).toHaveAttribute('draggable', 'false');
+
+  await card.dragTo(column(page, 'Done'));
+  await expect(column(page, 'To do').getByRole('article', { name: 'Mounted item' })).toBeVisible();
+  await expect(column(page, 'Done').getByRole('article')).toHaveCount(0);
+  expect(await fs.readFile(file, 'utf8')).toBe(before);
+});

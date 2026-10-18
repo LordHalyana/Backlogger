@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { ProjectIdSchema } from './projects.js';
 import { TagSchema } from './tags.js';
+import { TaskStateSchema } from './tasks.js';
 
 /**
  * Canonical list of document types. This is the single source of truth:
@@ -147,6 +148,8 @@ export const UpdateDocumentRequestSchema = z
   .object({
     title: z.string().min(1).max(200).optional(),
     status: DocumentStatusSchema.optional(),
+    /** Backlog items only (400 otherwise); recognised values only. */
+    task_state: TaskStateSchema.optional(),
     tags: z.array(TagSchema).optional(),
     body: z.string().optional(),
   })

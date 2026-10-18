@@ -227,6 +227,12 @@ export class DocumentService {
     input: UpdateDocumentRequest,
     ifMatch?: string,
   ): Promise<Document> {
+    if (input.task_state !== undefined && summary.type !== 'backlog_item') {
+      throw new BadRequestError(
+        'TASK_STATE_NOT_ALLOWED',
+        `Only backlog items have a task state; this document is a ${summary.type}.`,
+      );
+    }
     const project = this.assertProjectWritable(summary.project_id);
 
     // Validate the caller's revision against what is on disk right now, inside
@@ -244,6 +250,12 @@ export class DocumentService {
     }
     const now = this.now();
     if (project.metadataMode === 'sidecar' && !hasOwnFrontmatter(summary, existing)) {
+      if (input.task_state !== undefined) {
+        throw new BadRequestError(
+          'TASK_STATE_NOT_ALLOWED',
+          'Sidecar-backed documents do not have a task state.',
+        );
+      }
       return this.updateViaSidecar(summary, existing, input, now);
     }
     const nextStatus = input.status ?? summary.status;
@@ -254,6 +266,7 @@ export class DocumentService {
           project: summary.project_id,
           type: summary.type,
           status: nextStatus,
+          ...(input.task_state !== undefined ? { task_state: input.task_state } : {}),
           created_at: summary.created_at,
           updated_at: now,
           tags: input.tags ?? summary.tags,
@@ -597,10 +610,13 @@ function buildUpdatedFrontmatter(
   now: string,
 ): Frontmatter {
   assertEditableBackloggerDocument(summary, raw);
+  // Spreading the existing frontmatter keeps an unrecognised `task_state`
+  // verbatim; only an explicit task-state change replaces it.
   return FrontmatterSchema.parse({
     ...raw.frontmatter,
     title: input.title ?? summary.title,
     status: nextStatus,
+    ...(input.task_state !== undefined ? { task_state: input.task_state } : {}),
     tags: input.tags ?? summary.tags,
     updated_at: now,
   });
