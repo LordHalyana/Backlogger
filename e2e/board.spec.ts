@@ -241,3 +241,35 @@ test('archiving a Done card removes it, and Undo restores it to Done', async ({ 
   await page.reload();
   await expect(column(page, 'Done').getByRole('article', { name: 'Finished item' })).toBeVisible();
 });
+
+test('a move after an out-of-band disk edit snaps back with a conflict banner', async ({
+  page,
+}) => {
+  const projectId = `board-conflict-${Date.now()}`;
+  await page.goto('/');
+  await createProject(page, { id: projectId });
+  const { file } = await writeBacklogItem(projectId, { title: 'Contested item' });
+  await reloadUntilIndexed(page, 'Contested item');
+  await openBoard(page);
+  await expect(
+    column(page, 'To do').getByRole('article', { name: 'Contested item' }),
+  ).toBeVisible();
+
+  // Someone edits the file on disk; the board is not reloaded.
+  const edited = (await fs.readFile(file, 'utf8')).replace(
+    '# Contested item',
+    '# Contested item\n\nEdited on disk.',
+  );
+  await fs.writeFile(file, edited, 'utf8');
+
+  await column(page, 'To do')
+    .getByRole('article', { name: 'Contested item' })
+    .dragTo(column(page, 'In progress'));
+
+  await expect(page.getByRole('alert')).toContainText('not saved');
+  await expect(
+    column(page, 'To do').getByRole('article', { name: 'Contested item' }),
+  ).toBeVisible();
+  await expect(column(page, 'In progress').getByRole('article')).toHaveCount(0);
+  expect(await fs.readFile(file, 'utf8')).toBe(edited);
+});

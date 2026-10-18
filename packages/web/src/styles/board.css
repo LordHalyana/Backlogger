@@ -174,3 +174,9 @@
 .board-notice span {
   margin-right: auto;
 }
+
+.board-workspace .conflict-banner .btn--ghost {
+  margin-left: 0;
+  background: none;
+  color: var(--danger);
+}

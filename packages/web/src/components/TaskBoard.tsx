@@ -6,6 +6,7 @@ import {
   type BoardCard,
   type TaskState,
 } from '@backlogger/shared';
+import { ApiError } from '../lib/api.js';
 import { useArchiveCard, useBoard, useMoveCard, useRestoreCard } from '../lib/board.js';
 import { toastError, useDialog } from '../lib/dialog.js';
 import { StatusMessage } from './StatusMessage.js';
@@ -29,12 +30,14 @@ interface TaskBoardProps {
  * takes its creation-order place in the target column.
  */
 export function TaskBoard({ projectId, onOpenCard }: TaskBoardProps): JSX.Element {
-  const { data, isLoading, isError, error } = useBoard(projectId);
+  const { data, isLoading, isError, error, refetch } = useBoard(projectId);
   const moveCard = useMoveCard(projectId);
   const archiveCard = useArchiveCard(projectId);
   const restoreCard = useRestoreCard(projectId);
   const dialog = useDialog();
   const [archived, setArchived] = useState<ArchivedNotice | null>(null);
+  /** Why the last change was refused (409); shown in the conflict banner. */
+  const [conflict, setConflict] = useState<string | null>(null);
   const [saving, setSaving] = useState<ReadonlySet<string>>(() => new Set());
   const [dragging, setDragging] = useState<BoardCard | null>(null);
   const [dropTarget, setDropTarget] = useState<TaskState | null>(null);
@@ -61,14 +64,36 @@ export function TaskBoard({ projectId, onOpenCard }: TaskBoardProps): JSX.Elemen
     });
   }, []);
 
+  /** A 409 shows the conflict banner; any other failure is a toast. */
+  const reportFailure = useCallback(
+    (what: string, err: Error): void => {
+      if (err instanceof ApiError && err.status === 409) {
+        setConflict(
+          err.code === 'PROJECT_READ_ONLY'
+            ? `This project is read-only, so the ${what} was not saved.`
+            : `This card was changed somewhere else, so the ${what} was not saved.`,
+        );
+      } else {
+        toastError(dialog, `Failed to save the ${what}`, err);
+      }
+    },
+    [dialog],
+  );
+
   const move = useCallback(
     (card: BoardCard, to: TaskState): void => {
       if (card.readOnly || saving.has(card.id)) return;
       if (taskStateColumn(card.task_state) === to) return;
       setCardSaving(card.id, true);
-      moveCard.mutate({ card, to }, { onSettled: () => setCardSaving(card.id, false) });
+      moveCard.mutate(
+        { card, to },
+        {
+          onError: (err) => reportFailure('move', err),
+          onSettled: () => setCardSaving(card.id, false),
+        },
+      );
     },
-    [moveCard, saving, setCardSaving],
+    [moveCard, reportFailure, saving, setCardSaving],
   );
 
   const archive = useCallback(
@@ -77,19 +102,19 @@ export function TaskBoard({ projectId, onOpenCard }: TaskBoardProps): JSX.Elemen
       setArchived(null);
       archiveCard.mutate(card, {
         onSuccess: (doc) => setArchived({ card, revision: doc.revision }),
-        onError: (err) => toastError(dialog, 'Failed to archive', err),
+        onError: (err) => reportFailure('archive', err),
       });
     },
-    [archiveCard, dialog, saving],
+    [archiveCard, reportFailure, saving],
   );
 
   const undoArchive = useCallback((): void => {
     if (!archived) return;
     setArchived(null);
     restoreCard.mutate(archived, {
-      onError: (err) => toastError(dialog, 'Failed to restore', err),
+      onError: (err) => reportFailure('restore', err),
     });
-  }, [archived, dialog, restoreCard]);
+  }, [archived, reportFailure, restoreCard]);
 
   /** Alt+←/→: step to the adjacent column; nothing happens at either edge. */
   const step = useCallback(
@@ -126,6 +151,28 @@ export function TaskBoard({ projectId, onOpenCard }: TaskBoardProps): JSX.Elemen
 
   return (
     <div className="board-workspace">
+      {conflict && (
+        <div className="conflict-banner" role="alert">
+          <span>{conflict}</span>
+          <button
+            type="button"
+            onClick={() => {
+              setConflict(null);
+              void refetch();
+            }}
+          >
+            Reload
+          </button>
+          <button
+            type="button"
+            className="btn btn--sm btn--ghost"
+            aria-label="Dismiss"
+            onClick={() => setConflict(null)}
+          >
+            ×
+          </button>
+        </div>
+      )}
       {archived && (
         <div className="board-notice" role="status">
           <span>Archived “{archived.card.title}”.</span>
