@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
   CreateDocumentRequestSchema,
+  FileDocumentRequestSchema,
   MoveDocumentRequestSchema,
   UpdateDocumentRequestSchema,
 } from '@backlogger/shared';
@@ -101,6 +102,15 @@ export function documentsRouter(
       const id = parseDocumentId(req.params.id);
       await service.delete(id);
       res.status(204).send();
+    }),
+  );
+
+  router.post(
+    '/:id/file',
+    asyncRoute(async (req, res) => {
+      const id = parseDocumentId(req.params.id);
+      const { target_project_id, revision } = validateBody(FileDocumentRequestSchema, req.body);
+      res.json(await service.file(id, target_project_id, revision));
     }),
   );
 

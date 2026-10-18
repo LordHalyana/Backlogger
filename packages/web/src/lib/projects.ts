@@ -5,7 +5,12 @@ import {
   type UseMutationResult,
   type UseQueryResult,
 } from '@tanstack/react-query';
-import type { CreateProjectRequest, Project, UpdateProjectRequest } from '@backlogger/shared';
+import type {
+  CreateProjectRequest,
+  DuplicateFile,
+  Project,
+  UpdateProjectRequest,
+} from '@backlogger/shared';
 import { apiFetch } from './api.js';
 import {
   queryKeys,
@@ -69,6 +74,7 @@ export interface ReloadProjectReport {
   skipped: Array<{ path: string; reason: string }>;
   durationMs: number;
   removedIds: string[];
+  duplicates: DuplicateFile[];
 }
 
 export function useReloadProject(): UseMutationResult<ReloadProjectReport, Error, string> {

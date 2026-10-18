@@ -6,6 +6,7 @@ import type { Express } from 'express';
 import { createApp, type CreateAppOptions } from './app.js';
 import { buildContext, type AppContext } from './context.js';
 import { openDatabase, type Db } from './db/database.js';
+import { prepareDataDir } from './startup.js';
 import { loadTemplatesFromDir, TemplateRegistry } from './templates/registry.js';
 
 /**
@@ -46,7 +47,7 @@ export async function setup(opts: SetupOptions = {}): Promise<Harness> {
   const { loaded } = await loadTemplatesFromDir(TEMPLATES_DIR);
   templates.setAll(loaded);
   const ctx = buildContext({ db, dataDir, templates });
-  await ctx.fs.ensureRoot();
+  await prepareDataDir(ctx);
   return { app: createApp(ctx, { allowedOrigins: opts.allowedOrigins }), dataDir, db, ctx };
 }
 

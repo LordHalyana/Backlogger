@@ -167,3 +167,14 @@ export const MoveDocumentRequestSchema = z.object({
   folder: z.union([z.literal(''), FolderPathSchema]),
 });
 export type MoveDocumentRequest = z.infer<typeof MoveDocumentRequestSchema>;
+
+/**
+ * File a backlog item into another project, keeping its id. `revision` is the
+ * item's current revision; a stale one is refused unless the item is already
+ * in the target project.
+ */
+export const FileDocumentRequestSchema = z.object({
+  target_project_id: ProjectIdSchema,
+  revision: z.string().min(1),
+});
+export type FileDocumentRequest = z.infer<typeof FileDocumentRequestSchema>;

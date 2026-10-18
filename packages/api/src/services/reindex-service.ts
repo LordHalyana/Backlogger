@@ -6,6 +6,7 @@ import {
   isArchivedPath,
   storedTaskState,
   type DocumentStatus,
+  type DuplicateFile,
   type Frontmatter,
   type SidecarEntry,
   type SidecarIndex,
@@ -18,11 +19,13 @@ import type { LinkService } from './link-service.js';
 import type { TagsService } from './tags-service.js';
 import type { GraphService } from './graph-service.js';
 import type { ProjectQueue } from './project-queue.js';
+import type { InboxService } from './inbox-service.js';
 
 export interface ReindexReport {
   scanned: number;
   inserted: number;
   skipped: Array<{ path: string; reason: string }>;
+  duplicates: DuplicateFile[];
 }
 
 export interface ReloadReport {
@@ -33,6 +36,7 @@ export interface ReloadReport {
   skipped: Array<{ path: string; reason: string }>;
   durationMs: number;
   removedIds: string[];
+  duplicates: DuplicateFile[];
 }
 
 /** Thrown when a per-project reload is already running for that project. */
@@ -53,6 +57,7 @@ export interface ReindexServiceDeps {
   sidecarStore: SidecarStore;
   /** Per-project mutation queue, shared with the document service. */
   queue: ProjectQueue;
+  inbox: InboxService;
 }
 
 /**
@@ -70,6 +75,7 @@ export class ReindexService {
   private readonly graphService: GraphService;
   private readonly sidecarStore: SidecarStore;
   private readonly queue: ProjectQueue;
+  private readonly inbox: InboxService;
   private readonly inFlight = new Set<string>();
 
   constructor(deps: ReindexServiceDeps) {
@@ -81,10 +87,14 @@ export class ReindexService {
     this.graphService = deps.graphService;
     this.sidecarStore = deps.sidecarStore;
     this.queue = deps.queue;
+    this.inbox = deps.inbox;
   }
 
   async run(): Promise<ReindexReport> {
-    const report: ReindexReport = { scanned: 0, inserted: 0, skipped: [] };
+    const report: ReindexReport = { scanned: 0, inserted: 0, skipped: [], duplicates: [] };
+    // id → the path indexed for it so far, and the copies left out.
+    const kept = new Map<string, string>();
+    const leftOut: Array<{ id: string; path: string }> = [];
     this.documentsRepo.truncate();
     this.linkService.truncate();
     this.tagsService.truncate();
@@ -103,25 +113,20 @@ export class ReindexService {
         sidecars.set(projectId, sidecar);
       }
       const indexed = metadataForIndex(doc, projectId, sidecar);
-      this.documentsRepo.upsert({
-        id: indexed.frontmatter.id,
-        project_id: projectId,
-        title: indexed.frontmatter.title,
-        type: indexed.frontmatter.type,
-        status: statusFromPath(doc.path, indexed.frontmatter.status),
-        path: doc.path,
-        tags: indexed.frontmatter.tags,
-        readOnly: indexed.readOnly,
-        body: doc.body,
-        created_at: indexed.frontmatter.created_at,
-        updated_at: indexed.frontmatter.updated_at,
-        revision: indexed.revision,
-        task_state: storedTaskState(indexed.frontmatter.task_state),
-      });
-      this.linkService.rebuildForDocument(indexed.frontmatter.id, indexed.frontmatter.title, doc.body);
-      this.tagsService.rebuildForDocument(indexed.frontmatter.id, indexed.frontmatter.tags);
+      const id = indexed.frontmatter.id;
+      const other = kept.get(id);
+      if (other !== undefined) {
+        if (this.preferredCopy(other, doc.path) === other) {
+          leftOut.push({ id, path: doc.path });
+          continue;
+        }
+        leftOut.push({ id, path: other });
+      }
+      kept.set(id, doc.path);
+      this.indexDocument(doc, projectId, indexed);
       report.inserted += 1;
     }
+    report.duplicates = leftOut.map(({ id, path }) => ({ id, path, keptPath: kept.get(id)! }));
     // Full reindex rewrote every project's links/tags → drop all graph caches.
     this.graphService.invalidate();
     return report;
@@ -154,6 +159,7 @@ export class ReindexService {
       skipped: [],
       durationMs: 0,
       removedIds: [],
+      duplicates: [],
     };
 
     // Snapshot what we already have on disk-of-record.
@@ -164,27 +170,20 @@ export class ReindexService {
 
     for await (const doc of this.fs.walkProject(projectId)) {
       const indexed = metadataForIndex(doc, projectId, sidecar);
-      const wasPresent = existing.has(indexed.frontmatter.id);
-      this.documentsRepo.upsert({
-        id: indexed.frontmatter.id,
-        project_id: projectId,
-        title: indexed.frontmatter.title,
-        type: indexed.frontmatter.type,
-        status: statusFromPath(doc.path, indexed.frontmatter.status),
-        path: doc.path,
-        tags: indexed.frontmatter.tags,
-        readOnly: indexed.readOnly,
-        body: doc.body,
-        created_at: indexed.frontmatter.created_at,
-        updated_at: indexed.frontmatter.updated_at,
-        revision: indexed.revision,
-        task_state: storedTaskState(indexed.frontmatter.task_state),
-      });
-      this.linkService.rebuildForDocument(indexed.frontmatter.id, indexed.frontmatter.title, doc.body);
-      this.tagsService.rebuildForDocument(indexed.frontmatter.id, indexed.frontmatter.tags);
+      const id = indexed.frontmatter.id;
+      const wasPresent = existing.has(id);
+      existing.delete(id);
+      const other = await this.otherIndexedCopy(id, doc.path);
+      if (other !== null) {
+        if (this.preferredCopy(other, doc.path) === other) {
+          report.duplicates.push({ id, path: doc.path, keptPath: other });
+          continue;
+        }
+        report.duplicates.push({ id, path: other, keptPath: doc.path });
+      }
+      this.indexDocument(doc, projectId, indexed);
       if (wasPresent) report.updated += 1;
       else report.added += 1;
-      existing.delete(indexed.frontmatter.id);
     }
 
     // Anything still in `existing` lost its backing file → purge.
@@ -201,6 +200,55 @@ export class ReindexService {
 
     report.durationMs = Date.now() - started;
     return report;
+  }
+
+  private indexDocument(doc: RawDocument, projectId: string, indexed: IndexedMetadata): void {
+    this.documentsRepo.upsert({
+      id: indexed.frontmatter.id,
+      project_id: projectId,
+      title: indexed.frontmatter.title,
+      type: indexed.frontmatter.type,
+      status: statusFromPath(doc.path, indexed.frontmatter.status),
+      path: doc.path,
+      tags: indexed.frontmatter.tags,
+      readOnly: indexed.readOnly,
+      body: doc.body,
+      created_at: indexed.frontmatter.created_at,
+      updated_at: indexed.frontmatter.updated_at,
+      revision: indexed.revision,
+      task_state: storedTaskState(indexed.frontmatter.task_state),
+    });
+    this.linkService.rebuildForDocument(indexed.frontmatter.id, indexed.frontmatter.title, doc.body);
+    this.tagsService.rebuildForDocument(indexed.frontmatter.id, indexed.frontmatter.tags);
+  }
+
+  /**
+   * The path of a different file already indexed under `id` that still exists
+   * and still carries that id, or `null`. A row whose file is gone or changed
+   * is simply superseded.
+   */
+  private async otherIndexedCopy(id: string, docPath: string): Promise<string | null> {
+    const row = this.documentsRepo.find(id);
+    if (!row || row.path === docPath) return null;
+    try {
+      const raw = await this.fs.read(row.path);
+      return raw.frontmatter.id === id ? row.path : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Which of two files with one id to index. Both copies of an interrupted
+   * filing are self-consistent, so the choice is by place: the copy outside
+   * the designated Inbox (filing's target) wins; otherwise the
+   * lexicographically first path.
+   */
+  private preferredCopy(a: string, b: string): string {
+    const inboxId = this.inbox.id();
+    const inInbox = (p: string): boolean => inboxId !== null && p.startsWith(`${inboxId}/`);
+    if (inInbox(a) !== inInbox(b)) return inInbox(a) ? b : a;
+    return a < b ? a : b;
   }
 
   private ensureProjectForIndex(projectId: string): boolean {

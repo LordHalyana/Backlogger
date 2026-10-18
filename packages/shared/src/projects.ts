@@ -34,6 +34,10 @@ export const UpdateProjectRequestSchema = z
   })
   .refine((v) => Object.keys(v).length > 0, { message: 'no fields to update' });
 
-export type Project = z.infer<typeof ProjectSchema>;
+/** A project as the API returns it. */
+export type Project = z.infer<typeof ProjectSchema> & {
+  /** True for the one designated Inbox. */
+  isInbox: boolean;
+};
 export type CreateProjectRequest = z.infer<typeof CreateProjectRequestSchema>;
 export type UpdateProjectRequest = z.infer<typeof UpdateProjectRequestSchema>;

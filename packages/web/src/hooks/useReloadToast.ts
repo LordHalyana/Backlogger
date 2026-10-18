@@ -41,7 +41,7 @@ export function useReloadToast({
         dialog.toast(
           `Reloaded ${projectId}: +${r.added}/~${r.updated}/-${r.removed} in ${r.durationMs} ms`,
         );
-        if (r.skipped.length > 0) {
+        if (r.skipped.length > 0 || r.duplicates.length > 0) {
           void dialog.alert({
             title: 'Reload result',
             message: createElement(ReindexResultSummary, {
@@ -53,6 +53,7 @@ export function useReloadToast({
                   { label: 'Duration', value: `${r.durationMs} ms` },
                 ],
               skipped: r.skipped,
+              duplicates: r.duplicates,
             }),
             confirmLabel: 'OK',
           });

@@ -4,6 +4,8 @@ import { ProjectsRepo } from './db/projects-repo.js';
 import { FsRepository, PathResolver, SidecarStore } from './fs/index.js';
 import { BoardService } from './services/board-service.js';
 import { DocumentService } from './services/document-service.js';
+import { CurrentWorkService } from './services/current-work-service.js';
+import { InboxService } from './services/inbox-service.js';
 import { HealthService } from './services/health-service.js';
 import { ImportService } from './services/import-service.js';
 import { LinkService } from './services/link-service.js';
@@ -25,8 +27,10 @@ export interface AppContext {
   projectsRepo: ProjectsRepo;
   documentsRepo: DocumentsRepo;
   projectService: ProjectService;
+  inboxService: InboxService;
   documentService: DocumentService;
   boardService: BoardService;
+  currentWorkService: CurrentWorkService;
   reindexService: ReindexService;
   searchService: SearchService;
   linkService: LinkService;
@@ -57,7 +61,8 @@ export function buildContext(opts: BuildContextOptions): AppContext {
   const templates = opts.templates ?? new TemplateRegistry();
   const builtinTemplatesDir = opts.builtinTemplatesDir ?? '';
   const userTemplatesDir = opts.userTemplatesDir ?? '';
-  const projectService = new ProjectService({ projectsRepo, fs });
+  const inboxService = new InboxService({ projectsRepo, fs, dataDir: opts.dataDir });
+  const projectService = new ProjectService({ projectsRepo, fs, inbox: inboxService });
   const linkService = new LinkService(opts.db);
   const tagsService = new TagsService(opts.db);
   const graphService = new GraphService(opts.db);
@@ -72,6 +77,7 @@ export function buildContext(opts: BuildContextOptions): AppContext {
     graphService,
     sidecarStore,
     queue,
+    inbox: inboxService,
   });
   const reindexService = new ReindexService({
     documentsRepo,
@@ -82,8 +88,14 @@ export function buildContext(opts: BuildContextOptions): AppContext {
     graphService,
     sidecarStore,
     queue,
+    inbox: inboxService,
   });
   const boardService = new BoardService({ documentsRepo, projectsRepo });
+  const currentWorkService = new CurrentWorkService({
+    documentsRepo,
+    projectsRepo,
+    inbox: inboxService,
+  });
   const searchService = new SearchService(opts.db);
   const healthService = new HealthService({
     db: opts.db,
@@ -100,8 +112,10 @@ export function buildContext(opts: BuildContextOptions): AppContext {
     projectsRepo,
     documentsRepo,
     projectService,
+    inboxService,
     documentService,
     boardService,
+    currentWorkService,
     reindexService,
     searchService,
     linkService,

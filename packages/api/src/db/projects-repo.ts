@@ -1,6 +1,9 @@
 import type { MetadataMode, Project } from '@backlogger/shared';
 import type { Db } from './database.js';
 
+/** A project as stored; the Inbox designation is not part of it. */
+export type ProjectRecord = Omit<Project, 'isInbox'>;
+
 interface ProjectRow {
   id: string;
   name: string;
@@ -11,7 +14,7 @@ interface ProjectRow {
   updated_at: string;
 }
 
-function rowToProject(row: ProjectRow): Project {
+function rowToProject(row: ProjectRow): ProjectRecord {
   return {
     id: row.id,
     name: row.name,
@@ -44,14 +47,14 @@ export interface ProjectUpdateInput {
 export class ProjectsRepo {
   constructor(private readonly db: Db) {}
 
-  list(): Project[] {
+  list(): ProjectRecord[] {
     const rows = this.db
       .prepare<[], ProjectRow>(`SELECT * FROM projects ORDER BY id`)
       .all();
     return rows.map(rowToProject);
   }
 
-  find(id: string): Project | undefined {
+  find(id: string): ProjectRecord | undefined {
     const row = this.db
       .prepare<[string], ProjectRow>(`SELECT * FROM projects WHERE id = ?`)
       .get(id);
@@ -65,7 +68,7 @@ export class ProjectsRepo {
     );
   }
 
-  insert(input: ProjectInsertInput): Project {
+  insert(input: ProjectInsertInput): ProjectRecord {
     this.db
       .prepare(
         `INSERT INTO projects (id, name, description, read_only, metadata_mode, created_at, updated_at)
@@ -79,7 +82,7 @@ export class ProjectsRepo {
     return this.find(input.id)!;
   }
 
-  update(id: string, input: ProjectUpdateInput): Project | undefined {
+  update(id: string, input: ProjectUpdateInput): ProjectRecord | undefined {
     const existing = this.find(id);
     if (!existing) return undefined;
     const next: ProjectInsertInput = {

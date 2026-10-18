@@ -94,10 +94,10 @@ describe('Projects API', () => {
   });
   afterEach(() => teardown(h));
 
-  it('lists empty initially', async () => {
+  it('lists only the Inbox initially', async () => {
     const res = await request(h.app).get('/api/projects');
     expect(res.status).toBe(200);
-    expect(res.body).toEqual([]);
+    expect(res.body.map((p: { id: string }) => p.id)).toEqual(['inbox']);
   });
 
   it('creates a project and the folder skeleton on disk', async () => {

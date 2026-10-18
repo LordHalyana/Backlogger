@@ -8,16 +8,36 @@ import {
 } from '../lib/projects.js';
 import { ApiError } from '../lib/api.js';
 import { toastError, useDialog } from '../lib/dialog.js';
+import { orderProjects } from '../lib/inbox.js';
+import { useMediaQuery } from '../hooks/useMediaQuery.js';
 import { Modal } from './Modal.js';
 import { Icon } from './Icon.js';
 
 interface ProjectSwitcherProps {
   selectedId: string | null;
   onSelect: (id: string | null) => void;
+  /** Narrow widths only, where the rail folds into this switcher. */
+  onCapture?: () => void;
+  onOpenTriage?: () => void;
+  onToggleCurrentWork?: () => void;
 }
 
-export function ProjectSwitcher({ selectedId, onSelect }: ProjectSwitcherProps): JSX.Element {
+/** Below this width the workspace rail is hidden and its entries live here. */
+export const NARROW_QUERY = '(max-width: 900px)';
+
+const CAPTURE_ENTRY = '__capture';
+const TRIAGE_ENTRY = '__triage';
+const CURRENT_WORK_ENTRY = '__current-work';
+
+export function ProjectSwitcher({
+  selectedId,
+  onSelect,
+  onCapture,
+  onOpenTriage,
+  onToggleCurrentWork,
+}: ProjectSwitcherProps): JSX.Element {
   const projects = useProjects();
+  const narrow = useMediaQuery(NARROW_QUERY);
   const [showNew, setShowNew] = useState(false);
   const selectedProject = projects.data?.find((p) => p.id === selectedId);
 
@@ -29,7 +49,13 @@ export function ProjectSwitcher({ selectedId, onSelect }: ProjectSwitcherProps):
       <select
         id="project-select"
         value={selectedId ?? ''}
-        onChange={(e) => onSelect(e.target.value || null)}
+        onChange={(e) => {
+          const value = e.target.value;
+          if (value === CAPTURE_ENTRY) onCapture?.();
+          else if (value === TRIAGE_ENTRY) onOpenTriage?.();
+          else if (value === CURRENT_WORK_ENTRY) onToggleCurrentWork?.();
+          else onSelect(value || null);
+        }}
         disabled={projects.isLoading}
       >
         <option value="">
@@ -39,21 +65,34 @@ export function ProjectSwitcher({ selectedId, onSelect }: ProjectSwitcherProps):
               ? 'No projects'
               : 'Select a project...'}
         </option>
-        {projects.data?.map((p) => (
+        {orderProjects(projects.data ?? []).map((p) => (
           <option key={p.id} value={p.id}>
+            {p.isInbox ? '⌂ ' : ''}
             {p.name}{p.readOnly ? ' (read-only)' : ''}
           </option>
         ))}
+        {narrow && (
+          <optgroup label="Daily work">
+            <option value={CAPTURE_ENTRY}>+ Capture…</option>
+            <option value={TRIAGE_ENTRY}>⌂ Inbox triage</option>
+            <option value={CURRENT_WORK_ENTRY}>Current work</option>
+          </optgroup>
+        )}
       </select>
       <button type="button" onClick={() => setShowNew(true)}>
         + New Project
       </button>
-      {selectedProject && <ProjectReadOnlyToggle project={selectedProject} />}
-      {selectedProject && <ProjectMetadataModeToggle project={selectedProject} />}
+      {selectedProject && !selectedProject.isInbox && (
+        <ProjectReadOnlyToggle project={selectedProject} />
+      )}
+      {selectedProject && !selectedProject.isInbox && (
+        <ProjectMetadataModeToggle project={selectedProject} />
+      )}
       <ProjectMenu
         projectId={selectedId}
         projectName={selectedProject?.name ?? selectedId ?? ''}
         readOnly={selectedProject?.readOnly ?? false}
+        isInbox={selectedProject?.isInbox ?? false}
         onDeleted={() => onSelect(null)}
       />
       {showNew && (
@@ -213,11 +252,19 @@ interface ProjectMenuProps {
   projectId: string | null;
   projectName: string;
   readOnly: boolean;
+  /** The designated Inbox cannot be deleted. */
+  isInbox: boolean;
   onDeleted: () => void;
 }
 
 /** Overflow (⋮) menu for less-common, destructive project actions. */
-function ProjectMenu({ projectId, projectName, readOnly, onDeleted }: ProjectMenuProps): JSX.Element {
+function ProjectMenu({
+  projectId,
+  projectName,
+  readOnly,
+  isInbox,
+  onDeleted,
+}: ProjectMenuProps): JSX.Element {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const del = useDeleteProject();
@@ -279,8 +326,14 @@ function ProjectMenu({ projectId, projectName, readOnly, onDeleted }: ProjectMen
             role="menuitem"
             className="project-menu-item project-menu-item--danger"
             onClick={handleDelete}
-            disabled={!projectId || readOnly || del.isPending}
-            title={readOnly ? 'Disable read-only mode before deleting this project' : undefined}
+            disabled={!projectId || readOnly || isInbox || del.isPending}
+            title={
+              isInbox
+                ? 'The Inbox cannot be deleted'
+                : readOnly
+                  ? 'Disable read-only mode before deleting this project'
+                  : undefined
+            }
           >
             <Icon name="trash" />
             Delete project

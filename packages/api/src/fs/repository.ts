@@ -193,6 +193,19 @@ export class FsRepository {
     };
   }
 
+  /** A file's exact text, unparsed. */
+  async readText(relativePath: string): Promise<string> {
+    const absolute = await this.resolver.resolveRelativeSafe(relativePath);
+    try {
+      return await fs.readFile(absolute, 'utf8');
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new DocumentNotFoundError(relativePath);
+      }
+      throw err;
+    }
+  }
+
   /**
    * Atomically write a Markdown document.
    *

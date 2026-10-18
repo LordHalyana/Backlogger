@@ -34,8 +34,10 @@ interface DocumentWorkspaceProps {
   theme: Theme;
   onDeleted: () => void;
   onOpenDocument?: (projectId: string, documentId: string) => void;
-  /** Set when the document was opened from the board: shows "Back to board". */
+  /** Set when the document was opened from the board or triage: shows a back link. */
   onBackToBoard?: () => void;
+  /** The back link's text; defaults to "Back to board". */
+  backLabel?: string;
 }
 
 export function DocumentWorkspace({
@@ -45,6 +47,7 @@ export function DocumentWorkspace({
   onDeleted,
   onOpenDocument,
   onBackToBoard,
+  backLabel = 'Back to board',
 }: DocumentWorkspaceProps): JSX.Element {
   const { data: doc, isLoading, isError, error, refetch } = useDocument(documentId);
   const del = useDeleteDocument(projectId);
@@ -156,7 +159,7 @@ export function DocumentWorkspace({
       <div className="workspace-header">
         {onBackToBoard && (
           <button type="button" className="btn btn--sm btn--ghost" onClick={onBackToBoard}>
-            Back to board
+            {backLabel}
           </button>
         )}
         <span className="workspace-title" title={doc.path}>

@@ -104,6 +104,18 @@ export class DocumentsRepo {
     return rows.map((row) => ({ ...rowToSummary(row), task_state: row.task_state }));
   }
 
+  /** Non-archived backlog items whose task state is exactly `in_progress`, by `created_at` then id. */
+  listInProgressItems(): BoardItem[] {
+    const rows = this.db
+      .prepare<[], DocumentRow>(
+        `SELECT * FROM documents
+         WHERE type = 'backlog_item' AND status != 'archived' AND task_state = 'in_progress'
+         ORDER BY created_at, id`,
+      )
+      .all();
+    return rows.map((row) => ({ ...rowToSummary(row), task_state: row.task_state }));
+  }
+
   find(id: string): DocumentSummary | undefined {
     const row = this.db
       .prepare<[string], DocumentRow>(`SELECT * FROM documents WHERE id = ?`)

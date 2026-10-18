@@ -1,5 +1,5 @@
-import { taskStateColumn, type Board } from '@backlogger/shared';
-import type { DocumentsRepo } from '../db/documents-repo.js';
+import { taskStateColumn, type Board, type BoardCard } from '@backlogger/shared';
+import type { BoardItem, DocumentsRepo } from '../db/documents-repo.js';
 import type { ProjectsRepo } from '../db/projects-repo.js';
 import { NotFoundError } from '../errors.js';
 
@@ -25,17 +25,21 @@ export class BoardService {
     if (project.metadataMode === 'sidecar') return board;
 
     for (const item of this.deps.documentsRepo.listBoardItems(projectId)) {
-      board.columns[taskStateColumn(item.task_state)].push({
-        id: item.id,
-        title: item.title,
-        tags: item.tags,
-        status: item.status,
-        readOnly: project.readOnly || item.readOnly,
-        revision: item.revision,
-        task_state: item.task_state,
-        created_at: item.created_at,
-      });
+      board.columns[taskStateColumn(item.task_state)].push(toBoardCard(item, project.readOnly));
     }
     return board;
   }
+}
+
+export function toBoardCard(item: BoardItem, projectReadOnly: boolean): BoardCard {
+  return {
+    id: item.id,
+    title: item.title,
+    tags: item.tags,
+    status: item.status,
+    readOnly: projectReadOnly || item.readOnly,
+    revision: item.revision,
+    task_state: item.task_state,
+    created_at: item.created_at,
+  };
 }

@@ -1,3 +1,4 @@
+import { useCallback, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { HealthStatus } from '@backlogger/shared';
 import { ProjectSwitcher } from './components/ProjectSwitcher.js';
@@ -13,6 +14,12 @@ import { KnowledgeGraph } from './components/KnowledgeGraph.js';
 import { TopbarAction } from './components/TopbarAction.js';
 import { TagExplorer } from './components/TagExplorer.js';
 import { Icon } from './components/Icon.js';
+import { WorkspaceRail } from './components/WorkspaceRail.js';
+import { CapturePalette } from './components/CapturePalette.js';
+import { InboxTriage } from './components/InboxTriage.js';
+import { CurrentWorkDrawer } from './components/CurrentWorkDrawer.js';
+import { useInboxCount } from './lib/inbox.js';
+import { readDrawerOpen, writeDrawerOpen } from './lib/current-work.js';
 import { useProjects } from './lib/projects.js';
 import { formatUptime } from './lib/display.js';
 import { useWikiLinkNavigation } from './hooks/useWikiLinkNavigation.js';
@@ -38,6 +45,8 @@ export function App(): JSX.Element {
     documentId: selectedDocumentId,
     view,
     tags: selectedTags,
+    triage,
+    openTriage,
     selectProject,
     selectView,
     selectTreeDocument,
@@ -52,6 +61,42 @@ export function App(): JSX.Element {
   const projects = useProjects();
   const selectedProject = projects.data?.find((p) => p.id === selectedProjectId);
   const projectReadOnly = selectedProject?.readOnly ?? false;
+  const projectList = projects.data ?? [];
+  const inbox = projectList.find((p) => p.isInbox);
+  const inboxCount = useInboxCount(inbox?.id);
+  const [captureOpen, setCaptureOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState<boolean>(() => readDrawerOpen());
+  // The task opened from triage, whose editor links back to triage.
+  const [fromTriage, setFromTriage] = useState<string | null>(null);
+
+  const openCapture = useCallback((): void => setCaptureOpen(true), []);
+  const toggleDrawer = useCallback((): void => {
+    setDrawerOpen((open) => {
+      writeDrawerOpen(!open);
+      return !open;
+    });
+  }, []);
+  const goToBoard = useCallback(
+    (projectId: string): void => {
+      selectProject(projectId);
+      selectView('board');
+    },
+    [selectProject, selectView],
+  );
+  const openFromTriage = useCallback(
+    (projectId: string, documentId: string): void => {
+      setFromTriage(documentId);
+      openDocument(projectId, documentId);
+    },
+    [openDocument],
+  );
+  const backToTriage =
+    fromTriage !== null && fromTriage === selectedDocumentId
+      ? () => {
+          setFromTriage(null);
+          openTriage();
+        }
+      : undefined;
   const { data, isLoading, isError } = useQuery({
     queryKey: ['health'],
     queryFn: fetchHealth,
@@ -61,6 +106,7 @@ export function App(): JSX.Element {
   useGlobalShortcuts({
     onToggleCommandPalette: overlays.togglePalette,
     onToggleHelp: overlays.toggleHelp,
+    onCapture: openCapture,
   });
 
   useWikiLinkNavigation({
@@ -98,10 +144,25 @@ export function App(): JSX.Element {
           <h1>Backlogger</h1>
         </div>
         <span className="topbar-divider" aria-hidden="true" />
-        <ProjectSwitcher selectedId={selectedProjectId} onSelect={selectProject} />
+        <ProjectSwitcher
+          selectedId={selectedProjectId}
+          onSelect={selectProject}
+          onCapture={openCapture}
+          onOpenTriage={openTriage}
+          onToggleCurrentWork={toggleDrawer}
+        />
         <span className="topbar-spacer" />
         <span className="topbar-divider" aria-hidden="true" />
         <div className="topbar-right">
+          <TopbarAction
+            label="Current work"
+            onClick={toggleDrawer}
+            active={drawerOpen}
+            title="Show or hide Current work"
+            className="current-work-button"
+          >
+            Current work
+          </TopbarAction>
           <TopbarAction
             label="Search"
             onClick={overlays.openPalette}
@@ -178,54 +239,87 @@ export function App(): JSX.Element {
           </TopbarAction>
         </div>
       </header>
-      <main className="content">
-        {selectedProjectId ? (
-          <div className="project-layout">
-            <div className="project-sidebar">
-              <div className="sidebar-view-switch">
-                <SegmentedControl
-                  ariaLabel="Project view"
-                  value={view}
-                  options={PROJECT_VIEW_OPTIONS}
-                  onChange={selectView}
+      <main className="content daily-shell">
+        <WorkspaceRail
+          projects={projectList}
+          inboxCount={inboxCount}
+          triageOpen={triage}
+          selectedProjectId={selectedProjectId}
+          onCapture={openCapture}
+          onOpenTriage={openTriage}
+          onSelectProject={goToBoard}
+        />
+        <div className="daily-main">
+          {triage ? (
+            <InboxTriage projects={projectList} onOpenTask={openFromTriage} />
+          ) : selectedProjectId ? (
+            <div className="project-layout">
+              <div className="project-sidebar">
+                <div className="sidebar-view-switch">
+                  <SegmentedControl
+                    ariaLabel="Project view"
+                    value={view}
+                    options={PROJECT_VIEW_OPTIONS}
+                    onChange={selectView}
+                  />
+                </div>
+                <ProjectTree
+                  projectId={selectedProjectId}
+                  selectedDocumentId={selectedDocumentId}
+                  onSelect={selectTreeDocument}
+                  selectedTags={selectedTags}
+                  onClearTags={clearTags}
+                  onRemoveTag={removeTag}
+                  readOnly={projectReadOnly}
+                />
+                <TagExplorer
+                  projectId={selectedProjectId}
+                  selectedTags={selectedTags}
+                  onToggle={toggleTag}
                 />
               </div>
-              <ProjectTree
-                projectId={selectedProjectId}
-                selectedDocumentId={selectedDocumentId}
-                onSelect={selectTreeDocument}
-                selectedTags={selectedTags}
-                onClearTags={clearTags}
-                onRemoveTag={removeTag}
-                readOnly={projectReadOnly}
-              />
-              <TagExplorer
-                projectId={selectedProjectId}
-                selectedTags={selectedTags}
-                onToggle={toggleTag}
-              />
+              {view === 'board' && !selectedDocumentId ? (
+                <TaskBoard projectId={selectedProjectId} onOpenCard={selectDocument} />
+              ) : selectedDocumentId ? (
+                <DocumentWorkspace
+                  projectId={selectedProjectId}
+                  documentId={selectedDocumentId}
+                  theme="dark"
+                  onDeleted={() => selectDocument(null)}
+                  onOpenDocument={openDocument}
+                  onBackToBoard={
+                    backToTriage ?? (view === 'board' ? () => selectDocument(null) : undefined)
+                  }
+                  backLabel={backToTriage ? 'Back to Inbox triage' : undefined}
+                />
+              ) : (
+                <div className="workspace-empty">
+                  <p>Select a document, or create a new one.</p>
+                </div>
+              )}
             </div>
-            {view === 'board' && !selectedDocumentId ? (
-              <TaskBoard projectId={selectedProjectId} onOpenCard={selectDocument} />
-            ) : selectedDocumentId ? (
-              <DocumentWorkspace
-                projectId={selectedProjectId}
-                documentId={selectedDocumentId}
-                theme="dark"
-                onDeleted={() => selectDocument(null)}
-                onOpenDocument={openDocument}
-                onBackToBoard={view === 'board' ? () => selectDocument(null) : undefined}
-              />
-            ) : (
-              <div className="workspace-empty">
-                <p>Select a document, or create a new one.</p>
-              </div>
-            )}
-          </div>
-        ) : (
-          <p>Select or create a project to begin.</p>
+          ) : (
+            <p>Select or create a project to begin.</p>
+          )}
+        </div>
+        {drawerOpen && (
+          <CurrentWorkDrawer
+            onOpenTask={openDocument}
+            onGoToBoard={goToBoard}
+            onClose={toggleDrawer}
+          />
         )}
       </main>
+      {captureOpen && (
+        <CapturePalette
+          projects={projectList}
+          onClose={() => setCaptureOpen(false)}
+          onOpenTask={(doc) => {
+            setCaptureOpen(false);
+            openDocument(doc.project_id, doc.id);
+          }}
+        />
+      )}
       <CommandPalette
         open={overlays.paletteOpen}
         onClose={overlays.closePalette}
