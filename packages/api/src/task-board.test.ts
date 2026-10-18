@@ -683,37 +683,48 @@ describe('Moving a card: PUT task_state', () => {
     expect(await readDisk(h, `${PROJECT}/backlog/doing.md`)).toBe(expected);
   });
 
-  it('keeps the value, unrecognised included, through title/body/tags edits and a folder move', async () => {
-    await writeMarkdown(
-      h,
-      'backlog/keep.md',
-      { id: ID.a, title: 'Keep', created_at: '2026-01-01T00:00:00.000Z' },
-      ['task_state: Doing'],
-    );
-    await writeMarkdown(
-      h,
-      'backlog/keep-done.md',
-      { id: ID.b, title: 'Keep done', created_at: '2026-01-02T00:00:00.000Z' },
-      ['task_state: done'],
-    );
+  it('keeps the value, unrecognised included, through title/body/tags edits and a folder move, byte for byte', async () => {
+    const cases = [
+      { id: ID.a, title: 'Keep', file: 'keep.md', taskState: 'Doing' },
+      { id: ID.b, title: 'Keep done', file: 'keep-done.md', taskState: 'done' },
+    ];
+    const before: string[] = [];
+    for (const { id, title, file, taskState } of cases) {
+      before.push(
+        await writeMarkdown(
+          h,
+          `backlog/${file}`,
+          { id, title, created_at: '2026-01-01T00:00:00.000Z' },
+          [`task_state: ${taskState}`],
+        ),
+      );
+    }
     await reload(h);
 
-    for (const id of [ID.a, ID.b]) {
+    for (const [i, { id, title, file }] of cases.entries()) {
       const edit = await request(h.app)
         .put(`/api/documents/${id}`)
         .set('If-Match', await revisionOf(h, id))
         .send({ title: 'Renamed', body: 'New body\n', tags: ['moved'] });
       expect(edit.status).toBe(200);
+      const afterEdit = restamped(before[i]!, edit.body.updated_at)
+        .replace(`title: ${title}\n`, 'title: Renamed\n')
+        .replace('tags:\n  - board\n', 'tags:\n  - moved\n')
+        .replace(`---\n\n# ${title}\n`, '---\nNew body\n');
+      expect(await readDisk(h, `${PROJECT}/backlog/${file}`)).toBe(afterEdit);
+
       const moved = await request(h.app)
         .post(`/api/documents/${id}/move`)
         .send({ folder: 'later' });
       expect(moved.status).toBe(200);
+      expect(moved.body.path).toBe(`${PROJECT}/later/${file}`);
+      expect(await readDisk(h, moved.body.path)).toBe(
+        afterEdit.replace(
+          `updated_at: '${edit.body.updated_at}'`,
+          `updated_at: '${(await getDoc(h, id)).updated_at}'`,
+        ),
+      );
     }
-
-    const keep = await readDisk(h, (await request(h.app).get(`/api/documents/${ID.a}`)).body.path);
-    expect(keep).toContain('status: active\ntask_state: Doing\n');
-    const done = await readDisk(h, (await request(h.app).get(`/api/documents/${ID.b}`)).body.path);
-    expect(done).toContain('status: active\ntask_state: done\n');
     expect(ids((await getBoard(h)).done)).toEqual([ID.b]);
   });
 
@@ -741,7 +752,7 @@ describe('Moving a card: PUT task_state', () => {
   });
 
   it('preserves task_state on a non-backlog document through edits, without the board showing it', async () => {
-    await writeMarkdown(
+    const before = await writeMarkdown(
       h,
       'notes/note.md',
       { id: ID.a, title: 'Note', type: 'note', created_at: '2026-01-01T00:00:00.000Z' },
@@ -753,7 +764,9 @@ describe('Moving a card: PUT task_state', () => {
       .set('If-Match', await revisionOf(h, ID.a))
       .send({ body: 'Edited\n' });
     expect(edit.status).toBe(200);
-    expect(await readDisk(h, `${PROJECT}/notes/note.md`)).toContain('task_state: in_progress\n');
+    expect(await readDisk(h, `${PROJECT}/notes/note.md`)).toBe(
+      restamped(before, edit.body.updated_at).replace('---\n\n# Note\n', '---\nEdited\n'),
+    );
     expect((await getBoard(h)).in_progress).toEqual([]);
   });
 
@@ -883,7 +896,9 @@ describe('New and imported backlog items carry task_state', () => {
       .post(`/api/projects/${PROJECT}/documents`)
       .send({ title: 'Started', type: 'backlog_item', task_state: 'in_progress' });
     expect(ok.status).toBe(201);
-    expect(await readDisk(h, ok.body.path)).toContain('status: draft\ntask_state: in_progress\n');
+    expect(await readDisk(h, ok.body.path)).toBe(
+      expectedFile({ ...ok.body, status: 'draft', task_state: 'in_progress' }, '\n'),
+    );
     expect(ids((await getBoard(h)).in_progress)).toEqual([ok.body.id]);
 
     const invalid = await request(h.app)
@@ -961,11 +976,23 @@ describe('New and imported backlog items carry task_state', () => {
   it('import (copy) of a duplicate keeps the incoming value verbatim', async () => {
     const original = await importedPath(await importFile(exported('Orig', ['task_state: done'])));
     const exportedBytes = await readDisk(h, original);
-    const copy = await importedPath(
+    const { id: copyId, path: copy } = await imported(
       await importFile(exportedBytes.replace('task_state: done', 'task_state: Later'), 'copy'),
     );
     expect(copy).not.toBe(original);
-    expect(await readDisk(h, copy)).toContain('task_state: Later\n');
+    const copyDoc = (await request(h.app).get(`/api/documents/${copyId}`)).body;
+    expect(await readDisk(h, copy)).toBe(
+      expectedFile(
+        {
+          ...copyDoc,
+          title: 'Orig',
+          type: 'backlog_item',
+          status: 'active',
+          task_state: 'Later',
+        },
+        '\n# Orig\n',
+      ),
+    );
     expect(await readDisk(h, original)).toBe(exportedBytes);
   });
 
@@ -974,14 +1001,25 @@ describe('New and imported backlog items carry task_state', () => {
       await importFile(exported('Target', ['task_state: in_progress'])),
     );
 
+    const replacedAs = async (title: string, taskState: string): Promise<string> =>
+      expectedFile(
+        {
+          ...(await request(h.app).get(`/api/documents/${id}`)).body,
+          title,
+          type: 'backlog_item',
+          status: 'active',
+          task_state: taskState,
+        },
+        `\n# ${title}\n`,
+      );
+
     const without = await importFile(exported('Target v2', [], id), 'replace');
     expect(without.status).toBe(200);
-    expect(await readDisk(h, target)).toContain('title: Target v2\n');
-    expect(await readDisk(h, target)).toContain('task_state: in_progress\n');
+    expect(await readDisk(h, target)).toBe(await replacedAs('Target v2', 'in_progress'));
 
     const withValue = await importFile(exported('Target v3', ['task_state: done'], id), 'replace');
     expect(withValue.status).toBe(200);
-    expect(await readDisk(h, target)).toContain('status: active\ntask_state: done\n');
+    expect(await readDisk(h, target)).toBe(await replacedAs('Target v3', 'done'));
     expect(ids((await getBoard(h)).done)).toHaveLength(1);
   });
 
@@ -1060,7 +1098,20 @@ describe('Archive and restore keep task_state', () => {
       .set('If-Match', doc.revision)
       .send({ status: 'archived' });
     expect(archived.status).toBe(200);
-    expect(await readDisk(h, archived.body.path)).toContain('task_state: in_progress\n');
+    expect(await readDisk(h, archived.body.path)).toBe(
+      expectedFile(
+        {
+          id: doc.id,
+          title: 'Abandoned',
+          type: 'backlog_item',
+          status: 'archived',
+          task_state: 'in_progress',
+          created_at: archived.body.created_at,
+          updated_at: archived.body.updated_at,
+        },
+        '\n',
+      ),
+    );
     expect((await getBoard(h)).in_progress).toEqual([]);
   });
 
