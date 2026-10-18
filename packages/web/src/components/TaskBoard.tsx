@@ -6,8 +6,16 @@ import {
   type BoardCard,
   type TaskState,
 } from '@backlogger/shared';
-import { useBoard, useMoveCard } from '../lib/board.js';
+import { useArchiveCard, useBoard, useMoveCard, useRestoreCard } from '../lib/board.js';
+import { toastError, useDialog } from '../lib/dialog.js';
 import { StatusMessage } from './StatusMessage.js';
+
+/** An archived card that can still be restored from the Undo notice. */
+interface ArchivedNotice {
+  card: BoardCard;
+  /** Revision returned by the archive; the restore is conditional on it. */
+  revision: string;
+}
 
 interface TaskBoardProps {
   projectId: string;
@@ -23,6 +31,10 @@ interface TaskBoardProps {
 export function TaskBoard({ projectId, onOpenCard }: TaskBoardProps): JSX.Element {
   const { data, isLoading, isError, error } = useBoard(projectId);
   const moveCard = useMoveCard(projectId);
+  const archiveCard = useArchiveCard(projectId);
+  const restoreCard = useRestoreCard(projectId);
+  const dialog = useDialog();
+  const [archived, setArchived] = useState<ArchivedNotice | null>(null);
   const [saving, setSaving] = useState<ReadonlySet<string>>(() => new Set());
   const [dragging, setDragging] = useState<BoardCard | null>(null);
   const [dropTarget, setDropTarget] = useState<TaskState | null>(null);
@@ -59,6 +71,26 @@ export function TaskBoard({ projectId, onOpenCard }: TaskBoardProps): JSX.Elemen
     [moveCard, saving, setCardSaving],
   );
 
+  const archive = useCallback(
+    (card: BoardCard): void => {
+      if (card.readOnly || saving.has(card.id)) return;
+      setArchived(null);
+      archiveCard.mutate(card, {
+        onSuccess: (doc) => setArchived({ card, revision: doc.revision }),
+        onError: (err) => toastError(dialog, 'Failed to archive', err),
+      });
+    },
+    [archiveCard, dialog, saving],
+  );
+
+  const undoArchive = useCallback((): void => {
+    if (!archived) return;
+    setArchived(null);
+    restoreCard.mutate(archived, {
+      onError: (err) => toastError(dialog, 'Failed to restore', err),
+    });
+  }, [archived, dialog, restoreCard]);
+
   /** Alt+←/→: step to the adjacent column; nothing happens at either edge. */
   const step = useCallback(
     (card: BoardCard, delta: -1 | 1): void => {
@@ -86,15 +118,6 @@ export function TaskBoard({ projectId, onOpenCard }: TaskBoardProps): JSX.Elemen
   }
 
   const total = TASK_STATES.reduce((n, state) => n + data.columns[state].length, 0);
-  if (total === 0) {
-    return (
-      <div className="workspace-empty">
-        <StatusMessage kind="empty">
-          No backlog items yet. Documents of type <code>backlog_item</code> appear here.
-        </StatusMessage>
-      </div>
-    );
-  }
 
   const endDrag = (): void => {
     setDragging(null);
@@ -102,31 +125,58 @@ export function TaskBoard({ projectId, onOpenCard }: TaskBoardProps): JSX.Elemen
   };
 
   return (
-    <div className="task-board" ref={boardRef}>
-      {TASK_STATES.map((state) => (
-        <BoardColumn
-          key={state}
-          state={state}
-          cards={data.columns[state]}
-          saving={saving}
-          isDropTarget={dropTarget === state}
-          onDragOver={(e) => {
-            if (!dragging) return;
-            e.preventDefault();
-            if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-            setDropTarget(state);
-          }}
-          onDrop={(e) => {
-            e.preventDefault();
-            if (dragging) move(dragging, state);
-            endDrag();
-          }}
-          onDragStartCard={setDragging}
-          onDragEndCard={endDrag}
-          onStepCard={step}
-          onOpenCard={onOpenCard}
-        />
-      ))}
+    <div className="board-workspace">
+      {archived && (
+        <div className="board-notice" role="status">
+          <span>Archived “{archived.card.title}”.</span>
+          <button type="button" className="btn btn--sm" onClick={undoArchive}>
+            Undo
+          </button>
+          <button
+            type="button"
+            className="btn btn--sm btn--ghost"
+            aria-label="Dismiss"
+            onClick={() => setArchived(null)}
+          >
+            ×
+          </button>
+        </div>
+      )}
+      {total === 0 ? (
+        <div className="workspace-empty">
+          <StatusMessage kind="empty">
+            No backlog items yet. Documents of type <code>backlog_item</code> appear here.
+          </StatusMessage>
+        </div>
+      ) : (
+        <div className="task-board" ref={boardRef}>
+          {TASK_STATES.map((state) => (
+            <BoardColumn
+              key={state}
+              state={state}
+              cards={data.columns[state]}
+              saving={saving}
+              isDropTarget={dropTarget === state}
+              onDragOver={(e) => {
+                if (!dragging) return;
+                e.preventDefault();
+                if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+                setDropTarget(state);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                if (dragging) move(dragging, state);
+                endDrag();
+              }}
+              onDragStartCard={setDragging}
+              onDragEndCard={endDrag}
+              onStepCard={step}
+              onArchiveCard={archive}
+              onOpenCard={onOpenCard}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -141,6 +191,7 @@ interface BoardColumnProps {
   onDragStartCard: (card: BoardCard) => void;
   onDragEndCard: () => void;
   onStepCard: (card: BoardCard, delta: -1 | 1) => void;
+  onArchiveCard: (card: BoardCard) => void;
   onOpenCard: (documentId: string) => void;
 }
 
@@ -154,6 +205,7 @@ function BoardColumn({
   onDragStartCard,
   onDragEndCard,
   onStepCard,
+  onArchiveCard,
   onOpenCard,
 }: BoardColumnProps): JSX.Element {
   const label = TASK_STATE_LABELS[state];
@@ -179,6 +231,7 @@ function BoardColumn({
               onDragStart={() => onDragStartCard(card)}
               onDragEnd={onDragEndCard}
               onStep={(delta) => onStepCard(card, delta)}
+              onArchive={state === 'done' ? () => onArchiveCard(card) : undefined}
               onOpen={() => onOpenCard(card.id)}
             />
           </li>
@@ -194,6 +247,8 @@ interface BoardCardViewProps {
   onDragStart: () => void;
   onDragEnd: () => void;
   onStep: (delta: -1 | 1) => void;
+  /** Offered on Done cards only. */
+  onArchive?: () => void;
   onOpen: () => void;
 }
 
@@ -203,6 +258,7 @@ function BoardCardView({
   onDragStart,
   onDragEnd,
   onStep,
+  onArchive,
   onOpen,
 }: BoardCardViewProps): JSX.Element {
   const movable = !card.readOnly && !saving;
@@ -250,6 +306,13 @@ function BoardCardView({
           </span>
         ))}
       </div>
+      {onArchive && movable && (
+        <div className="board-card-actions">
+          <button type="button" className="btn btn--sm btn--ghost" onClick={onArchive}>
+            Archive
+          </button>
+        </div>
+      )}
     </article>
   );
 }

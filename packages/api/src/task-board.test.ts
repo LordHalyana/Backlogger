@@ -362,11 +362,35 @@ describe('Board read: GET /api/projects/:projectId/board', () => {
   afterEach(() => teardown(h));
 
   it('assigns columns by task_state; absent and unrecognised values show as To do', async () => {
-    await writeMarkdown(h, 'backlog/todo.md', { id: ID.a, title: 'Todo', created_at: '2026-01-01T00:00:00.000Z' }, ['task_state: todo']);
-    await writeMarkdown(h, 'backlog/doing.md', { id: ID.b, title: 'Doing', created_at: '2026-01-02T00:00:00.000Z' }, ['task_state: in_progress']);
-    await writeMarkdown(h, 'backlog/done.md', { id: ID.c, title: 'Done', created_at: '2026-01-03T00:00:00.000Z' }, ['task_state: done']);
-    await writeMarkdown(h, 'backlog/legacy.md', { id: ID.d, title: 'Legacy', created_at: '2026-01-04T00:00:00.000Z' });
-    await writeMarkdown(h, 'backlog/invalid.md', { id: ID.e, title: 'Invalid', created_at: '2026-01-05T00:00:00.000Z' }, ['task_state: Doing']);
+    await writeMarkdown(
+      h,
+      'backlog/todo.md',
+      { id: ID.a, title: 'Todo', created_at: '2026-01-01T00:00:00.000Z' },
+      ['task_state: todo'],
+    );
+    await writeMarkdown(
+      h,
+      'backlog/doing.md',
+      { id: ID.b, title: 'Doing', created_at: '2026-01-02T00:00:00.000Z' },
+      ['task_state: in_progress'],
+    );
+    await writeMarkdown(
+      h,
+      'backlog/done.md',
+      { id: ID.c, title: 'Done', created_at: '2026-01-03T00:00:00.000Z' },
+      ['task_state: done'],
+    );
+    await writeMarkdown(h, 'backlog/legacy.md', {
+      id: ID.d,
+      title: 'Legacy',
+      created_at: '2026-01-04T00:00:00.000Z',
+    });
+    await writeMarkdown(
+      h,
+      'backlog/invalid.md',
+      { id: ID.e, title: 'Invalid', created_at: '2026-01-05T00:00:00.000Z' },
+      ['task_state: Doing'],
+    );
     await reload(h);
 
     const board = await getBoard(h);
@@ -387,9 +411,24 @@ describe('Board read: GET /api/projects/:projectId/board', () => {
   });
 
   it('includes drafts, excludes archived items and non-backlog types', async () => {
-    await writeMarkdown(h, 'backlog/draft.md', { id: ID.a, title: 'Draft', status: 'draft', created_at: '2026-01-01T00:00:00.000Z' });
-    await writeMarkdown(h, 'archived/backlog/old.md', { id: ID.b, title: 'Old', status: 'archived', created_at: '2026-01-02T00:00:00.000Z' }, ['task_state: done']);
-    const noteContent = await writeMarkdown(h, 'notes/note.md', { id: ID.c, title: 'Note', type: 'note', created_at: '2026-01-03T00:00:00.000Z' }, ['task_state: in_progress']);
+    await writeMarkdown(h, 'backlog/draft.md', {
+      id: ID.a,
+      title: 'Draft',
+      status: 'draft',
+      created_at: '2026-01-01T00:00:00.000Z',
+    });
+    await writeMarkdown(
+      h,
+      'archived/backlog/old.md',
+      { id: ID.b, title: 'Old', status: 'archived', created_at: '2026-01-02T00:00:00.000Z' },
+      ['task_state: done'],
+    );
+    const noteContent = await writeMarkdown(
+      h,
+      'notes/note.md',
+      { id: ID.c, title: 'Note', type: 'note', created_at: '2026-01-03T00:00:00.000Z' },
+      ['task_state: in_progress'],
+    );
     await reload(h);
 
     const board = await getBoard(h);
@@ -401,10 +440,26 @@ describe('Board read: GET /api/projects/:projectId/board', () => {
   });
 
   it('orders a column by created_at, then by document ID', async () => {
-    await writeMarkdown(h, 'backlog/late.md', { id: ID.a, title: 'Late', created_at: '2026-03-01T00:00:00.000Z' });
-    await writeMarkdown(h, 'backlog/tie-2.md', { id: ID.c, title: 'Tie 2', created_at: '2026-02-01T00:00:00.000Z' });
-    await writeMarkdown(h, 'backlog/tie-1.md', { id: ID.b, title: 'Tie 1', created_at: '2026-02-01T00:00:00.000Z' });
-    await writeMarkdown(h, 'backlog/early.md', { id: ID.f, title: 'Early', created_at: '2026-01-01T00:00:00.000Z' });
+    await writeMarkdown(h, 'backlog/late.md', {
+      id: ID.a,
+      title: 'Late',
+      created_at: '2026-03-01T00:00:00.000Z',
+    });
+    await writeMarkdown(h, 'backlog/tie-2.md', {
+      id: ID.c,
+      title: 'Tie 2',
+      created_at: '2026-02-01T00:00:00.000Z',
+    });
+    await writeMarkdown(h, 'backlog/tie-1.md', {
+      id: ID.b,
+      title: 'Tie 1',
+      created_at: '2026-02-01T00:00:00.000Z',
+    });
+    await writeMarkdown(h, 'backlog/early.md', {
+      id: ID.f,
+      title: 'Early',
+      created_at: '2026-01-01T00:00:00.000Z',
+    });
     await reload(h);
 
     expect(ids((await getBoard(h)).todo)).toEqual([ID.f, ID.b, ID.c, ID.a]);
@@ -420,7 +475,11 @@ describe('Board read: GET /api/projects/:projectId/board', () => {
   });
 
   it('marks cards read-only in a read-only project', async () => {
-    await writeMarkdown(h, 'backlog/ro.md', { id: ID.a, title: 'RO', created_at: '2026-01-01T00:00:00.000Z' });
+    await writeMarkdown(h, 'backlog/ro.md', {
+      id: ID.a,
+      title: 'RO',
+      created_at: '2026-01-01T00:00:00.000Z',
+    });
     await reload(h);
     await request(h.app).put(`/api/projects/${PROJECT}`).send({ readOnly: true });
 
@@ -434,8 +493,17 @@ describe('Board read: GET /api/projects/:projectId/board', () => {
   });
 
   it('keeps legacy and unrecognised files byte-identical through read and reindex', async () => {
-    const legacy = await writeMarkdown(h, 'backlog/legacy.md', { id: ID.a, title: 'Legacy', created_at: '2026-01-01T00:00:00.000Z' });
-    const invalid = await writeMarkdown(h, 'backlog/invalid.md', { id: ID.b, title: 'Invalid', created_at: '2026-01-02T00:00:00.000Z' }, ['task_state: Doing']);
+    const legacy = await writeMarkdown(h, 'backlog/legacy.md', {
+      id: ID.a,
+      title: 'Legacy',
+      created_at: '2026-01-01T00:00:00.000Z',
+    });
+    const invalid = await writeMarkdown(
+      h,
+      'backlog/invalid.md',
+      { id: ID.b, title: 'Invalid', created_at: '2026-01-02T00:00:00.000Z' },
+      ['task_state: Doing'],
+    );
     await reload(h);
     await getBoard(h);
     await request(h.app).get(`/api/documents/${ID.a}`);
@@ -448,10 +516,29 @@ describe('Board read: GET /api/projects/:projectId/board', () => {
   });
 
   it('reindex leaves the board unchanged; a fresh DB over the same data dir gives the same board', async () => {
-    await writeMarkdown(h, 'backlog/a.md', { id: ID.a, title: 'A', created_at: '2026-01-01T00:00:00.000Z' }, ['task_state: done']);
-    await writeMarkdown(h, 'backlog/b.md', { id: ID.b, title: 'B', created_at: '2026-01-02T00:00:00.000Z' }, ['task_state: in_progress']);
-    await writeMarkdown(h, 'backlog/c.md', { id: ID.c, title: 'C', created_at: '2026-01-03T00:00:00.000Z' }, ['task_state: Doing']);
-    await writeMarkdown(h, 'backlog/d.md', { id: ID.d, title: 'D', created_at: '2026-01-01T00:00:00.000Z' });
+    await writeMarkdown(
+      h,
+      'backlog/a.md',
+      { id: ID.a, title: 'A', created_at: '2026-01-01T00:00:00.000Z' },
+      ['task_state: done'],
+    );
+    await writeMarkdown(
+      h,
+      'backlog/b.md',
+      { id: ID.b, title: 'B', created_at: '2026-01-02T00:00:00.000Z' },
+      ['task_state: in_progress'],
+    );
+    await writeMarkdown(
+      h,
+      'backlog/c.md',
+      { id: ID.c, title: 'C', created_at: '2026-01-03T00:00:00.000Z' },
+      ['task_state: Doing'],
+    );
+    await writeMarkdown(h, 'backlog/d.md', {
+      id: ID.d,
+      title: 'D',
+      created_at: '2026-01-01T00:00:00.000Z',
+    });
     await reload(h);
     const before = await getBoard(h);
 
@@ -503,10 +590,7 @@ describe('Moving a card: PUT task_state', () => {
 
     const expected = before
       .replace('status: active\n', 'status: active\ntask_state: in_progress\n')
-      .replace(
-        "updated_at: '2026-01-01T00:00:00.000Z'",
-        `updated_at: '${res.body.updated_at}'`,
-      );
+      .replace("updated_at: '2026-01-01T00:00:00.000Z'", `updated_at: '${res.body.updated_at}'`);
     expect(await readDisk(h, `${PROJECT}/backlog/legacy.md`)).toBe(expected);
     expect(ids((await getBoard(h)).in_progress)).toEqual([ID.a]);
   });
@@ -528,10 +612,7 @@ describe('Moving a card: PUT task_state', () => {
 
     const expected = before
       .replace('task_state: Doing\n', 'task_state: done\n')
-      .replace(
-        "updated_at: '2026-01-01T00:00:00.000Z'",
-        `updated_at: '${res.body.updated_at}'`,
-      );
+      .replace("updated_at: '2026-01-01T00:00:00.000Z'", `updated_at: '${res.body.updated_at}'`);
     expect(await readDisk(h, `${PROJECT}/backlog/doing.md`)).toBe(expected);
   });
 
@@ -556,7 +637,9 @@ describe('Moving a card: PUT task_state', () => {
         .set('If-Match', await revisionOf(id))
         .send({ title: 'Renamed', body: 'New body\n', tags: ['moved'] });
       expect(edit.status).toBe(200);
-      const moved = await request(h.app).post(`/api/documents/${id}/move`).send({ folder: 'later' });
+      const moved = await request(h.app)
+        .post(`/api/documents/${id}/move`)
+        .send({ folder: 'later' });
       expect(moved.status).toBe(200);
     }
 
@@ -652,15 +735,18 @@ describe('New and imported backlog items carry task_state', () => {
   });
   afterEach(() => teardown(h));
 
-  function expectedFile(doc: {
-    id: string;
-    title: string;
-    type: string;
-    status: string;
-    task_state?: string;
-    created_at: string;
-    updated_at: string;
-  }, body: string): string {
+  function expectedFile(
+    doc: {
+      id: string;
+      title: string;
+      type: string;
+      status: string;
+      task_state?: string;
+      created_at: string;
+      updated_at: string;
+    },
+    body: string,
+  ): string {
     return [
       '---',
       `id: ${doc.id}`,
@@ -817,13 +903,77 @@ describe('New and imported backlog items carry task_state', () => {
 
   it('raw export returns the file as stored, task_state included', async () => {
     const doc = await createDoc(h, { title: 'Export me', task_state: 'done' });
-    const res = await request(h.app).get(`/api/documents/${doc.id}/raw`).buffer(true).parse((r, cb) => {
-      let text = '';
-      r.on('data', (chunk: Buffer) => (text += chunk.toString('utf8')));
-      r.on('end', () => cb(null, text));
-    });
+    const res = await request(h.app)
+      .get(`/api/documents/${doc.id}/raw`)
+      .buffer(true)
+      .parse((r, cb) => {
+        let text = '';
+        r.on('data', (chunk: Buffer) => (text += chunk.toString('utf8')));
+        r.on('end', () => cb(null, text));
+      });
     expect(res.status).toBe(200);
     expect(res.body).toBe(await readDisk(h, doc.path));
     expect(res.body).toContain('task_state: done\n');
+  });
+});
+
+describe('Archive and restore keep task_state', () => {
+  let h: Harness;
+  beforeEach(async () => {
+    h = await setup();
+    await createProject(h);
+  });
+  afterEach(() => teardown(h));
+
+  it('archiving keeps task_state; restoring returns the card to its column with the same id', async () => {
+    const older = await createDoc(h, { title: 'Older', status: 'active', task_state: 'done' });
+    const newer = await createDoc(h, { title: 'Newer', status: 'active', task_state: 'done' });
+
+    const archived = await request(h.app)
+      .put(`/api/documents/${older.id}`)
+      .set('If-Match', older.revision)
+      .send({ status: 'archived' });
+    expect(archived.status).toBe(200);
+    expect(archived.body.path).toContain('/archived/');
+    const archivedDisk = await readDisk(h, archived.body.path);
+    expect(archivedDisk).toContain('status: archived\ntask_state: done\n');
+    expect(ids((await getBoard(h)).done)).toEqual([newer.id]);
+
+    const restored = await request(h.app)
+      .put(`/api/documents/${older.id}`)
+      .set('If-Match', archived.body.revision)
+      .send({ status: 'active' });
+    expect(restored.status).toBe(200);
+    expect(restored.body.id).toBe(older.id);
+    expect(restored.body.path).toBe(older.path);
+    expect(await readDisk(h, older.path)).toContain('status: active\ntask_state: done\n');
+    expect(await h.ctx.fs.listProjectFiles(PROJECT)).toHaveLength(2);
+    expect(ids((await getBoard(h)).done)).toEqual([older.id, newer.id]);
+  });
+
+  it('archiving a non-Done card abandons it without changing its task state', async () => {
+    const doc = await createDoc(h, { title: 'Abandoned', task_state: 'in_progress' });
+    const archived = await request(h.app)
+      .put(`/api/documents/${doc.id}`)
+      .set('If-Match', doc.revision)
+      .send({ status: 'archived' });
+    expect(archived.status).toBe(200);
+    expect(await readDisk(h, archived.body.path)).toContain('task_state: in_progress\n');
+    expect((await getBoard(h)).in_progress).toEqual([]);
+  });
+
+  it('refuses archiving in a read-only project with 409 and leaves the file unchanged', async () => {
+    const doc = await createDoc(h, { title: 'Mounted', status: 'active', task_state: 'done' });
+    const before = await readDisk(h, doc.path);
+    await request(h.app).put(`/api/projects/${PROJECT}`).send({ readOnly: true });
+
+    const res = await request(h.app)
+      .put(`/api/documents/${doc.id}`)
+      .set('If-Match', doc.revision)
+      .send({ status: 'archived' });
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('PROJECT_READ_ONLY');
+    expect(await readDisk(h, doc.path)).toBe(before);
+    expect(await h.ctx.fs.listProjectFiles(PROJECT)).toEqual([doc.path]);
   });
 });

@@ -119,7 +119,9 @@ describe('TaskBoard', () => {
   it('renders cards in their columns with a Draft badge and tags', async () => {
     const board = emptyBoard();
     board.columns.todo = [card({ id: 'a', title: 'Write spec', status: 'draft', tags: ['docs'] })];
-    board.columns.in_progress = [card({ id: 'b', title: 'Build board', task_state: 'in_progress' })];
+    board.columns.in_progress = [
+      card({ id: 'b', title: 'Build board', task_state: 'in_progress' }),
+    ];
     mockFetch({ board });
     renderBoard();
 

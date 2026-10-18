@@ -201,3 +201,43 @@ test('a document opened from the tree has no Back to board control', async ({ pa
   await expect(page.locator('.workspace-title')).toHaveText('Tree item');
   await expect(page.getByRole('button', { name: 'Back to board' })).toHaveCount(0);
 });
+
+test('archiving a Done card removes it, and Undo restores it to Done', async ({ page }) => {
+  const projectId = `board-archive-${Date.now()}`;
+  await page.goto('/');
+  await createProject(page, { id: projectId });
+  const { file } = await writeBacklogItem(projectId, { title: 'Finished item', taskState: 'done' });
+  await writeBacklogItem(projectId, { title: 'Open item', taskState: 'todo' });
+  await reloadUntilIndexed(page, 'Finished item');
+  await openBoard(page);
+
+  // Only Done cards offer Archive.
+  await expect(
+    column(page, 'To do')
+      .getByRole('article', { name: 'Open item' })
+      .getByRole('button', { name: 'Archive' }),
+  ).toHaveCount(0);
+
+  const card = column(page, 'Done').getByRole('article', { name: 'Finished item' });
+  await card.getByRole('button', { name: 'Archive' }).click();
+  await expect(column(page, 'Done').getByRole('article', { name: 'Finished item' })).toHaveCount(0);
+  const notice = page.getByRole('status').filter({ hasText: 'Archived' });
+  await expect(notice).toContainText('Finished item');
+  await expect
+    .poll(() =>
+      fs.access(file).then(
+        () => true,
+        () => false,
+      ),
+    )
+    .toBe(false);
+
+  await notice.getByRole('button', { name: 'Undo' }).click();
+  await expect(column(page, 'Done').getByRole('article', { name: 'Finished item' })).toBeVisible();
+  await expect
+    .poll(() => fs.readFile(file, 'utf8').catch(() => ''))
+    .toContain('status: active\ntask_state: done\n');
+
+  await page.reload();
+  await expect(column(page, 'Done').getByRole('article', { name: 'Finished item' })).toBeVisible();
+});

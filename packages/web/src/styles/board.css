@@ -160,3 +160,17 @@
   align-self: flex-start;
   margin: 8px 12px 0;
 }
+
+.board-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.board-notice span {
+  margin-right: auto;
+}

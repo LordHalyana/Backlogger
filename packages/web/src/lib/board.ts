@@ -84,3 +84,78 @@ export function useMoveCard(
     onSettled: () => invalidateDocumentDerived(qc, projectId),
   });
 }
+
+/** Remove a card from the board (it was archived). */
+function withoutCard(board: Board, id: string): Board {
+  const columns = {} as Board['columns'];
+  for (const state of TASK_STATES) {
+    columns[state] = board.columns[state].filter((c) => c.id !== id);
+  }
+  return { columns };
+}
+
+function setCardStatus(card: BoardCard, status: 'archived' | 'active', ifMatch: string) {
+  return apiFetch<Document>(`/api/documents/${card.id}`, {
+    method: 'PUT',
+    headers: { 'If-Match': ifMatch },
+    body: JSON.stringify({ status }),
+  });
+}
+
+/**
+ * Archive a card. It leaves the board at once and comes back if the save is
+ * rejected. Archiving never changes the task state.
+ */
+export function useArchiveCard(projectId: string): UseMutationResult<Document, Error, BoardCard> {
+  const qc = useQueryClient();
+  const key = queryKeys.board(projectId);
+  const update = (fn: (board: Board) => Board): void => {
+    qc.setQueryData<Board>(key, (board) => (board ? fn(board) : board));
+  };
+  return useMutation({
+    mutationFn: (card) => setCardStatus(card, 'archived', card.revision),
+    onMutate: async (card) => {
+      await qc.cancelQueries({ queryKey: key });
+      update((board) => withoutCard(board, card.id));
+    },
+    onError: (_err, card) => {
+      update((board) => placeCard(board, card, taskStateColumn(card.task_state)));
+    },
+    onSuccess: (doc) => setDocumentCache(qc, doc),
+    onSettled: () => invalidateDocumentDerived(qc, projectId),
+  });
+}
+
+export interface RestoreCardArgs {
+  /** The card as it was on the board before it was archived. */
+  card: BoardCard;
+  /** The revision the archive returned; the restore is conditional on it. */
+  revision: string;
+}
+
+/**
+ * Undo an archive: a real restore (`status: active`) conditional on the
+ * archived revision. The card returns to its task state's column.
+ */
+export function useRestoreCard(
+  projectId: string,
+): UseMutationResult<Document, Error, RestoreCardArgs> {
+  const qc = useQueryClient();
+  const key = queryKeys.board(projectId);
+  return useMutation({
+    mutationFn: ({ card, revision }) => setCardStatus(card, 'active', revision),
+    onSuccess: (doc, { card }) => {
+      setDocumentCache(qc, doc);
+      qc.setQueryData<Board>(key, (board) =>
+        board
+          ? placeCard(
+              board,
+              { ...card, status: doc.status, revision: doc.revision },
+              taskStateColumn(card.task_state),
+            )
+          : board,
+      );
+    },
+    onSettled: () => invalidateDocumentDerived(qc, projectId),
+  });
+}
