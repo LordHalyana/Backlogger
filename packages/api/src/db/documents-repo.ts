@@ -12,6 +12,7 @@ interface DocumentRow {
   read_only: number;
   created_at: string;
   updated_at: string;
+  revision: string;
 }
 
 function rowToSummary(row: DocumentRow): DocumentSummary {
@@ -33,6 +34,7 @@ function rowToSummary(row: DocumentRow): DocumentSummary {
     readOnly: row.read_only === 1,
     created_at: row.created_at,
     updated_at: row.updated_at,
+    revision: row.revision,
   };
 }
 
@@ -48,6 +50,7 @@ export interface DocumentUpsertInput {
   body: string;
   created_at: string;
   updated_at: string;
+  revision: string;
 }
 
 export class DocumentsRepo {
@@ -99,9 +102,9 @@ export class DocumentsRepo {
     this.db
       .prepare(
         `INSERT INTO documents
-           (id, project_id, title, type, status, path, tags, read_only, body_indexed, created_at, updated_at)
+           (id, project_id, title, type, status, path, tags, read_only, body_indexed, created_at, updated_at, revision)
          VALUES
-           (@id, @project_id, @title, @type, @status, @path, @tags, @read_only, @body_indexed, @created_at, @updated_at)
+           (@id, @project_id, @title, @type, @status, @path, @tags, @read_only, @body_indexed, @created_at, @updated_at, @revision)
          ON CONFLICT(id) DO UPDATE SET
            project_id   = excluded.project_id,
            title        = excluded.title,
@@ -111,7 +114,8 @@ export class DocumentsRepo {
            tags         = excluded.tags,
            read_only    = excluded.read_only,
            body_indexed = excluded.body_indexed,
-           updated_at   = excluded.updated_at`,
+           updated_at   = excluded.updated_at,
+           revision     = excluded.revision`,
       )
       .run({
         ...input,

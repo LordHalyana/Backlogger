@@ -12,6 +12,7 @@ function doc(input: Partial<DocumentSummary> & Pick<DocumentSummary, 'id' | 'pat
     readOnly: false,
     created_at: '2026-06-09T00:00:00.000Z',
     updated_at: '2026-06-09T00:00:00.000Z',
+    revision: 'rev',
     ...input,
   };
 }

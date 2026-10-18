@@ -233,7 +233,7 @@ export function DocumentWorkspace({
           onChange={handleMetaChange}
           documentPath={doc.path}
           documentId={doc.id}
-          updatedAt={buffer.baseUpdatedAt}
+          updatedAt={doc.updated_at}
           onDelete={handleDelete}
           deleting={del.isPending}
           readOnly={isReadOnly}

@@ -107,7 +107,10 @@ export const DocumentSummarySchema = z.object({
   tags: z.array(TagSchema),
   readOnly: z.boolean().default(false),
   created_at: z.string().datetime({ offset: true }),
+  /** Last edit time, for display only. Use `revision` for If-Match. */
   updated_at: z.string().datetime({ offset: true }),
+  /** Opaque fingerprint of the persisted content; send it as `If-Match`. */
+  revision: z.string(),
 });
 export type DocumentSummary = z.infer<typeof DocumentSummarySchema>;
 

@@ -206,7 +206,7 @@ Returns `409 PROJECT_READ_ONLY` while the project is in read-only mode.
 
 Returns a full document including `body`.
 
-Full document responses also include `readOnly`.
+Full document responses also include `readOnly` and `revision` (see `PUT` below).
 
 ### `PUT /api/documents/:id`
 
@@ -226,10 +226,14 @@ At least one field is required. `type` cannot be changed through an update.
 Header:
 
 ```text
-If-Match: <updated_at value>
+If-Match: <revision value>
 ```
 
-If the header does not match the current `updated_at`, the API returns `409 DOCUMENT_VERSION_MISMATCH`.
+`revision` is an opaque fingerprint of the persisted document (the `.md` file, plus its sidecar entry for sidecar-backed documents). Every summary and full document response carries it, and it changes with every successful write and with any out-of-band edit of the file on disk. `updated_at` is for display only and is not a valid `If-Match` value.
+
+The check runs inside the project's mutation queue against the file as it is on disk at that moment. If the header does not match the current revision, the API returns `409 DOCUMENT_VERSION_MISMATCH` and leaves the file unchanged. Of two overlapping updates sent with the same revision, exactly one succeeds and the other gets `409`.
+
+A missing `If-Match` header is accepted: the update is applied unconditionally, as before. The web editor (and the board) always send it.
 
 If the project is in read-only mode, the API returns `409 PROJECT_READ_ONLY`.
 

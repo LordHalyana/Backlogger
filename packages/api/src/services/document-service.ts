@@ -16,7 +16,12 @@ import {
   type UpdateDocumentRequest,
 } from '@backlogger/shared';
 import { BadRequestError, ConflictError, NotFoundError } from '../errors.js';
-import type { FsRepository, RawDocument, SidecarStore } from '../fs/index.js';
+import {
+  sidecarRevision,
+  type FsRepository,
+  type RawDocument,
+  type SidecarStore,
+} from '../fs/index.js';
 import type { DocumentsRepo } from '../db/documents-repo.js';
 import type { LinkService } from './link-service.js';
 import type { TagsService } from './tags-service.js';
@@ -86,7 +91,8 @@ export class DocumentService {
     if (!summary) throw new NotFoundError('DOCUMENT_NOT_FOUND', `Document not found: ${id}`);
     const raw = await this.fs.read(summary.path);
     const project = this.getProject(summary.project_id);
-    return { ...summary, readOnly: project.readOnly, body: raw.body };
+    const revision = await this.currentRevision(summary, raw);
+    return { ...summary, readOnly: project.readOnly, revision, body: raw.body };
   }
 
   /**
@@ -157,15 +163,14 @@ export class DocumentService {
       tags: parsed.tags ?? [],
     };
 
+    let revision: string;
     if (project.metadataMode === 'sidecar') {
-      await this.fs.writeRaw(relPath, body);
-      await this.sidecarStore.set(
-        projectId,
-        sidecarKeyOf(projectId, relPath),
-        sidecarEntryFromFrontmatter(frontmatter),
-      );
+      const entry = sidecarEntryFromFrontmatter(frontmatter);
+      const fileRevision = await this.fs.writeRaw(relPath, body);
+      await this.sidecarStore.set(projectId, sidecarKeyOf(projectId, relPath), entry);
+      revision = sidecarRevision(fileRevision, entry);
     } else {
-      await this.fs.write(relPath, { frontmatter, body });
+      revision = await this.fs.write(relPath, { frontmatter, body });
     }
     try {
       this.documentsRepo.upsert({
@@ -180,6 +185,7 @@ export class DocumentService {
         body,
         created_at: frontmatter.created_at,
         updated_at: frontmatter.updated_at,
+        revision,
       });
     } catch (err) {
       // Roll back disk write to keep DB+FS consistent.
@@ -196,7 +202,14 @@ export class DocumentService {
     this.tagsService.rebuildForDocument(id, frontmatter.tags);
     this.graphService.invalidate(projectId);
 
-    return { ...frontmatter, project_id: projectId, path: relPath, readOnly: false, body };
+    return {
+      ...frontmatter,
+      project_id: projectId,
+      path: relPath,
+      readOnly: false,
+      revision,
+      body,
+    };
   }
 
   async update(
@@ -214,14 +227,19 @@ export class DocumentService {
   ): Promise<Document> {
     const project = this.assertProjectWritable(summary.project_id);
 
-    if (ifMatch !== undefined && ifMatch !== summary.updated_at) {
-      throw new ConflictError(
-        'DOCUMENT_VERSION_MISMATCH',
-        `Document was modified since If-Match=${ifMatch}; current updated_at=${summary.updated_at}`,
-      );
-    }
-
+    // Validate the caller's revision against what is on disk right now, inside
+    // the project queue, so out-of-band edits and overlapping saves both 409.
+    // A missing If-Match is accepted (unconditional write).
     const existing = await this.fs.read(summary.path);
+    if (ifMatch !== undefined) {
+      const current = await this.currentRevision(summary, existing);
+      if (ifMatch !== current) {
+        throw new ConflictError(
+          'DOCUMENT_VERSION_MISMATCH',
+          `Document was modified since If-Match=${ifMatch}; current revision=${current}`,
+        );
+      }
+    }
     const now = this.now();
     if (project.metadataMode === 'sidecar' && !hasOwnFrontmatter(summary, existing)) {
       return this.updateViaSidecar(summary, existing, input, now);
@@ -251,7 +269,10 @@ export class DocumentService {
             : summary.path
         : summary.path;
 
-    await this.fs.write(nextPath, { frontmatter: nextFrontmatter, body: nextBody });
+    const revision = await this.fs.write(nextPath, {
+      frontmatter: nextFrontmatter,
+      body: nextBody,
+    });
     if (nextPath !== summary.path) {
       await this.fs.delete(summary.path).catch(() => undefined);
     }
@@ -268,6 +289,7 @@ export class DocumentService {
       body: nextBody,
       created_at: summary.created_at,
       updated_at: now,
+      revision,
     });
 
     this.linkService.rebuildForDocument(
@@ -284,6 +306,7 @@ export class DocumentService {
       project_id: summary.project_id,
       path: nextPath,
       readOnly: false,
+      revision,
       body: nextBody,
     };
   }
@@ -313,12 +336,13 @@ export class DocumentService {
       updated_at: now,
     };
 
-    await this.fs.writeRaw(summary.path, nextBody);
+    const fileRevision = await this.fs.writeRaw(summary.path, nextBody);
     await this.sidecarStore.set(
       summary.project_id,
       sidecarKeyOf(summary.project_id, summary.path),
       entry,
     );
+    const revision = sidecarRevision(fileRevision, entry);
 
     this.documentsRepo.upsert({
       id: summary.id,
@@ -332,6 +356,7 @@ export class DocumentService {
       body: nextBody,
       created_at: summary.created_at,
       updated_at: now,
+      revision,
     });
 
     this.linkService.rebuildForDocument(summary.id, nextTitle, nextBody, summary.title);
@@ -349,6 +374,7 @@ export class DocumentService {
       readOnly: false,
       created_at: summary.created_at,
       updated_at: now,
+      revision,
       body: nextBody,
     };
   }
@@ -418,14 +444,17 @@ export class DocumentService {
     const now = this.now();
 
     if (viaSidecar) {
-      await this.fs.writeRaw(nextPath, existing.body);
+      const fileRevision = await this.fs.writeRaw(nextPath, existing.body);
       await this.fs.delete(summary.path).catch(() => undefined);
       const fromKey = sidecarKeyOf(summary.project_id, summary.path);
       const toKey = sidecarKeyOf(summary.project_id, nextPath);
       await this.sidecarStore.rename(summary.project_id, fromKey, toKey);
       const moved = await this.sidecarStore.get(summary.project_id, toKey);
+      let revision = fileRevision;
       if (moved) {
-        await this.sidecarStore.set(summary.project_id, toKey, { ...moved, updated_at: now });
+        const entry = { ...moved, updated_at: now };
+        await this.sidecarStore.set(summary.project_id, toKey, entry);
+        revision = sidecarRevision(fileRevision, entry);
       }
       this.documentsRepo.upsert({
         id: summary.id,
@@ -439,6 +468,7 @@ export class DocumentService {
         body: existing.body,
         created_at: summary.created_at,
         updated_at: now,
+        revision,
       });
       this.graphService.invalidate(summary.project_id);
       return {
@@ -452,13 +482,17 @@ export class DocumentService {
         readOnly: false,
         created_at: summary.created_at,
         updated_at: now,
+        revision,
         body: existing.body,
       };
     }
 
     const nextFrontmatter = FrontmatterSchema.parse({ ...existing.frontmatter, updated_at: now });
 
-    await this.fs.write(nextPath, { frontmatter: nextFrontmatter, body: existing.body });
+    const revision = await this.fs.write(nextPath, {
+      frontmatter: nextFrontmatter,
+      body: existing.body,
+    });
     await this.fs.delete(summary.path).catch(() => undefined);
 
     this.documentsRepo.upsert({
@@ -473,6 +507,7 @@ export class DocumentService {
       body: existing.body,
       created_at: summary.created_at,
       updated_at: now,
+      revision,
     });
 
     this.graphService.invalidate(summary.project_id);
@@ -482,6 +517,7 @@ export class DocumentService {
       project_id: summary.project_id,
       path: nextPath,
       readOnly: false,
+      revision,
       body: existing.body,
     };
   }
@@ -498,6 +534,20 @@ export class DocumentService {
   ): Promise<T> {
     const before = this.findOrThrow(id);
     return this.queue.run(before.project_id, () => operation(this.findOrThrow(id)));
+  }
+
+  /**
+   * The revision of a document as persisted right now: its file, plus its
+   * sidecar entry when the file carries no Backlogger frontmatter of its own.
+   * Must agree with the revision the reindex projects.
+   */
+  private async currentRevision(summary: DocumentSummary, raw: RawDocument): Promise<string> {
+    if (hasOwnFrontmatter(summary, raw)) return raw.revision;
+    const entry = await this.sidecarStore.get(
+      summary.project_id,
+      sidecarKeyOf(summary.project_id, summary.path),
+    );
+    return entry ? sidecarRevision(raw.revision, entry) : raw.revision;
   }
 
   private findOrThrow(id: string): DocumentSummary {

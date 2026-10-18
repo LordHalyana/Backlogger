@@ -75,7 +75,7 @@ DocumentService.update
 
 Required updates:
 
-- Enforce optimistic locking when `If-Match` is provided.
+- Inside the project mutation queue, compare `If-Match` (when provided) with the revision of the file on disk; 409 on mismatch.
 - Write the updated Markdown file.
 - Move file if archive status changes.
 - Upsert `documents`.

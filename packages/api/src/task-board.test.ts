@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import request from 'supertest';
@@ -112,11 +112,11 @@ describe('Write safety: overlapping mutations', () => {
     const [a, b] = await Promise.all([
       request(h.app)
         .put(`/api/documents/${doc.id}`)
-        .set('If-Match', doc.updated_at)
+        .set('If-Match', doc.revision)
         .send({ title: 'Changed title' }),
       request(h.app)
         .put(`/api/documents/${doc.id}`)
-        .set('If-Match', doc.updated_at)
+        .set('If-Match', doc.revision)
         .send({ body: 'Changed body' }),
     ]);
     restore();
@@ -146,7 +146,7 @@ describe('Write safety: overlapping mutations', () => {
       request(h.app).post(`/api/projects/${PROJECT}/reload`),
       request(h.app)
         .put(`/api/documents/${doc.id}`)
-        .set('If-Match', doc.updated_at)
+        .set('If-Match', doc.revision)
         .send({ title: 'After' }),
     ]);
     restore();
@@ -165,7 +165,7 @@ describe('Write safety: overlapping mutations', () => {
     const [archive, edit] = await Promise.all([
       request(h.app)
         .put(`/api/documents/${doc.id}`)
-        .set('If-Match', doc.updated_at)
+        .set('If-Match', doc.revision)
         .send({ status: 'archived' }),
       request(h.app).put(`/api/documents/${doc.id}`).send({ body: 'Edited body' }),
     ]);
@@ -197,5 +197,87 @@ describe('Write safety: overlapping mutations', () => {
     expect(await h.ctx.fs.listProjectFiles(PROJECT)).toEqual([]);
     const fetched = await request(h.app).get(`/api/documents/${doc.id}`);
     expect(fetched.status).toBe(404);
+  });
+});
+
+describe('Revisions: distinct per mutation, validated against disk', () => {
+  let h: Harness;
+  beforeEach(async () => {
+    h = await setup();
+    await createProject(h);
+  });
+  afterEach(async () => {
+    vi.useRealTimers();
+    await teardown(h);
+  });
+
+  it('two writes in the same millisecond produce different revisions', async () => {
+    const doc = await createDoc(h, { title: 'Clock' });
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-18T12:00:00.000Z') });
+    const first = await request(h.app)
+      .put(`/api/documents/${doc.id}`)
+      .set('If-Match', doc.revision)
+      .send({ title: 'First' });
+    const second = await request(h.app)
+      .put(`/api/documents/${doc.id}`)
+      .set('If-Match', first.body.revision)
+      .send({ title: 'Second' });
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(first.body.updated_at).toBe(second.body.updated_at);
+    expect(second.body.revision).not.toBe(first.body.revision);
+
+    // The first write's revision is now stale even though updated_at matches.
+    const stale = await request(h.app)
+      .put(`/api/documents/${doc.id}`)
+      .set('If-Match', first.body.revision)
+      .send({ title: 'Third' });
+    expect(stale.status).toBe(409);
+  });
+
+  it('a body-only edit on disk (no reindex) makes the old revision stale', async () => {
+    const doc = await createDoc(h, { title: 'Disk', body: 'Original' });
+    const file = diskPath(h, doc.path);
+    const edited = (await fs.readFile(file, 'utf8')).replace('Original', 'Edited on disk');
+    await fs.writeFile(file, edited, 'utf8');
+
+    const res = await request(h.app)
+      .put(`/api/documents/${doc.id}`)
+      .set('If-Match', doc.revision)
+      .send({ title: 'Overwrite' });
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('DOCUMENT_VERSION_MISMATCH');
+    expect(await fs.readFile(file, 'utf8')).toBe(edited);
+  });
+
+  it('a sequential stale If-Match gives 409 and leaves the file unchanged', async () => {
+    const doc = await createDoc(h, { title: 'Seq' });
+    const ok = await request(h.app)
+      .put(`/api/documents/${doc.id}`)
+      .set('If-Match', doc.revision)
+      .send({ title: 'Seq 2' });
+    expect(ok.status).toBe(200);
+    const before = await readDisk(h, doc.path);
+
+    const stale = await request(h.app)
+      .put(`/api/documents/${doc.id}`)
+      .set('If-Match', doc.revision)
+      .send({ title: 'Seq 3' });
+    expect(stale.status).toBe(409);
+    expect(await readDisk(h, doc.path)).toBe(before);
+  });
+
+  it('GET, list and PUT expose the current revision; a missing If-Match is accepted', async () => {
+    const doc = await createDoc(h, { title: 'Rev' });
+    const got = await request(h.app).get(`/api/documents/${doc.id}`);
+    expect(got.body.revision).toBe(doc.revision);
+    const listed = await request(h.app).get(`/api/projects/${PROJECT}/documents`);
+    expect(listed.body[0].revision).toBe(doc.revision);
+
+    const unconditional = await request(h.app)
+      .put(`/api/documents/${doc.id}`)
+      .send({ title: 'No precondition' });
+    expect(unconditional.status).toBe(200);
+    expect(unconditional.body.revision).not.toBe(doc.revision);
   });
 });

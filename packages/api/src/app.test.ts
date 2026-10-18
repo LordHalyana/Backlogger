@@ -312,7 +312,7 @@ describe('Documents API', () => {
       .send({ title: 'Lock', type: 'note' });
     const res = await request(h.app)
       .put(`/api/documents/${created.body.id}`)
-      .set('If-Match', created.body.updated_at)
+      .set('If-Match', created.body.revision)
       .send({ title: 'New2' });
     expect(res.status).toBe(200);
     expect(res.body.title).toBe('New2');
@@ -781,7 +781,7 @@ describe('Links API', () => {
     const doc = (await request(h.app).get(`/api/documents/${sourceId}`)).body;
     const upd = await request(h.app)
       .put(`/api/documents/${sourceId}`)
-      .set('If-Match', doc.updated_at)
+      .set('If-Match', doc.revision)
       .send({ body: 'See [[B]] now' });
     expect(upd.status).toBe(200);
 
@@ -806,7 +806,7 @@ describe('Links API', () => {
     const doc = (await request(h.app).get(`/api/documents/${targetId}`)).body;
     const upd = await request(h.app)
       .put(`/api/documents/${targetId}`)
-      .set('If-Match', doc.updated_at)
+      .set('If-Match', doc.revision)
       .send({ title: 'Second Name' });
     expect(upd.status).toBe(200);
 
@@ -1287,7 +1287,7 @@ describe('Project Reload API', () => {
 
     const update = await request(h.app)
       .put(`/api/documents/${doc!.id}`)
-      .set('If-Match', fetched.body.updated_at)
+      .set('If-Match', fetched.body.revision)
       .send({ title: 'Adopted', body: 'adopted body' });
     expect(update.status).toBe(200);
     expect(update.body).toMatchObject({

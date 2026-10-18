@@ -9,7 +9,7 @@ import {
   type SidecarEntry,
   type SidecarIndex,
 } from '@backlogger/shared';
-import type { SidecarStore } from '../fs/index.js';
+import { sidecarRevision, type SidecarStore } from '../fs/index.js';
 import type { DocumentsRepo } from '../db/documents-repo.js';
 import type { ProjectsRepo } from '../db/projects-repo.js';
 import type { FsRepository, RawDocument } from '../fs/index.js';
@@ -114,6 +114,7 @@ export class ReindexService {
         body: doc.body,
         created_at: indexed.frontmatter.created_at,
         updated_at: indexed.frontmatter.updated_at,
+        revision: indexed.revision,
       });
       this.linkService.rebuildForDocument(indexed.frontmatter.id, indexed.frontmatter.title, doc.body);
       this.tagsService.rebuildForDocument(indexed.frontmatter.id, indexed.frontmatter.tags);
@@ -174,6 +175,7 @@ export class ReindexService {
         body: doc.body,
         created_at: indexed.frontmatter.created_at,
         updated_at: indexed.frontmatter.updated_at,
+        revision: indexed.revision,
       });
       this.linkService.rebuildForDocument(indexed.frontmatter.id, indexed.frontmatter.title, doc.body);
       this.tagsService.rebuildForDocument(indexed.frontmatter.id, indexed.frontmatter.tags);
@@ -217,6 +219,7 @@ export class ReindexService {
 interface IndexedMetadata {
   frontmatter: Frontmatter;
   readOnly: boolean;
+  revision: string;
 }
 
 function metadataForIndex(
@@ -227,11 +230,12 @@ function metadataForIndex(
   const parsed = FrontmatterSchema.safeParse(doc.frontmatter);
   if (parsed.success) {
     if (parsed.data.project === projectId) {
-      return { frontmatter: parsed.data, readOnly: false };
+      return { frontmatter: parsed.data, readOnly: false, revision: doc.revision };
     }
     return {
       frontmatter: repairMismatchedFrontmatter(doc, projectId, parsed.data),
       readOnly: true,
+      revision: doc.revision,
     };
   }
 
@@ -239,10 +243,14 @@ function metadataForIndex(
   // makes the file editable without writing frontmatter into the source file.
   const entry = sidecar.entries[sidecarKey(projectId, doc.path)];
   if (entry) {
-    return { frontmatter: frontmatterFromSidecar(doc, projectId, entry), readOnly: false };
+    return {
+      frontmatter: frontmatterFromSidecar(doc, projectId, entry),
+      readOnly: false,
+      revision: sidecarRevision(doc.revision, entry),
+    };
   }
 
-  return { frontmatter: deriveFrontmatter(doc, projectId), readOnly: true };
+  return { frontmatter: deriveFrontmatter(doc, projectId), readOnly: true, revision: doc.revision };
 }
 
 /** Sidecar key for a document: its project-relative path without the project id. */
