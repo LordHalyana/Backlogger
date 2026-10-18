@@ -1,3 +1,4 @@
+import matter from 'gray-matter';
 import { v4 as uuidv4 } from 'uuid';
 import {
   archivePath,
@@ -8,6 +9,7 @@ import {
   isArchivedPath,
   storedTaskState,
   unarchivePath,
+  type CaptureRequest,
   type CreateDocumentRequest,
   type Document,
   type DocumentSummary,
@@ -29,6 +31,7 @@ import type { GraphService } from './graph-service.js';
 import type { ProjectRecord as Project, ProjectsRepo } from '../db/projects-repo.js';
 import { applyPlaceholders, type TemplateRegistry } from '../templates/registry.js';
 import type { ProjectQueue } from './project-queue.js';
+import type { InboxService } from './inbox-service.js';
 
 export interface DocumentServiceDeps {
   documentsRepo: DocumentsRepo;
@@ -41,6 +44,7 @@ export interface DocumentServiceDeps {
   sidecarStore: SidecarStore;
   /** Per-project mutation queue, shared with the reindex service. */
   queue: ProjectQueue;
+  inbox: InboxService;
   now?: () => string;
   newId?: () => string;
 }
@@ -55,6 +59,14 @@ export interface ImportedTaskState {
 export interface CreateOptions {
   /** Replaces the request's task state; an absent value stays absent. */
   importedTaskState?: ImportedTaskState;
+  /** A client-chosen id (capture) instead of a generated one. */
+  id?: string;
+}
+
+/** The outcome of a capture: the item, and whether this request created it. */
+export interface CaptureResult {
+  document: Document;
+  created: boolean;
 }
 
 /** Internal update options (not exposed over HTTP). */
@@ -73,6 +85,7 @@ export class DocumentService {
   private readonly graphService: GraphService;
   private readonly sidecarStore: SidecarStore;
   private readonly queue: ProjectQueue;
+  private readonly inbox: InboxService;
   private readonly now: () => string;
   private readonly newId: () => string;
 
@@ -86,6 +99,7 @@ export class DocumentService {
     this.graphService = deps.graphService;
     this.sidecarStore = deps.sidecarStore;
     this.queue = deps.queue;
+    this.inbox = deps.inbox;
     this.now = deps.now ?? (() => new Date().toISOString());
     this.newId = deps.newId ?? (() => uuidv4());
   }
@@ -165,7 +179,7 @@ export class DocumentService {
           ? options.importedTaskState.value
           : (parsed.task_state ?? 'todo');
 
-    const id = this.newId();
+    const id = options.id ?? this.newId();
     const now = this.now();
     // Folder placement: explicit `folder` wins, otherwise fall back to the
     // legacy type → subdir map so callers that don't supply a folder keep
@@ -252,6 +266,35 @@ export class DocumentService {
       revision,
       body,
     };
+  }
+
+  /**
+   * Capture: create a draft To do backlog item from a title alone, into the
+   * given project or the designated Inbox. The id is the client's, so a
+   * resent capture returns the item as it is now, wherever it lives.
+   */
+  async capture(input: CaptureRequest): Promise<CaptureResult> {
+    const projectId = input.project_id ?? this.inbox.requireId();
+    this.getProject(projectId);
+    return this.queue.run(projectId, async () => {
+      const existing = this.documentsRepo.find(input.id);
+      if (existing) {
+        if (existing.type !== 'backlog_item' || existing.title !== input.title) {
+          throw new ConflictError(
+            'CAPTURE_ID_CONFLICT',
+            `Id ${input.id} already belongs to a different document; capture with a new id.`,
+          );
+        }
+        return { document: await this.get(input.id), created: false };
+      }
+      this.assertProjectAcceptsBacklogItems(projectId);
+      const document = await this.createInQueue(
+        projectId,
+        { type: 'backlog_item', title: input.title, status: 'draft' },
+        { id: input.id },
+      );
+      return { document, created: true };
+    });
   }
 
   async update(
@@ -582,6 +625,95 @@ export class DocumentService {
   }
 
   /**
+   * File a backlog item into another writable native project, keeping its id
+   * and every byte of its file except the frontmatter `project:` value. The
+   * file keeps its project-relative path. Holds both projects' queues, taken
+   * in sorted order. Writes the target, then deletes the source, then updates
+   * the index; a crash in between leaves two copies that the reindex resolves.
+   */
+  async file(id: string, targetProjectId: string, revision: string): Promise<Document> {
+    const before = this.findOrThrow(id);
+    if (before.project_id === targetProjectId) return this.get(id);
+    this.getProject(targetProjectId);
+    const [first, second] = [before.project_id, targetProjectId].sort() as [string, string];
+    return this.queue.run(first, () =>
+      this.queue.run(second, () => this.fileInQueues(id, targetProjectId, revision, [first, second])),
+    );
+  }
+
+  private async fileInQueues(
+    id: string,
+    targetProjectId: string,
+    revision: string,
+    held: readonly string[],
+  ): Promise<Document> {
+    const summary = this.findOrThrow(id);
+    if (summary.project_id === targetProjectId) return this.get(id);
+    if (summary.type !== 'backlog_item') {
+      throw new BadRequestError(
+        'NOT_A_BACKLOG_ITEM',
+        `Only backlog items can be filed; this document is a ${summary.type}.`,
+      );
+    }
+    const sourceId = summary.project_id;
+    this.assertProjectAcceptsBacklogItems(sourceId);
+    this.assertProjectAcceptsBacklogItems(targetProjectId);
+
+    const raw = await this.fs.read(summary.path);
+    // The item moved to a third project while this filing waited for the queues.
+    if (!held.includes(sourceId) || raw.revision !== revision) {
+      throw new ConflictError(
+        'REVISION_CONFLICT',
+        `Document was modified since revision=${revision}; current revision=${raw.revision}`,
+        { currentRevision: raw.revision, currentProjectId: sourceId },
+      );
+    }
+    assertEditableBackloggerDocument(summary, raw);
+
+    const text = await this.fs.readText(summary.path);
+    const rewritten = rewriteProjectLine(text, targetProjectId);
+    const check = FrontmatterSchema.safeParse(parseFrontmatter(rewritten));
+    if (!check.success || check.data.id !== id || check.data.project !== targetProjectId) {
+      throw new ConflictError(
+        'DERIVED_DOCUMENT_READ_ONLY',
+        'This document has frontmatter Backlogger cannot rewrite safely; edit its project line by hand.',
+      );
+    }
+
+    const nextPath = `${targetProjectId}/${summary.path.slice(sourceId.length + 1)}`;
+    const occupant = this.documentsRepo.findByPath(nextPath);
+    if (occupant && occupant.id !== id) {
+      throw new ConflictError(
+        'TARGET_PATH_TAKEN',
+        `Another document already lives at ${nextPath}.`,
+      );
+    }
+
+    const nextRevision = await this.fs.writeRaw(nextPath, rewritten);
+    await this.fs.delete(summary.path);
+
+    const indexed = this.documentsRepo.upsert({
+      id,
+      project_id: targetProjectId,
+      title: summary.title,
+      type: summary.type,
+      status: summary.status,
+      path: nextPath,
+      tags: summary.tags,
+      readOnly: false,
+      body: raw.body,
+      created_at: summary.created_at,
+      updated_at: summary.updated_at,
+      revision: nextRevision,
+      task_state: storedTaskState(raw.frontmatter.task_state),
+    });
+    this.graphService.invalidate(sourceId);
+    this.graphService.invalidate(targetProjectId);
+
+    return { ...indexed, readOnly: false, body: raw.body };
+  }
+
+  /**
    * Run a mutation of one document inside its project's queue. The summary is
    * re-read once the operation holds the queue, so it reflects every mutation
    * that committed before it (a deleted document is a 404, a moved or archived
@@ -629,6 +761,18 @@ export class DocumentService {
       throw new ConflictError(
         'PROJECT_READ_ONLY',
         'This project is read-only. Disable read-only mode before editing it.',
+      );
+    }
+    return project;
+  }
+
+  /** Writable and frontmatter-mode: a project that can hold a new or filed backlog item. */
+  private assertProjectAcceptsBacklogItems(projectId: string): Project {
+    const project = this.getProject(projectId);
+    if (project.readOnly || project.metadataMode === 'sidecar') {
+      throw new ConflictError(
+        'PROJECT_NOT_WRITABLE',
+        `Project ${projectId} is read-only or sidecar-backed and cannot take backlog items.`,
       );
     }
     return project;
@@ -688,6 +832,31 @@ function assertEditableBackloggerDocument(summary: DocumentSummary, raw: RawDocu
       'DERIVED_DOCUMENT_READ_ONLY',
       'This document has inconsistent archive metadata and cannot be modified until it is reindexed.',
     );
+  }
+}
+
+/**
+ * Replace the value of the frontmatter's top-level `project:` line, leaving
+ * every other byte as it was. Throws unless exactly one such line exists.
+ */
+function rewriteProjectLine(text: string, projectId: string): string {
+  const match = /^(---\r?\n)([\s\S]*?\r?\n)(---(?:\r?\n|$))/.exec(text);
+  const lines = match ? match[2]!.match(/^project:[^\r\n]*$/gm) : null;
+  if (!match || !lines || lines.length !== 1) {
+    throw new ConflictError(
+      'DERIVED_DOCUMENT_READ_ONLY',
+      'This document has frontmatter Backlogger cannot rewrite safely; edit its project line by hand.',
+    );
+  }
+  const block = match[2]!.replace(/^project:[^\r\n]*$/m, `project: ${projectId}`);
+  return match[1] + block + text.slice(match[1]!.length + match[2]!.length);
+}
+
+function parseFrontmatter(text: string): Record<string, unknown> {
+  try {
+    return { ...(matter(text).data as Record<string, unknown>) };
+  } catch {
+    return {};
   }
 }
 

@@ -75,6 +75,7 @@ export function buildContext(opts: BuildContextOptions): AppContext {
     graphService,
     sidecarStore,
     queue,
+    inbox: inboxService,
   });
   const reindexService = new ReindexService({
     documentsRepo,
@@ -85,6 +86,7 @@ export function buildContext(opts: BuildContextOptions): AppContext {
     graphService,
     sidecarStore,
     queue,
+    inbox: inboxService,
   });
   const boardService = new BoardService({ documentsRepo, projectsRepo });
   const searchService = new SearchService(opts.db);
