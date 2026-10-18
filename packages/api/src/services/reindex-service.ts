@@ -4,6 +4,7 @@ import {
   FrontmatterSchema,
   ProjectIdSchema,
   isArchivedPath,
+  storedTaskState,
   type DocumentStatus,
   type Frontmatter,
   type SidecarEntry,
@@ -115,6 +116,7 @@ export class ReindexService {
         created_at: indexed.frontmatter.created_at,
         updated_at: indexed.frontmatter.updated_at,
         revision: indexed.revision,
+        task_state: storedTaskState(indexed.frontmatter.task_state),
       });
       this.linkService.rebuildForDocument(indexed.frontmatter.id, indexed.frontmatter.title, doc.body);
       this.tagsService.rebuildForDocument(indexed.frontmatter.id, indexed.frontmatter.tags);
@@ -176,6 +178,7 @@ export class ReindexService {
         created_at: indexed.frontmatter.created_at,
         updated_at: indexed.frontmatter.updated_at,
         revision: indexed.revision,
+        task_state: storedTaskState(indexed.frontmatter.task_state),
       });
       this.linkService.rebuildForDocument(indexed.frontmatter.id, indexed.frontmatter.title, doc.body);
       this.tagsService.rebuildForDocument(indexed.frontmatter.id, indexed.frontmatter.tags);

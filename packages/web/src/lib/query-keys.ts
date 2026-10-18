@@ -16,6 +16,7 @@ export const queryKeys = {
   backlinks: (documentId: string) => ['backlinks', documentId] as const,
   graph: (projectId: string) => ['graph', projectId] as const,
   folders: (projectId: string) => ['folders', projectId] as const,
+  board: (projectId: string) => ['board', projectId] as const,
 } as const;
 
 /**
@@ -30,12 +31,15 @@ export function invalidateDocumentDerived(qc: QueryClient, projectId: string): v
   void qc.invalidateQueries({ queryKey: queryKeys.tags(projectId) });
   void qc.invalidateQueries({ queryKey: queryKeys.titles(projectId) });
   void qc.invalidateQueries({ queryKey: queryKeys.graph(projectId) });
+  void qc.invalidateQueries({ queryKey: queryKeys.board(projectId) });
   // Backlinks are keyed per-document; invalidate the whole family.
   void qc.invalidateQueries({ queryKey: ['backlinks'] });
 }
 
 export function invalidateProjectList(qc: QueryClient): void {
   void qc.invalidateQueries({ queryKey: queryKeys.projects() });
+  // Board cards carry the project's read-only flag.
+  void qc.invalidateQueries({ queryKey: ['board'] });
 }
 
 export function invalidateProjectFolders(qc: QueryClient, projectId: string): void {
@@ -74,6 +78,7 @@ export function invalidateGlobalReindex(qc: QueryClient): void {
   void qc.invalidateQueries({ queryKey: ['backlinks'] });
   void qc.invalidateQueries({ queryKey: ['graph'] });
   void qc.invalidateQueries({ queryKey: ['folders'] });
+  void qc.invalidateQueries({ queryKey: ['board'] });
   clearDocumentBuffers(qc);
 }
 

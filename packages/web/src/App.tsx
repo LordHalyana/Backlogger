@@ -3,6 +3,8 @@ import type { HealthStatus } from '@backlogger/shared';
 import { ProjectSwitcher } from './components/ProjectSwitcher.js';
 import { ProjectTree } from './components/ProjectTree.js';
 import { DocumentWorkspace } from './components/DocumentWorkspace.js';
+import { TaskBoard } from './components/TaskBoard.js';
+import { SegmentedControl } from './components/SegmentedControl.js';
 import { CommandPalette } from './components/CommandPalette.js';
 import { ImportDialog } from './components/ImportDialog.js';
 import { SettingsDialog } from './components/SettingsDialog.js';
@@ -19,6 +21,11 @@ import { useReloadToast } from './hooks/useReloadToast.js';
 import { useWorkspaceSelection } from './hooks/useWorkspaceSelection.js';
 import { useShellOverlays } from './hooks/useShellOverlays.js';
 
+const PROJECT_VIEW_OPTIONS = [
+  { value: 'documents', label: 'Documents' },
+  { value: 'board', label: 'Board' },
+] as const;
+
 async function fetchHealth(): Promise<HealthStatus> {
   const res = await fetch('/health');
   if (!res.ok) throw new Error(`Health check failed: ${res.status}`);
@@ -29,8 +36,10 @@ export function App(): JSX.Element {
   const {
     projectId: selectedProjectId,
     documentId: selectedDocumentId,
+    view,
     tags: selectedTags,
     selectProject,
+    selectView,
     selectDocument,
     openDocument,
     toggleTag,
@@ -172,6 +181,14 @@ export function App(): JSX.Element {
         {selectedProjectId ? (
           <div className="project-layout">
             <div className="project-sidebar">
+              <div className="sidebar-view-switch">
+                <SegmentedControl
+                  ariaLabel="Project view"
+                  value={view}
+                  options={PROJECT_VIEW_OPTIONS}
+                  onChange={selectView}
+                />
+              </div>
               <ProjectTree
                 projectId={selectedProjectId}
                 selectedDocumentId={selectedDocumentId}
@@ -187,7 +204,9 @@ export function App(): JSX.Element {
                 onToggle={toggleTag}
               />
             </div>
-            {selectedDocumentId ? (
+            {view === 'board' && !selectedDocumentId ? (
+              <TaskBoard projectId={selectedProjectId} onOpenCard={selectDocument} />
+            ) : selectedDocumentId ? (
               <DocumentWorkspace
                 projectId={selectedProjectId}
                 documentId={selectedDocumentId}

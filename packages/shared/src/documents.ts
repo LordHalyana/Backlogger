@@ -90,6 +90,12 @@ export const FrontmatterSchema = z.object({
   project: ProjectIdSchema,
   type: DocumentTypeSchema,
   status: DocumentStatusSchema.default('draft'),
+  /**
+   * Task state of a backlog item (see tasks.ts). Tolerant on purpose: any
+   * value parses and is kept verbatim, so a legacy or hand-edited file never
+   * fails the schema. Placed after `status` so it serialises there.
+   */
+  task_state: z.unknown().optional(),
   created_at: z.string().datetime({ offset: true }),
   updated_at: z.string().datetime({ offset: true }),
   tags: z.array(TagSchema).default([]),

@@ -6,6 +6,7 @@ import {
   FrontmatterSchema,
   isArchivedFolder,
   isArchivedPath,
+  storedTaskState,
   unarchivePath,
   type CreateDocumentRequest,
   type Document,
@@ -186,6 +187,7 @@ export class DocumentService {
         created_at: frontmatter.created_at,
         updated_at: frontmatter.updated_at,
         revision,
+        task_state: storedTaskState(frontmatter.task_state),
       });
     } catch (err) {
       // Roll back disk write to keep DB+FS consistent.
@@ -290,6 +292,7 @@ export class DocumentService {
       created_at: summary.created_at,
       updated_at: now,
       revision,
+      task_state: storedTaskState(nextFrontmatter.task_state),
     });
 
     this.linkService.rebuildForDocument(
@@ -357,6 +360,7 @@ export class DocumentService {
       created_at: summary.created_at,
       updated_at: now,
       revision,
+      task_state: null,
     });
 
     this.linkService.rebuildForDocument(summary.id, nextTitle, nextBody, summary.title);
@@ -469,6 +473,7 @@ export class DocumentService {
         created_at: summary.created_at,
         updated_at: now,
         revision,
+        task_state: null,
       });
       this.graphService.invalidate(summary.project_id);
       return {
@@ -508,6 +513,7 @@ export class DocumentService {
       created_at: summary.created_at,
       updated_at: now,
       revision,
+      task_state: storedTaskState(nextFrontmatter.task_state),
     });
 
     this.graphService.invalidate(summary.project_id);

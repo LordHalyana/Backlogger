@@ -279,6 +279,39 @@ Response headers include:
 
 Returns documents that link to this document.
 
+## Board
+
+### `GET /api/projects/:projectId/board`
+
+Returns the project board: every non-archived `backlog_item` (drafts included), grouped by task state.
+
+```json
+{
+  "columns": {
+    "todo": [
+      {
+        "id": "…",
+        "title": "Write the spec",
+        "tags": ["docs"],
+        "status": "draft",
+        "readOnly": false,
+        "revision": "…",
+        "task_state": null,
+        "created_at": "2026-10-18T08:00:00.000Z"
+      }
+    ],
+    "in_progress": [],
+    "done": []
+  }
+}
+```
+
+- `task_state` is the frontmatter value, verbatim (`null` when absent). Recognised values are exactly `todo`, `in_progress` and `done`. Absent or unrecognised values (e.g. `Doing`) place the card in `todo` and are kept as written until the card is moved.
+- Each column is ordered by `created_at` ascending, then by document ID. No order is persisted.
+- `readOnly` is `true` when the project is read-only (or the document is a derived, read-only document).
+- Sidecar-mode projects return empty columns; the first board covers frontmatter-mode projects only.
+- Returns `404 PROJECT_NOT_FOUND` for an unknown project.
+
 ## Search
 
 ### `GET /api/search?q=<query>`

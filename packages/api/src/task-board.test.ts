@@ -281,3 +281,194 @@ describe('Revisions: distinct per mutation, validated against disk', () => {
     expect(unconditional.body.revision).not.toBe(doc.revision);
   });
 });
+
+const ID = {
+  a: '00000000-0000-4000-8000-00000000000a',
+  b: '00000000-0000-4000-8000-00000000000b',
+  c: '00000000-0000-4000-8000-00000000000c',
+  d: '00000000-0000-4000-8000-00000000000d',
+  e: '00000000-0000-4000-8000-00000000000e',
+  f: '00000000-0000-4000-8000-00000000000f',
+};
+
+/**
+ * Write a hand-authored Markdown file straight to disk, the way a legacy file
+ * or an external editor would. `extra` lines are appended to the frontmatter.
+ */
+async function writeMarkdown(
+  h: Harness,
+  relPath: string,
+  fm: { id: string; title: string; type?: string; status?: string; created_at: string },
+  extra: string[] = [],
+  projectId = PROJECT,
+): Promise<string> {
+  const content = [
+    '---',
+    `id: ${fm.id}`,
+    `title: ${fm.title}`,
+    `project: ${projectId}`,
+    `type: ${fm.type ?? 'backlog_item'}`,
+    `status: ${fm.status ?? 'active'}`,
+    ...extra,
+    `created_at: '${fm.created_at}'`,
+    `updated_at: '${fm.created_at}'`,
+    'tags:',
+    '  - board',
+    '---',
+    '',
+    `# ${fm.title}`,
+    '',
+  ].join('\n');
+  const file = diskPath(h, `${projectId}/${relPath}`);
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, content, 'utf8');
+  return content;
+}
+
+async function reload(h: Harness, projectId = PROJECT): Promise<void> {
+  const res = await request(h.app).post(`/api/projects/${projectId}/reload`);
+  expect(res.status).toBe(200);
+}
+
+interface Card {
+  id: string;
+  title: string;
+  status: string;
+  task_state: string | null;
+  readOnly: boolean;
+  revision: string;
+  tags: string[];
+}
+
+async function getBoard(
+  h: Harness,
+  projectId = PROJECT,
+): Promise<{ todo: Card[]; in_progress: Card[]; done: Card[] }> {
+  const res = await request(h.app).get(`/api/projects/${projectId}/board`);
+  expect(res.status).toBe(200);
+  return res.body.columns;
+}
+
+function ids(cards: Card[]): string[] {
+  return cards.map((c) => c.id);
+}
+
+describe('Board read: GET /api/projects/:projectId/board', () => {
+  let h: Harness;
+  beforeEach(async () => {
+    h = await setup();
+    await createProject(h);
+  });
+  afterEach(() => teardown(h));
+
+  it('assigns columns by task_state; absent and unrecognised values show as To do', async () => {
+    await writeMarkdown(h, 'backlog/todo.md', { id: ID.a, title: 'Todo', created_at: '2026-01-01T00:00:00.000Z' }, ['task_state: todo']);
+    await writeMarkdown(h, 'backlog/doing.md', { id: ID.b, title: 'Doing', created_at: '2026-01-02T00:00:00.000Z' }, ['task_state: in_progress']);
+    await writeMarkdown(h, 'backlog/done.md', { id: ID.c, title: 'Done', created_at: '2026-01-03T00:00:00.000Z' }, ['task_state: done']);
+    await writeMarkdown(h, 'backlog/legacy.md', { id: ID.d, title: 'Legacy', created_at: '2026-01-04T00:00:00.000Z' });
+    await writeMarkdown(h, 'backlog/invalid.md', { id: ID.e, title: 'Invalid', created_at: '2026-01-05T00:00:00.000Z' }, ['task_state: Doing']);
+    await reload(h);
+
+    const board = await getBoard(h);
+    expect(ids(board.todo)).toEqual([ID.a, ID.d, ID.e]);
+    expect(ids(board.in_progress)).toEqual([ID.b]);
+    expect(ids(board.done)).toEqual([ID.c]);
+
+    const invalid = board.todo.find((c) => c.id === ID.e)!;
+    expect(invalid).toMatchObject({
+      title: 'Invalid',
+      task_state: 'Doing',
+      status: 'active',
+      readOnly: false,
+      tags: ['board'],
+    });
+    expect(invalid.revision).toEqual(expect.any(String));
+    expect(board.todo.find((c) => c.id === ID.d)!.task_state).toBeNull();
+  });
+
+  it('includes drafts, excludes archived items and non-backlog types', async () => {
+    await writeMarkdown(h, 'backlog/draft.md', { id: ID.a, title: 'Draft', status: 'draft', created_at: '2026-01-01T00:00:00.000Z' });
+    await writeMarkdown(h, 'archived/backlog/old.md', { id: ID.b, title: 'Old', status: 'archived', created_at: '2026-01-02T00:00:00.000Z' }, ['task_state: done']);
+    const noteContent = await writeMarkdown(h, 'notes/note.md', { id: ID.c, title: 'Note', type: 'note', created_at: '2026-01-03T00:00:00.000Z' }, ['task_state: in_progress']);
+    await reload(h);
+
+    const board = await getBoard(h);
+    expect(ids(board.todo)).toEqual([ID.a]);
+    expect(board.todo[0]!.status).toBe('draft');
+    expect(board.in_progress).toEqual([]);
+    expect(board.done).toEqual([]);
+    expect(await readDisk(h, `${PROJECT}/notes/note.md`)).toBe(noteContent);
+  });
+
+  it('orders a column by created_at, then by document ID', async () => {
+    await writeMarkdown(h, 'backlog/late.md', { id: ID.a, title: 'Late', created_at: '2026-03-01T00:00:00.000Z' });
+    await writeMarkdown(h, 'backlog/tie-2.md', { id: ID.c, title: 'Tie 2', created_at: '2026-02-01T00:00:00.000Z' });
+    await writeMarkdown(h, 'backlog/tie-1.md', { id: ID.b, title: 'Tie 1', created_at: '2026-02-01T00:00:00.000Z' });
+    await writeMarkdown(h, 'backlog/early.md', { id: ID.f, title: 'Early', created_at: '2026-01-01T00:00:00.000Z' });
+    await reload(h);
+
+    expect(ids((await getBoard(h)).todo)).toEqual([ID.f, ID.b, ID.c, ID.a]);
+  });
+
+  it('shows no items for a sidecar-mode project', async () => {
+    await createProject(h, 'side');
+    await request(h.app).put('/api/projects/side').send({ metadataMode: 'sidecar' });
+    await createDoc(h, { title: 'Sidecar item' }, 'side');
+
+    const board = await getBoard(h, 'side');
+    expect([...board.todo, ...board.in_progress, ...board.done]).toEqual([]);
+  });
+
+  it('marks cards read-only in a read-only project', async () => {
+    await writeMarkdown(h, 'backlog/ro.md', { id: ID.a, title: 'RO', created_at: '2026-01-01T00:00:00.000Z' });
+    await reload(h);
+    await request(h.app).put(`/api/projects/${PROJECT}`).send({ readOnly: true });
+
+    const board = await getBoard(h);
+    expect(board.todo[0]!.readOnly).toBe(true);
+  });
+
+  it('returns 404 for an unknown project', async () => {
+    const res = await request(h.app).get('/api/projects/nope/board');
+    expect(res.status).toBe(404);
+  });
+
+  it('keeps legacy and unrecognised files byte-identical through read and reindex', async () => {
+    const legacy = await writeMarkdown(h, 'backlog/legacy.md', { id: ID.a, title: 'Legacy', created_at: '2026-01-01T00:00:00.000Z' });
+    const invalid = await writeMarkdown(h, 'backlog/invalid.md', { id: ID.b, title: 'Invalid', created_at: '2026-01-02T00:00:00.000Z' }, ['task_state: Doing']);
+    await reload(h);
+    await getBoard(h);
+    await request(h.app).get(`/api/documents/${ID.a}`);
+    await request(h.app).get(`/api/documents/${ID.b}`);
+    await request(h.app).post('/api/admin/reindex');
+    await reload(h);
+
+    expect(await readDisk(h, `${PROJECT}/backlog/legacy.md`)).toBe(legacy);
+    expect(await readDisk(h, `${PROJECT}/backlog/invalid.md`)).toBe(invalid);
+  });
+
+  it('reindex leaves the board unchanged; a fresh DB over the same data dir gives the same board', async () => {
+    await writeMarkdown(h, 'backlog/a.md', { id: ID.a, title: 'A', created_at: '2026-01-01T00:00:00.000Z' }, ['task_state: done']);
+    await writeMarkdown(h, 'backlog/b.md', { id: ID.b, title: 'B', created_at: '2026-01-02T00:00:00.000Z' }, ['task_state: in_progress']);
+    await writeMarkdown(h, 'backlog/c.md', { id: ID.c, title: 'C', created_at: '2026-01-03T00:00:00.000Z' }, ['task_state: Doing']);
+    await writeMarkdown(h, 'backlog/d.md', { id: ID.d, title: 'D', created_at: '2026-01-01T00:00:00.000Z' });
+    await reload(h);
+    const before = await getBoard(h);
+
+    await reload(h);
+    expect(await getBoard(h)).toEqual(before);
+
+    const project = (column: Card[]) => column.map((c) => [c.id, c.task_state, c.revision]);
+    const fresh = await setup({ dataDir: h.dataDir });
+    try {
+      const reindexed = await request(fresh.app).post('/api/admin/reindex');
+      expect(reindexed.status).toBe(200);
+      const after = await getBoard(fresh);
+      expect(project(after.todo)).toEqual(project(before.todo));
+      expect(project(after.in_progress)).toEqual(project(before.in_progress));
+      expect(project(after.done)).toEqual(project(before.done));
+    } finally {
+      fresh.db.close();
+    }
+  });
+});

@@ -2,6 +2,7 @@ import type { Db } from './db/database.js';
 import { DocumentsRepo } from './db/documents-repo.js';
 import { ProjectsRepo } from './db/projects-repo.js';
 import { FsRepository, PathResolver, SidecarStore } from './fs/index.js';
+import { BoardService } from './services/board-service.js';
 import { DocumentService } from './services/document-service.js';
 import { HealthService } from './services/health-service.js';
 import { ImportService } from './services/import-service.js';
@@ -25,6 +26,7 @@ export interface AppContext {
   documentsRepo: DocumentsRepo;
   projectService: ProjectService;
   documentService: DocumentService;
+  boardService: BoardService;
   reindexService: ReindexService;
   searchService: SearchService;
   linkService: LinkService;
@@ -81,6 +83,7 @@ export function buildContext(opts: BuildContextOptions): AppContext {
     sidecarStore,
     queue,
   });
+  const boardService = new BoardService({ documentsRepo, projectsRepo });
   const searchService = new SearchService(opts.db);
   const healthService = new HealthService({
     db: opts.db,
@@ -98,6 +101,7 @@ export function buildContext(opts: BuildContextOptions): AppContext {
     documentsRepo,
     projectService,
     documentService,
+    boardService,
     reindexService,
     searchService,
     linkService,
