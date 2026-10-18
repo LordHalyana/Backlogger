@@ -25,6 +25,8 @@ export interface WorkspaceSelection {
   selectProject: (id: string | null) => void;
   /** Switch the project between the Documents and Board views. */
   selectView: (view: WorkspaceView) => void;
+  /** Open a document picked in the tree: always the Documents view. */
+  selectTreeDocument: (id: string) => void;
   /** Open (or clear, with `null`) a document in the current project. */
   selectDocument: (id: string | null) => void;
   /**
@@ -103,6 +105,11 @@ export function useWorkspaceSelection(): WorkspaceSelection {
     setDocumentId(id);
   }, []);
 
+  const selectTreeDocument = useCallback((id: string): void => {
+    setView('documents');
+    setDocumentId(id);
+  }, []);
+
   const openDocument = useCallback((nextProjectId: string, nextDocumentId: string): void => {
     if (projectIdRef.current !== nextProjectId) {
       projectIdRef.current = nextProjectId;
@@ -133,6 +140,7 @@ export function useWorkspaceSelection(): WorkspaceSelection {
     tags,
     selectProject,
     selectView,
+    selectTreeDocument,
     selectDocument,
     openDocument,
     toggleTag,

@@ -46,19 +46,22 @@ export interface DocumentServiceDeps {
   newId?: () => string;
 }
 
+/** An imported file's `task_state`, written verbatim (recognised or not). */
+export interface ImportedTaskState {
+  /** `undefined` when the imported file has none. */
+  value: unknown;
+}
+
 /** Internal create options (not exposed over HTTP). */
 export interface CreateOptions {
-  /**
-   * An imported file's `task_state`, written verbatim (recognised or not)
-   * instead of the request's value; `value: undefined` leaves it absent.
-   */
-  importedTaskState?: { value: unknown };
+  /** Replaces the request's task state; an absent value stays absent. */
+  importedTaskState?: ImportedTaskState;
 }
 
 /** Internal update options (not exposed over HTTP). */
 export interface UpdateOptions {
-  /** An imported file's `task_state`, written verbatim when defined. */
-  importedTaskState?: unknown;
+  /** Overwrites the stored task state when its value is defined. */
+  importedTaskState?: ImportedTaskState;
 }
 
 export class DocumentService {
@@ -150,6 +153,9 @@ export class DocumentService {
     const parsed = CreateDocumentRequestSchema.parse(input);
     if (parsed.task_state !== undefined && parsed.type !== 'backlog_item') {
       throw taskStateNotAllowed(parsed.type);
+    }
+    if (parsed.task_state !== undefined && project.metadataMode === 'sidecar') {
+      throw taskStateNotAllowed('sidecar-backed document');
     }
     // New backlog items are written with an explicit task state (`todo`
     // unless asked otherwise); other types never get one.
@@ -272,7 +278,7 @@ export class DocumentService {
     // The task state to write, if any. Otherwise the stored value is kept.
     const nextTaskState: unknown =
       input.task_state ??
-      (summary.type === 'backlog_item' ? options.importedTaskState : undefined);
+      (summary.type === 'backlog_item' ? options.importedTaskState?.value : undefined);
     const project = this.assertProjectWritable(summary.project_id);
 
     // Validate the caller's revision against what is on disk right now, inside

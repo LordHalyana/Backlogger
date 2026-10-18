@@ -94,6 +94,7 @@ packages/web/src/styles/settings.css
 packages/web/src/styles/help.css
 packages/web/src/styles/modal.css
 packages/web/src/styles/graph.css
+packages/web/src/styles/board.css
 ```
 
 Keep `theme.css` as the token source. `project-tree.css` owns the project
@@ -106,8 +107,9 @@ and result rows. `import.css` owns import dialog file-list and result-summary
 styles. `tags.css` owns tag chips, the sidebar tag explorer, filter bar, and
 metadata tag input. `settings.css` owns settings-dialog content, `help.css`
 owns the help drawer, `modal.css` owns the shared modal shell and standard
-modal form/result-summary layout, and `graph.css` owns the full-screen graph
-overlay. The per-surface split is complete: `app.css` now holds only residual
+modal form/result-summary layout, `graph.css` owns the full-screen graph
+overlay, and `board.css` owns the sidebar Documents | Board switch, the board
+columns and cards, and the board's Undo notice. The per-surface split is complete: `app.css` now holds only residual
 app-shell and layout rules. Put new styles in the matching per-surface file and
 keep `app.css` for shared shell/layout, preserving cascade order. Do not
 introduce Tailwind, CSS-in-JS, CSS modules, or a component library for the

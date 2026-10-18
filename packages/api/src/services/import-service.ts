@@ -116,7 +116,7 @@ export class ImportService {
                 : existing.tags,
             },
             undefined,
-            { importedTaskState: fmRaw.task_state },
+            { importedTaskState: { value: fmRaw.task_state } },
           );
           result.imported.push({
             filename: file.filename,

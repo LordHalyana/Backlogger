@@ -40,6 +40,7 @@ export function App(): JSX.Element {
     tags: selectedTags,
     selectProject,
     selectView,
+    selectTreeDocument,
     selectDocument,
     openDocument,
     toggleTag,
@@ -192,7 +193,7 @@ export function App(): JSX.Element {
               <ProjectTree
                 projectId={selectedProjectId}
                 selectedDocumentId={selectedDocumentId}
-                onSelect={selectDocument}
+                onSelect={selectTreeDocument}
                 selectedTags={selectedTags}
                 onClearTags={clearTags}
                 onRemoveTag={removeTag}

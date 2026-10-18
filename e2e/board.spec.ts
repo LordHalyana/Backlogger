@@ -195,6 +195,8 @@ test('a document opened from the tree has no Back to board control', async ({ pa
   await createProject(page, { id: projectId });
   const { id } = await writeBacklogItem(projectId, { title: 'Tree item' });
   await reloadUntilIndexed(page, 'Tree item');
+  // Even while the Board view is showing, a tree pick opens the plain editor.
+  await openBoard(page);
 
   await page.getByRole('complementary').getByText('Tree item', { exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/projects/${projectId}/documents/${id}$`));

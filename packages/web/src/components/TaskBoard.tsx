@@ -9,6 +9,7 @@ import {
 import { ApiError } from '../lib/api.js';
 import { useArchiveCard, useBoard, useMoveCard, useRestoreCard } from '../lib/board.js';
 import { toastError, useDialog } from '../lib/dialog.js';
+import { Icon } from './Icon.js';
 import { StatusMessage } from './StatusMessage.js';
 
 /** An archived card that can still be restored from the Undo notice. */
@@ -167,15 +168,16 @@ export function TaskBoard({ projectId, onOpenCard }: TaskBoardProps): JSX.Elemen
             type="button"
             className="btn btn--sm btn--ghost"
             aria-label="Dismiss"
+            title="Dismiss"
             onClick={() => setConflict(null)}
           >
-            ×
+            <Icon name="close" />
           </button>
         </div>
       )}
       {archived && (
         <div className="board-notice" role="status">
-          <span>Archived “{archived.card.title}”.</span>
+          <span>{`Archived "${archived.card.title}".`}</span>
           <button type="button" className="btn btn--sm" onClick={undoArchive}>
             Undo
           </button>
@@ -183,9 +185,10 @@ export function TaskBoard({ projectId, onOpenCard }: TaskBoardProps): JSX.Elemen
             type="button"
             className="btn btn--sm btn--ghost"
             aria-label="Dismiss"
+            title="Dismiss"
             onClick={() => setArchived(null)}
           >
-            ×
+            <Icon name="close" />
           </button>
         </div>
       )}

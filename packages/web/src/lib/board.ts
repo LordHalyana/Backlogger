@@ -11,6 +11,7 @@ import {
   type Board,
   type BoardCard,
   type Document,
+  type DocumentStatus,
   type TaskState,
 } from '@backlogger/shared';
 import { apiFetch } from './api.js';
@@ -24,15 +25,29 @@ export function useBoard(projectId: string): UseQueryResult<Board> {
   });
 }
 
+/** Edit the cached board of a project, if it is loaded. */
+function useBoardCache(projectId: string): (fn: (board: Board) => Board) => void {
+  const qc = useQueryClient();
+  return (fn) => {
+    qc.setQueryData<Board>(queryKeys.board(projectId), (board) => (board ? fn(board) : board));
+  };
+}
+
+/** Remove a card from the board (it was archived, or is about to move). */
+function withoutCard(board: Board, id: string): Board {
+  const columns = {} as Board['columns'];
+  for (const state of TASK_STATES) {
+    columns[state] = board.columns[state].filter((c) => c.id !== id);
+  }
+  return { columns };
+}
+
 /**
  * Place `card` in the column for `to`, at its creation-order position
  * (`created_at`, then id), mirroring the server's order for optimistic display.
  */
 export function placeCard(board: Board, card: BoardCard, to: TaskState): Board {
-  const columns = {} as Board['columns'];
-  for (const state of TASK_STATES) {
-    columns[state] = board.columns[state].filter((c) => c.id !== card.id);
-  }
+  const { columns } = withoutCard(board, card.id);
   const target = [...columns[to], card];
   target.sort((a, b) =>
     a.created_at === b.created_at
@@ -57,9 +72,7 @@ export function useMoveCard(
 ): UseMutationResult<Document, Error, MoveCardArgs, { previous: BoardCard }> {
   const qc = useQueryClient();
   const key = queryKeys.board(projectId);
-  const update = (fn: (board: Board) => Board): void => {
-    qc.setQueryData<Board>(key, (board) => (board ? fn(board) : board));
-  };
+  const update = useBoardCache(projectId);
   return useMutation({
     mutationFn: ({ card, to }) =>
       apiFetch<Document>(`/api/documents/${card.id}`, {
@@ -85,16 +98,7 @@ export function useMoveCard(
   });
 }
 
-/** Remove a card from the board (it was archived). */
-function withoutCard(board: Board, id: string): Board {
-  const columns = {} as Board['columns'];
-  for (const state of TASK_STATES) {
-    columns[state] = board.columns[state].filter((c) => c.id !== id);
-  }
-  return { columns };
-}
-
-function setCardStatus(card: BoardCard, status: 'archived' | 'active', ifMatch: string) {
+function setCardStatus(card: BoardCard, status: DocumentStatus, ifMatch: string) {
   return apiFetch<Document>(`/api/documents/${card.id}`, {
     method: 'PUT',
     headers: { 'If-Match': ifMatch },
@@ -109,9 +113,7 @@ function setCardStatus(card: BoardCard, status: 'archived' | 'active', ifMatch: 
 export function useArchiveCard(projectId: string): UseMutationResult<Document, Error, BoardCard> {
   const qc = useQueryClient();
   const key = queryKeys.board(projectId);
-  const update = (fn: (board: Board) => Board): void => {
-    qc.setQueryData<Board>(key, (board) => (board ? fn(board) : board));
-  };
+  const update = useBoardCache(projectId);
   return useMutation({
     mutationFn: (card) => setCardStatus(card, 'archived', card.revision),
     onMutate: async (card) => {
@@ -141,19 +143,17 @@ export function useRestoreCard(
   projectId: string,
 ): UseMutationResult<Document, Error, RestoreCardArgs> {
   const qc = useQueryClient();
-  const key = queryKeys.board(projectId);
+  const update = useBoardCache(projectId);
   return useMutation({
     mutationFn: ({ card, revision }) => setCardStatus(card, 'active', revision),
     onSuccess: (doc, { card }) => {
       setDocumentCache(qc, doc);
-      qc.setQueryData<Board>(key, (board) =>
-        board
-          ? placeCard(
-              board,
-              { ...card, status: doc.status, revision: doc.revision },
-              taskStateColumn(card.task_state),
-            )
-          : board,
+      update((board) =>
+        placeCard(
+          board,
+          { ...card, status: doc.status, revision: doc.revision },
+          taskStateColumn(card.task_state),
+        ),
       );
     },
     onSettled: () => invalidateDocumentDerived(qc, projectId),

@@ -325,6 +325,35 @@ async function writeMarkdown(
   return content;
 }
 
+/** The exact bytes the app writes for a document with this frontmatter. */
+function expectedFile(
+  doc: {
+    id: string;
+    title: string;
+    type: string;
+    status: string;
+    task_state?: string;
+    created_at: string;
+    updated_at: string;
+  },
+  body: string,
+): string {
+  return [
+    '---',
+    `id: ${doc.id}`,
+    `title: ${doc.title}`,
+    `project: ${PROJECT}`,
+    `type: ${doc.type}`,
+    `status: ${doc.status}`,
+    ...(doc.task_state ? [`task_state: ${doc.task_state}`] : []),
+    `created_at: '${doc.created_at}'`,
+    `updated_at: '${doc.updated_at}'`,
+    'tags: []',
+    '---',
+    body,
+  ].join('\n');
+}
+
 async function reload(h: Harness, projectId = PROJECT): Promise<void> {
   const res = await request(h.app).post(`/api/projects/${projectId}/reload`);
   expect(res.status).toBe(200);
@@ -735,34 +764,6 @@ describe('New and imported backlog items carry task_state', () => {
   });
   afterEach(() => teardown(h));
 
-  function expectedFile(
-    doc: {
-      id: string;
-      title: string;
-      type: string;
-      status: string;
-      task_state?: string;
-      created_at: string;
-      updated_at: string;
-    },
-    body: string,
-  ): string {
-    return [
-      '---',
-      `id: ${doc.id}`,
-      `title: ${doc.title}`,
-      `project: ${PROJECT}`,
-      `type: ${doc.type}`,
-      `status: ${doc.status}`,
-      ...(doc.task_state ? [`task_state: ${doc.task_state}`] : []),
-      `created_at: '${doc.created_at}'`,
-      `updated_at: '${doc.updated_at}'`,
-      'tags: []',
-      '---',
-      body,
-    ].join('\n');
-  }
-
   it('a blank backlog item is written with task_state: todo right after status', async () => {
     const res = await request(h.app)
       .post(`/api/projects/${PROJECT}/documents`)
@@ -853,14 +854,20 @@ describe('New and imported backlog items carry task_state', () => {
   }
 
   it('import (new) keeps the value verbatim, recognised or not, and absent stays absent', async () => {
-    const doing = await importedPath(await importFile(exported('Doing', ['task_state: Doing'])));
-    expect(await readDisk(h, doing)).toContain('status: active\ntask_state: Doing\n');
-
-    const done = await importedPath(await importFile(exported('Done', ['task_state: done'], ID.b)));
-    expect(await readDisk(h, done)).toContain('status: active\ntask_state: done\n');
-
-    const absent = await importedPath(await importFile(exported('Absent', [], ID.c)));
-    expect(await readDisk(h, absent)).not.toContain('task_state');
+    const cases: Array<[string, string[], string, string | undefined]> = [
+      ['Doing', ['task_state: Doing'], ID.a, 'Doing'],
+      ['Done', ['task_state: done'], ID.b, 'done'],
+      ['Absent', [], ID.c, undefined],
+    ];
+    for (const [title, extra, id, taskState] of cases) {
+      const { id: newId, path: file } = await imported(
+        await importFile(exported(title, extra, id)),
+      );
+      const doc = (await request(h.app).get(`/api/documents/${newId}`)).body;
+      expect(await readDisk(h, file)).toBe(
+        expectedFile({ ...doc, task_state: taskState }, `\n# ${title}\n`),
+      );
+    }
   });
 
   it('import (copy) of a duplicate keeps the incoming value verbatim', async () => {
@@ -928,6 +935,9 @@ describe('Archive and restore keep task_state', () => {
   it('archiving keeps task_state; restoring returns the card to its column with the same id', async () => {
     const older = await createDoc(h, { title: 'Older', status: 'active', task_state: 'done' });
     const newer = await createDoc(h, { title: 'Newer', status: 'active', task_state: 'done' });
+    const asCreated = await readDisk(h, older.path);
+    const withUpdatedAt = (updatedAt: string): string =>
+      asCreated.replace(`updated_at: '${older.updated_at}'`, `updated_at: '${updatedAt}'`);
 
     const archived = await request(h.app)
       .put(`/api/documents/${older.id}`)
@@ -935,8 +945,12 @@ describe('Archive and restore keep task_state', () => {
       .send({ status: 'archived' });
     expect(archived.status).toBe(200);
     expect(archived.body.path).toContain('/archived/');
-    const archivedDisk = await readDisk(h, archived.body.path);
-    expect(archivedDisk).toContain('status: archived\ntask_state: done\n');
+    expect(await readDisk(h, archived.body.path)).toBe(
+      withUpdatedAt(archived.body.updated_at).replace(
+        'status: active\ntask_state: done\n',
+        'status: archived\ntask_state: done\n',
+      ),
+    );
     expect(ids((await getBoard(h)).done)).toEqual([newer.id]);
 
     const restored = await request(h.app)
@@ -946,7 +960,7 @@ describe('Archive and restore keep task_state', () => {
     expect(restored.status).toBe(200);
     expect(restored.body.id).toBe(older.id);
     expect(restored.body.path).toBe(older.path);
-    expect(await readDisk(h, older.path)).toContain('status: active\ntask_state: done\n');
+    expect(await readDisk(h, older.path)).toBe(withUpdatedAt(restored.body.updated_at));
     expect(await h.ctx.fs.listProjectFiles(PROJECT)).toHaveLength(2);
     expect(ids((await getBoard(h)).done)).toEqual([older.id, newer.id]);
   });
@@ -975,5 +989,24 @@ describe('Archive and restore keep task_state', () => {
     expect(res.body.error.code).toBe('PROJECT_READ_ONLY');
     expect(await readDisk(h, doc.path)).toBe(before);
     expect(await h.ctx.fs.listProjectFiles(PROJECT)).toEqual([doc.path]);
+  });
+});
+
+describe('Sidecar-mode projects have no task state', () => {
+  let h: Harness;
+  beforeEach(async () => {
+    h = await setup();
+    await createProject(h, 'side');
+    await request(h.app).put('/api/projects/side').send({ metadataMode: 'sidecar' });
+  });
+  afterEach(() => teardown(h));
+
+  it('create with task_state is refused with 400, like update', async () => {
+    const res = await request(h.app)
+      .post('/api/projects/side/documents')
+      .send({ title: 'Side item', type: 'backlog_item', task_state: 'done' });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('TASK_STATE_NOT_ALLOWED');
+    expect(await h.ctx.fs.listProjectFiles('side')).toEqual([]);
   });
 });

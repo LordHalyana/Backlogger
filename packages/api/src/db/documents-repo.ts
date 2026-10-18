@@ -56,8 +56,8 @@ export interface DocumentUpsertInput {
   task_state: string | null;
 }
 
-/** A backlog item as the board needs it. */
-export interface BoardItemRow extends DocumentSummary {
+/** A document summary plus its task state, as the board needs it. */
+export interface BoardItem extends DocumentSummary {
   task_state: string | null;
 }
 
@@ -93,7 +93,7 @@ export class DocumentsRepo {
   }
 
   /** Non-archived backlog items of a project, by `created_at` then id. */
-  listBoardItems(projectId: string): BoardItemRow[] {
+  listBoardItems(projectId: string): BoardItem[] {
     const rows = this.db
       .prepare<[string], DocumentRow>(
         `SELECT * FROM documents
