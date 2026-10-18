@@ -624,6 +624,30 @@ describe('Moving a card: PUT task_state', () => {
     expect(ids((await getBoard(h)).in_progress)).toEqual([ID.a]);
   });
 
+  it('a moved card takes its creation-order place in the new column', async () => {
+    // IDs and titles both run against creation order, so only created_at puts Zed first.
+    await writeMarkdown(h, 'backlog/zed.md', {
+      id: ID.b,
+      title: 'Zed',
+      created_at: '2026-01-01T00:00:00.000Z',
+    });
+    await writeMarkdown(
+      h,
+      'backlog/alpha.md',
+      { id: ID.a, title: 'Alpha', created_at: '2026-03-01T00:00:00.000Z' },
+      ['task_state: done'],
+    );
+    await reload(h);
+
+    const res = await request(h.app)
+      .put(`/api/documents/${ID.b}`)
+      .set('If-Match', await revisionOf(ID.b))
+      .send({ task_state: 'done' });
+    expect(res.status).toBe(200);
+
+    expect(ids((await getBoard(h)).done)).toEqual([ID.b, ID.a]);
+  });
+
   it('replaces an unrecognised value in place on a state change', async () => {
     const before = await writeMarkdown(
       h,
@@ -1008,5 +1032,20 @@ describe('Sidecar-mode projects have no task state', () => {
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('TASK_STATE_NOT_ALLOWED');
     expect(await h.ctx.fs.listProjectFiles('side')).toEqual([]);
+  });
+
+  it('update with task_state is refused with 400 and leaves the file unchanged', async () => {
+    const doc = await createDoc(h, { title: 'Side item' }, 'side');
+    const before = await readDisk(h, doc.path);
+    const indexBefore = await readDisk(h, 'side/.backlogger/index.json');
+
+    const res = await request(h.app)
+      .put(`/api/documents/${doc.id}`)
+      .set('If-Match', doc.revision)
+      .send({ task_state: 'done' });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('TASK_STATE_NOT_ALLOWED');
+    expect(await readDisk(h, doc.path)).toBe(before);
+    expect(await readDisk(h, 'side/.backlogger/index.json')).toBe(indexBefore);
   });
 });
