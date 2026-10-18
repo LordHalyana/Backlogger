@@ -382,6 +382,24 @@ function ids(cards: Card[]): string[] {
   return cards.map((c) => c.id);
 }
 
+async function getDoc(
+  h: Harness,
+  id: string,
+): Promise<{ path: string; revision: string; updated_at: string }> {
+  const res = await request(h.app).get(`/api/documents/${id}`);
+  expect(res.status).toBe(200);
+  return res.body;
+}
+
+async function revisionOf(h: Harness, id: string): Promise<string> {
+  return (await getDoc(h, id)).revision;
+}
+
+/** A `writeMarkdown` file as the app re-stamps it: only `updated_at` differs. */
+function restamped(written: string, updatedAt: string): string {
+  return written.replace("updated_at: '2026-01-01T00:00:00.000Z'", `updated_at: '${updatedAt}'`);
+}
+
 describe('Board read: GET /api/projects/:projectId/board', () => {
   let h: Harness;
   beforeEach(async () => {
@@ -597,12 +615,6 @@ describe('Moving a card: PUT task_state', () => {
   });
   afterEach(() => teardown(h));
 
-  async function revisionOf(id: string): Promise<string> {
-    const res = await request(h.app).get(`/api/documents/${id}`);
-    expect(res.status).toBe(200);
-    return res.body.revision as string;
-  }
-
   it('writes only task_state (after status) and updated_at, byte for byte', async () => {
     const before = await writeMarkdown(h, 'backlog/legacy.md', {
       id: ID.a,
@@ -613,13 +625,14 @@ describe('Moving a card: PUT task_state', () => {
 
     const res = await request(h.app)
       .put(`/api/documents/${ID.a}`)
-      .set('If-Match', await revisionOf(ID.a))
+      .set('If-Match', await revisionOf(h, ID.a))
       .send({ task_state: 'in_progress' });
     expect(res.status).toBe(200);
 
-    const expected = before
-      .replace('status: active\n', 'status: active\ntask_state: in_progress\n')
-      .replace("updated_at: '2026-01-01T00:00:00.000Z'", `updated_at: '${res.body.updated_at}'`);
+    const expected = restamped(before, res.body.updated_at).replace(
+      'status: active\n',
+      'status: active\ntask_state: in_progress\n',
+    );
     expect(await readDisk(h, `${PROJECT}/backlog/legacy.md`)).toBe(expected);
     expect(ids((await getBoard(h)).in_progress)).toEqual([ID.a]);
   });
@@ -641,7 +654,7 @@ describe('Moving a card: PUT task_state', () => {
 
     const res = await request(h.app)
       .put(`/api/documents/${ID.b}`)
-      .set('If-Match', await revisionOf(ID.b))
+      .set('If-Match', await revisionOf(h, ID.b))
       .send({ task_state: 'done' });
     expect(res.status).toBe(200);
 
@@ -659,13 +672,14 @@ describe('Moving a card: PUT task_state', () => {
 
     const res = await request(h.app)
       .put(`/api/documents/${ID.a}`)
-      .set('If-Match', await revisionOf(ID.a))
+      .set('If-Match', await revisionOf(h, ID.a))
       .send({ task_state: 'done' });
     expect(res.status).toBe(200);
 
-    const expected = before
-      .replace('task_state: Doing\n', 'task_state: done\n')
-      .replace("updated_at: '2026-01-01T00:00:00.000Z'", `updated_at: '${res.body.updated_at}'`);
+    const expected = restamped(before, res.body.updated_at).replace(
+      'task_state: Doing\n',
+      'task_state: done\n',
+    );
     expect(await readDisk(h, `${PROJECT}/backlog/doing.md`)).toBe(expected);
   });
 
@@ -687,7 +701,7 @@ describe('Moving a card: PUT task_state', () => {
     for (const id of [ID.a, ID.b]) {
       const edit = await request(h.app)
         .put(`/api/documents/${id}`)
-        .set('If-Match', await revisionOf(id))
+        .set('If-Match', await revisionOf(h, id))
         .send({ title: 'Renamed', body: 'New body\n', tags: ['moved'] });
       expect(edit.status).toBe(200);
       const moved = await request(h.app)
@@ -736,7 +750,7 @@ describe('Moving a card: PUT task_state', () => {
     await reload(h);
     const edit = await request(h.app)
       .put(`/api/documents/${ID.a}`)
-      .set('If-Match', await revisionOf(ID.a))
+      .set('If-Match', await revisionOf(h, ID.a))
       .send({ body: 'Edited\n' });
     expect(edit.status).toBe(200);
     expect(await readDisk(h, `${PROJECT}/notes/note.md`)).toContain('task_state: in_progress\n');
@@ -750,7 +764,7 @@ describe('Moving a card: PUT task_state', () => {
       created_at: '2026-01-01T00:00:00.000Z',
     });
     await reload(h);
-    const revision = await revisionOf(ID.a);
+    const revision = await revisionOf(h, ID.a);
     await request(h.app).put(`/api/projects/${PROJECT}`).send({ readOnly: true });
 
     const res = await request(h.app)
@@ -777,6 +791,56 @@ describe('Moving a card: PUT task_state', () => {
       .send({ task_state: 'done' });
     expect(stale.status).toBe(409);
     expect(await readDisk(h, doc.path)).toBe(before);
+  });
+});
+
+describe('Folder moves keep the file byte for byte', () => {
+  let h: Harness;
+  beforeEach(async () => {
+    h = await setup();
+    await createProject(h);
+  });
+  afterEach(() => teardown(h));
+
+  async function moveTo(id: string, folder: string): Promise<string> {
+    const res = await request(h.app).post(`/api/documents/${id}/move`).send({ folder });
+    expect(res.status).toBe(200);
+    return res.body.path as string;
+  }
+
+  it('moves a backlog item, unrecognised task_state included, changing only updated_at', async () => {
+    const before = await writeMarkdown(
+      h,
+      'backlog/doing.md',
+      { id: ID.a, title: 'Doing', created_at: '2026-01-01T00:00:00.000Z' },
+      ['task_state: Doing'],
+    );
+    await reload(h);
+
+    const moved = await moveTo(ID.a, 'later');
+    expect(moved).toBe(`${PROJECT}/later/doing.md`);
+    expect(await readDisk(h, moved)).toBe(restamped(before, (await getDoc(h, ID.a)).updated_at));
+    expect(await h.ctx.fs.listProjectFiles(PROJECT)).toEqual([moved]);
+    expect((await getBoard(h)).todo).toMatchObject([{ id: ID.a, task_state: 'Doing' }]);
+  });
+
+  it('keeps task_state on a non-backlog document through a move and a reindex', async () => {
+    const before = await writeMarkdown(
+      h,
+      'notes/note.md',
+      { id: ID.a, title: 'Note', type: 'note', created_at: '2026-01-01T00:00:00.000Z' },
+      ['task_state: in_progress'],
+    );
+    await reload(h);
+    expect(await readDisk(h, `${PROJECT}/notes/note.md`)).toBe(before);
+
+    const moved = await moveTo(ID.a, 'elsewhere');
+    const afterMove = restamped(before, (await getDoc(h, ID.a)).updated_at);
+    expect(await readDisk(h, moved)).toBe(afterMove);
+
+    await reload(h);
+    expect(await readDisk(h, moved)).toBe(afterMove);
+    expect(await h.ctx.fs.listProjectFiles(PROJECT)).toEqual([moved]);
   });
 });
 
@@ -998,6 +1062,41 @@ describe('Archive and restore keep task_state', () => {
     expect(archived.status).toBe(200);
     expect(await readDisk(h, archived.body.path)).toContain('task_state: in_progress\n');
     expect((await getBoard(h)).in_progress).toEqual([]);
+  });
+
+  it('archive and restore keep an unrecognised task_state verbatim, byte for byte', async () => {
+    const before = await writeMarkdown(
+      h,
+      'backlog/someday.md',
+      { id: ID.a, title: 'Someday', created_at: '2026-01-01T00:00:00.000Z' },
+      ['task_state: Someday'],
+    );
+    await reload(h);
+    const revision = await revisionOf(h, ID.a);
+
+    const archived = await request(h.app)
+      .put(`/api/documents/${ID.a}`)
+      .set('If-Match', revision)
+      .send({ status: 'archived' });
+    expect(archived.status).toBe(200);
+    expect(await readDisk(h, archived.body.path)).toBe(
+      restamped(before, archived.body.updated_at).replace(
+        'status: active\ntask_state: Someday\n',
+        'status: archived\ntask_state: Someday\n',
+      ),
+    );
+    expect((await getBoard(h)).todo).toEqual([]);
+
+    const restored = await request(h.app)
+      .put(`/api/documents/${ID.a}`)
+      .set('If-Match', archived.body.revision)
+      .send({ status: 'active' });
+    expect(restored.status).toBe(200);
+    expect(restored.body.path).toBe(`${PROJECT}/backlog/someday.md`);
+    expect(await readDisk(h, restored.body.path)).toBe(restamped(before, restored.body.updated_at));
+    expect(await h.ctx.fs.listProjectFiles(PROJECT)).toEqual([restored.body.path]);
+    const [card] = (await getBoard(h)).todo;
+    expect(card).toMatchObject({ id: ID.a, task_state: 'Someday' });
   });
 
   it('refuses archiving in a read-only project with 409 and leaves the file unchanged', async () => {
