@@ -11,7 +11,7 @@ afterEach(() => {
 });
 
 describe('Help chapter registry', () => {
-  it('loads all seven chapters in documented order', () => {
+  it('loads all eight chapters in documented order', () => {
     const slugs = HELP_CHAPTERS.map((c) => c.slug);
     expect(slugs).toEqual([
       'markdown-basics',
@@ -21,6 +21,7 @@ describe('Help chapter registry', () => {
       'templates',
       'projects',
       'import-export',
+      'mounting-docs',
     ]);
   });
 
