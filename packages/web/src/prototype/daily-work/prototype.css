@@ -1,0 +1,352 @@
+/* PROTOTYPE — throwaway styles for /prototype/daily-work. */
+
+.proto-main {
+  overflow: auto;
+}
+.proto-page {
+  padding: 16px 20px 96px;
+  max-width: 980px;
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+}
+.proto-small {
+  font-size: 12px;
+}
+.proto-error {
+  color: var(--danger);
+  font-size: 12px;
+}
+.proto-ok {
+  color: var(--ok);
+  font-size: 12px;
+}
+.proto-count {
+  font-size: 11px;
+  color: var(--fg-muted);
+  margin-left: 4px;
+}
+.proto-lock {
+  width: 12px;
+  height: 12px;
+  margin-left: 4px;
+  opacity: 0.7;
+}
+.proto-inbox-mark {
+  margin-right: 4px;
+  color: var(--accent);
+}
+.proto-project-name {
+  display: inline-flex;
+  align-items: center;
+}
+
+.proto-input,
+.proto-select,
+.proto-textarea {
+  background: var(--bg-panel);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 13px;
+}
+.proto-input {
+  flex: 1;
+  min-width: 0;
+}
+.proto-input:focus,
+.proto-select:focus,
+.proto-textarea:focus {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+.proto-select--sm {
+  padding: 2px 4px;
+  font-size: 12px;
+}
+.proto-textarea {
+  width: 100%;
+  min-height: 220px;
+  box-sizing: border-box;
+  resize: vertical;
+}
+
+.proto-capture {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.proto-capture-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.proto-capture-feedback {
+  min-height: 18px;
+}
+.proto-capture--big .proto-input {
+  font-size: 15px;
+  padding: 10px 12px;
+}
+
+.proto-popover {
+  position: fixed;
+  top: 52px;
+  right: 16px;
+  z-index: 50;
+  width: min(560px, calc(100vw - 32px));
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--overlay-shadow);
+  padding: 12px;
+}
+.proto-capture-palette {
+  padding: 12px;
+}
+.proto-board-add {
+  padding: 8px 8px 0;
+}
+
+.proto-section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.proto-section-head h2 {
+  margin: 0;
+  font-size: 15px;
+}
+.proto-group {
+  margin-bottom: 14px;
+}
+.proto-group-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.proto-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.proto-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.proto-row .board-card-title {
+  flex: 1;
+}
+.proto-row.read-only {
+  opacity: 0.75;
+}
+.proto-row.saving,
+.proto-triage-card.saving {
+  opacity: 0.6;
+}
+.proto-current--dense .proto-row {
+  padding: 4px 8px;
+}
+.proto-notice-error {
+  color: var(--danger);
+  border: 1px solid var(--danger);
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+.proto-card-actions {
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.proto-home {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.proto-home-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 800px) {
+  .proto-home-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.proto-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.proto-editor-body {
+  padding: 12px 20px 96px;
+  max-width: 860px;
+}
+.proto-editor-body h2 {
+  margin: 8px 0 4px;
+}
+.proto-stub-note {
+  font-size: 12px;
+  color: var(--warning);
+  border: 1px dashed var(--warning);
+  padding: 6px 8px;
+  border-radius: 6px;
+}
+
+.proto-c {
+  display: flex;
+  min-height: 0;
+}
+.proto-rail {
+  flex: 0 0 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 8px;
+  background: var(--bg-elev);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+}
+.proto-rail-capture {
+  margin-bottom: 8px;
+}
+.proto-rail-label {
+  font-size: 11px;
+  color: var(--fg-muted);
+  text-transform: uppercase;
+  margin: 10px 6px 4px;
+}
+.proto-rail-item {
+  background: none;
+  border: none;
+  color: var(--fg);
+  text-align: left;
+  padding: 5px 8px;
+  border-radius: 5px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.proto-rail-item:hover {
+  background: var(--hover);
+}
+.proto-rail-item.active {
+  background: var(--selected);
+  color: var(--accent);
+}
+.proto-c-main {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+}
+.proto-drawer {
+  flex: 0 0 320px;
+  border-left: 1px solid var(--border);
+  background: var(--bg-elev);
+  padding: 12px;
+  overflow-y: auto;
+  padding-bottom: 96px;
+}
+.proto-triage-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.proto-triage-card h3 {
+  margin: 0;
+  font-size: 17px;
+}
+.proto-triage-targets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* Prototype chrome — deliberately unlike the app. */
+.proto-switcher {
+  position: fixed;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: calc(100vw - 24px);
+  box-sizing: border-box;
+  background: #fde047;
+  color: #111;
+  border-radius: 999px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+  font:
+    12px/1.2 ui-monospace,
+    monospace;
+}
+.proto-switcher button,
+.proto-switcher select {
+  background: #111;
+  color: #fde047;
+  border: none;
+  border-radius: 999px;
+  padding: 3px 9px;
+  font: inherit;
+  cursor: pointer;
+}
+.proto-switcher-label {
+  font-weight: 700;
+}
+.proto-switcher-sep {
+  width: 1px;
+  height: 16px;
+  background: #111;
+  opacity: 0.3;
+}
+.proto-state {
+  position: fixed;
+  top: 60px;
+  right: 12px;
+  bottom: 70px;
+  width: 420px;
+  z-index: 900;
+  overflow: auto;
+  background: #111;
+  color: #e5e7eb;
+  border: 2px solid #fde047;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font:
+    11px/1.35 ui-monospace,
+    monospace;
+}
+.proto-state h3 {
+  margin: 6px 0;
+  color: #fde047;
+  font-size: 12px;
+}
+.proto-state pre {
+  white-space: pre-wrap;
+  margin: 0;
+}

@@ -26,7 +26,8 @@
     "bench": "tsx scripts/bench-search.ts",
     "bench:graph": "tsx scripts/bench-graph.ts",
     "register-docs": "tsx scripts/register-docs-project.ts",
-    "bundle-audit": "tsx scripts/bundle-audit.ts"
+    "bundle-audit": "tsx scripts/bundle-audit.ts",
+    "prototype:daily-work": "npm -w @backlogger/web run dev -- --open /prototype/daily-work?variant=A"
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0",

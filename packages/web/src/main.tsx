@@ -2,6 +2,8 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { App } from './App.js';
+// PROTOTYPE — throwaway (branch prototype/daily-work-interface): dev-only route.
+import { DailyWorkPrototype } from './prototype/daily-work/DailyWorkPrototype.js';
 import { DialogProvider } from './lib/dialog.js';
 import { ErrorBoundary } from './components/ErrorBoundary.js';
 
@@ -19,7 +21,11 @@ ReactDOM.createRoot(rootEl).render(
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <DialogProvider>
-          <App />
+          {import.meta.env.DEV && window.location.pathname.startsWith('/prototype/daily-work') ? (
+            <DailyWorkPrototype />
+          ) : (
+            <App />
+          )}
         </DialogProvider>
       </QueryClientProvider>
     </ErrorBoundary>
