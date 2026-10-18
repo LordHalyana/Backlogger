@@ -38,7 +38,9 @@ SQLite and memory-derived data include:
 
 - `projects`: project registry.
 - `documents`: document metadata plus indexed body data, including the
-  `read_only` flag derived during indexing.
+  `read_only` flag derived during indexing, the `revision` fingerprint of the
+  persisted content (the `If-Match` token), and the frontmatter `task_state`
+  verbatim (the board reads it; `NULL` when absent).
 - `documents_fts`: full-text search index maintained from document rows by SQL
   triggers (see `migrations/0003_search.sql`).
 - `links`: outgoing wiki links and resolved targets.
@@ -75,7 +77,7 @@ DocumentService.update
 
 Required updates:
 
-- Enforce optimistic locking when `If-Match` is provided.
+- Inside the project mutation queue, compare `If-Match` (when provided) with the revision of the file on disk; 409 on mismatch.
 - Write the updated Markdown file.
 - Move file if archive status changes.
 - Upsert `documents`.
@@ -175,6 +177,9 @@ Central caches currently include:
 - `['backlinks', documentId]`
 - `['graph', projectId]`
 - `['folders', projectId]`
+- `['board', projectId]` (backlog items by task state; invalidated with the
+  document-derived caches and with the project list, since cards carry the
+  project's read-only flag)
 
 When document body/frontmatter changes, invalidate or update:
 

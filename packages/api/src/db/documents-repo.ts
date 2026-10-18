@@ -12,6 +12,8 @@ interface DocumentRow {
   read_only: number;
   created_at: string;
   updated_at: string;
+  revision: string;
+  task_state: string | null;
 }
 
 function rowToSummary(row: DocumentRow): DocumentSummary {
@@ -33,6 +35,7 @@ function rowToSummary(row: DocumentRow): DocumentSummary {
     readOnly: row.read_only === 1,
     created_at: row.created_at,
     updated_at: row.updated_at,
+    revision: row.revision,
   };
 }
 
@@ -48,6 +51,14 @@ export interface DocumentUpsertInput {
   body: string;
   created_at: string;
   updated_at: string;
+  revision: string;
+  /** Frontmatter `task_state`, verbatim; `null` when absent. */
+  task_state: string | null;
+}
+
+/** A document summary plus its task state, as the board needs it. */
+export interface BoardItem extends DocumentSummary {
+  task_state: string | null;
 }
 
 export class DocumentsRepo {
@@ -81,6 +92,18 @@ export class DocumentsRepo {
     return rows.map(rowToSummary);
   }
 
+  /** Non-archived backlog items of a project, by `created_at` then id. */
+  listBoardItems(projectId: string): BoardItem[] {
+    const rows = this.db
+      .prepare<[string], DocumentRow>(
+        `SELECT * FROM documents
+         WHERE project_id = ? AND type = 'backlog_item' AND status != 'archived'
+         ORDER BY created_at, id`,
+      )
+      .all(projectId);
+    return rows.map((row) => ({ ...rowToSummary(row), task_state: row.task_state }));
+  }
+
   find(id: string): DocumentSummary | undefined {
     const row = this.db
       .prepare<[string], DocumentRow>(`SELECT * FROM documents WHERE id = ?`)
@@ -99,9 +122,9 @@ export class DocumentsRepo {
     this.db
       .prepare(
         `INSERT INTO documents
-           (id, project_id, title, type, status, path, tags, read_only, body_indexed, created_at, updated_at)
+           (id, project_id, title, type, status, path, tags, read_only, body_indexed, created_at, updated_at, revision, task_state)
          VALUES
-           (@id, @project_id, @title, @type, @status, @path, @tags, @read_only, @body_indexed, @created_at, @updated_at)
+           (@id, @project_id, @title, @type, @status, @path, @tags, @read_only, @body_indexed, @created_at, @updated_at, @revision, @task_state)
          ON CONFLICT(id) DO UPDATE SET
            project_id   = excluded.project_id,
            title        = excluded.title,
@@ -111,7 +134,9 @@ export class DocumentsRepo {
            tags         = excluded.tags,
            read_only    = excluded.read_only,
            body_indexed = excluded.body_indexed,
-           updated_at   = excluded.updated_at`,
+           updated_at   = excluded.updated_at,
+           revision     = excluded.revision,
+           task_state   = excluded.task_state`,
       )
       .run({
         ...input,

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { ProjectIdSchema } from './projects.js';
 import { TagSchema } from './tags.js';
+import { TaskStateSchema } from './tasks.js';
 
 /**
  * Canonical list of document types. This is the single source of truth:
@@ -90,6 +91,12 @@ export const FrontmatterSchema = z.object({
   project: ProjectIdSchema,
   type: DocumentTypeSchema,
   status: DocumentStatusSchema.default('draft'),
+  /**
+   * Task state of a backlog item (see tasks.ts). Tolerant on purpose: any
+   * value parses and is kept verbatim, so a legacy or hand-edited file never
+   * fails the schema. Placed after `status` so it serialises there.
+   */
+  task_state: z.unknown().optional(),
   created_at: z.string().datetime({ offset: true }),
   updated_at: z.string().datetime({ offset: true }),
   tags: z.array(TagSchema).default([]),
@@ -107,7 +114,10 @@ export const DocumentSummarySchema = z.object({
   tags: z.array(TagSchema),
   readOnly: z.boolean().default(false),
   created_at: z.string().datetime({ offset: true }),
+  /** Last edit time, for display only. Use `revision` for If-Match. */
   updated_at: z.string().datetime({ offset: true }),
+  /** Opaque fingerprint of the persisted content; send it as `If-Match`. */
+  revision: z.string(),
 });
 export type DocumentSummary = z.infer<typeof DocumentSummarySchema>;
 
@@ -121,6 +131,8 @@ export const CreateDocumentRequestSchema = z.object({
   title: z.string().min(1).max(200),
   type: DocumentTypeSchema,
   status: DocumentStatusSchema.optional(),
+  /** Backlog items only (400 otherwise). Defaults to `todo` for backlog items. */
+  task_state: TaskStateSchema.optional(),
   tags: z.array(TagSchema).optional(),
   body: z.string().optional(),
   /** Optional template id; resolved by Block 5. */
@@ -138,6 +150,8 @@ export const UpdateDocumentRequestSchema = z
   .object({
     title: z.string().min(1).max(200).optional(),
     status: DocumentStatusSchema.optional(),
+    /** Backlog items only (400 otherwise); recognised values only. */
+    task_state: TaskStateSchema.optional(),
     tags: z.array(TagSchema).optional(),
     body: z.string().optional(),
   })

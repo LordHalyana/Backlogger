@@ -100,6 +100,8 @@ Services own domain behavior:
 - `TagsService`: tag counts and tag filters.
 - `GraphService`: graph payload and in-memory cache.
 - `HealthService`: subsystem health snapshot.
+- `BoardService`: the project board (non-archived backlog items by task state, in creation order).
+- `ProjectQueue`: one in-process operation queue per project, shared by every document mutation and project reindex so they never interleave. Assumes a single server process per data dir. The full reindex (`ReindexService.run`, used at startup with an empty index and by `POST /api/admin/reindex`) does not go through it.
 
 Document writes should go through `DocumentService` so filesystem, SQLite, links, tags, search, and graph invalidation stay aligned.
 
@@ -149,6 +151,7 @@ Main feature components:
 - `SettingsDialog`
 - `HelpDrawer`
 - `KnowledgeGraph`
+- `TaskBoard`
 
 Supporting components include `NewDocumentDialog`, `Modal`, `SegmentedControl`,
 `FolderField`, `FolderTreeGroup`, `TagChip`, `TagInput`, `StatusMessage`,

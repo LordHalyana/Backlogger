@@ -18,6 +18,7 @@ const initialDoc: Document = {
   readOnly: false,
   created_at: '2026-05-01T00:00:00.000Z',
   updated_at: '2026-05-01T00:00:00.000Z',
+  revision: 'rev-1',
   body: 'first line\n',
 };
 
@@ -118,6 +119,7 @@ describe('DocumentWorkspace dirty → save → clean flow', () => {
       ...initialDoc,
       title: 'World',
       updated_at: '2026-05-01T00:00:01.000Z',
+      revision: 'rev-2',
     };
     setUpdateResponse(updated);
 
@@ -132,7 +134,7 @@ describe('DocumentWorkspace dirty → save → clean flow', () => {
 
     const putCall = calls.find((c) => c.init?.method === 'PUT');
     expect(putCall).toBeDefined();
-    expect(putCall!.init!.headers).toMatchObject({ 'If-Match': initialDoc.updated_at });
+    expect(putCall!.init!.headers).toMatchObject({ 'If-Match': initialDoc.revision });
     const sentBody = JSON.parse(putCall!.init!.body as string) as { title: string };
     expect(sentBody.title).toBe('World');
   });
@@ -192,6 +194,7 @@ describe('DocumentWorkspace dirty → save → clean flow', () => {
         ...initialDoc,
         title: 'Remote Update',
         updated_at: '2026-05-01T00:00:02.000Z',
+        revision: 'rev-3',
       });
     });
 

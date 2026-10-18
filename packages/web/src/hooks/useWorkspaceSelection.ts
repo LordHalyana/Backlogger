@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   readWorkspaceFromUrl,
   syncWorkspaceUrl,
+  type WorkspaceView,
 } from '../lib/workspace-url.js';
 
 export interface WorkspaceSelection {
@@ -9,6 +10,11 @@ export interface WorkspaceSelection {
   projectId: string | null;
   /** Currently open document within the selected project, or `null`. */
   documentId: string | null;
+  /**
+   * Documents or Board. A document opened in the Board view keeps that view
+   * (its URL is `/board/documents/:id`), so the editor can link back.
+   */
+  view: WorkspaceView;
   /** Active tag filters for the document tree. */
   tags: string[];
   /**
@@ -17,6 +23,10 @@ export interface WorkspaceSelection {
    * project.  Selecting the same project is a no-op.
    */
   selectProject: (id: string | null) => void;
+  /** Switch the project between the Documents and Board views. */
+  selectView: (view: WorkspaceView) => void;
+  /** Open a document picked in the tree: always the Documents view. */
+  selectTreeDocument: (id: string) => void;
   /** Open (or clear, with `null`) a document in the current project. */
   selectDocument: (id: string | null) => void;
   /**
@@ -48,17 +58,18 @@ export function useWorkspaceSelection(): WorkspaceSelection {
   const initial = readWorkspaceFromUrl();
   const [projectId, setProjectId] = useState<string | null>(initial.projectId);
   const [documentId, setDocumentId] = useState<string | null>(initial.documentId);
+  const [view, setView] = useState<WorkspaceView>(initial.view);
   const [tags, setTags] = useState<string[]>([]);
   // Mirror of projectId so the stable callbacks can compare against the current
   // value without depending on it (and being recreated every selection).
   const projectIdRef = useRef<string | null>(initial.projectId);
 
-  // Reflect project/document selection into the URL path (preserving any
-  // `?help=` query / hash). Only project + document are URL-synced; tags stay
-  // local state. Skipped when the path already matches (initial load, popstate).
+  // Reflect project/view/document selection into the URL path (preserving any
+  // `?help=` query / hash). Tags stay local state. Skipped when the path
+  // already matches (initial load, popstate).
   useEffect(() => {
-    syncWorkspaceUrl(projectId, documentId);
-  }, [projectId, documentId]);
+    syncWorkspaceUrl(projectId, documentId, view);
+  }, [projectId, documentId, view]);
 
   // Back/forward navigation maps to workspace navigation: re-read the URL and
   // apply it. The sync effect above then sees a matching path and does not push.
@@ -69,6 +80,7 @@ export function useWorkspaceSelection(): WorkspaceSelection {
       projectIdRef.current = next.projectId;
       setProjectId(next.projectId);
       setDocumentId(next.documentId);
+      setView(next.view);
       setTags([]);
     };
     window.addEventListener('popstate', onPopState);
@@ -80,10 +92,21 @@ export function useWorkspaceSelection(): WorkspaceSelection {
     projectIdRef.current = id;
     setProjectId(id);
     setDocumentId(null);
+    setView('documents');
     setTags([]);
   }, []);
 
+  const selectView = useCallback((next: WorkspaceView): void => {
+    setView(next);
+    setDocumentId(null);
+  }, []);
+
   const selectDocument = useCallback((id: string | null): void => {
+    setDocumentId(id);
+  }, []);
+
+  const selectTreeDocument = useCallback((id: string): void => {
+    setView('documents');
     setDocumentId(id);
   }, []);
 
@@ -113,8 +136,11 @@ export function useWorkspaceSelection(): WorkspaceSelection {
   return {
     projectId,
     documentId,
+    view,
     tags,
     selectProject,
+    selectView,
+    selectTreeDocument,
     selectDocument,
     openDocument,
     toggleTag,

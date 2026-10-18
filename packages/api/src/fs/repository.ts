@@ -9,6 +9,7 @@ import {
 } from './errors.js';
 import { PathResolver, PROJECT_SUBDIRS } from './path-resolver.js';
 import { SIDECAR_DIR } from '@backlogger/shared';
+import { contentRevision } from './revision.js';
 
 /** A parsed Markdown document on disk. */
 export interface RawDocument {
@@ -16,6 +17,8 @@ export interface RawDocument {
   path: string;
   frontmatter: Record<string, unknown>;
   body: string;
+  /** Fingerprint of the file's exact bytes (see `contentRevision`). */
+  revision: string;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -186,6 +189,7 @@ export class FsRepository {
       path: toForwardSlash(relativePath),
       frontmatter: parsed.frontmatter,
       body: parsed.body,
+      revision: contentRevision(raw),
     };
   }
 
@@ -194,42 +198,35 @@ export class FsRepository {
    *
    * Strategy: write to `<target>.tmp.<pid>.<rand>` in the same directory,
    * fsync, then rename. On error, the temp file is best-effort removed.
+   * Returns the revision of the written content.
    */
-  async write(relativePath: string, doc: Omit<RawDocument, 'path'>): Promise<void> {
+  async write(
+    relativePath: string,
+    doc: Pick<RawDocument, 'frontmatter' | 'body'>,
+  ): Promise<string> {
     const absolute = this.resolver.resolveRelative(relativePath);
     await this.resolver.assertNoSymlinks(absolute);
     await fs.mkdir(path.dirname(absolute), { recursive: true });
 
     const serialized = matter.stringify(doc.body, doc.frontmatter);
-    const tmpName = `${path.basename(absolute)}.tmp.${process.pid}.${randomBytes(6).toString('hex')}`;
-    const tmpPath = path.join(path.dirname(absolute), tmpName);
-
-    let handle: fs.FileHandle | undefined;
-    try {
-      handle = await fs.open(tmpPath, 'wx');
-      await handle.writeFile(serialized, 'utf8');
-      await handle.sync();
-    } finally {
-      await handle?.close().catch(() => undefined);
-    }
-
-    try {
-      await fs.rename(tmpPath, absolute);
-    } catch (err) {
-      await fs.rm(tmpPath, { force: true }).catch(() => undefined);
-      throw err;
-    }
+    await this.writeAtomic(absolute, serialized);
+    return contentRevision(serialized);
   }
 
   /**
    * Atomically write raw file content with NO frontmatter serialization.
    * Used by sidecar-mode projects so source `.md` files stay frontmatter-free.
+   * Returns the revision of the written content.
    */
-  async writeRaw(relativePath: string, content: string): Promise<void> {
+  async writeRaw(relativePath: string, content: string): Promise<string> {
     const absolute = this.resolver.resolveRelative(relativePath);
     await this.resolver.assertNoSymlinks(absolute);
     await fs.mkdir(path.dirname(absolute), { recursive: true });
+    await this.writeAtomic(absolute, content);
+    return contentRevision(content);
+  }
 
+  private async writeAtomic(absolute: string, content: string): Promise<void> {
     const tmpName = `${path.basename(absolute)}.tmp.${process.pid}.${randomBytes(6).toString('hex')}`;
     const tmpPath = path.join(path.dirname(absolute), tmpName);
 
@@ -312,6 +309,7 @@ async function* walkMarkdown(
           path: rel,
           frontmatter: parsed.frontmatter,
           body: parsed.body,
+          revision: contentRevision(raw),
           createdAt: st.birthtime.toISOString(),
           updatedAt: st.mtime.toISOString(),
         };

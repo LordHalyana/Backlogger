@@ -35,32 +35,61 @@ describe('workspacePathname', () => {
 describe('readWorkspaceFromUrl', () => {
   it('returns nulls at the root', () => {
     setPath('/');
-    expect(readWorkspaceFromUrl()).toEqual({ projectId: null, documentId: null });
+    expect(readWorkspaceFromUrl()).toEqual({ projectId: null, documentId: null, view: 'documents' });
   });
 
   it('reads a project-only path', () => {
     setPath('/projects/demo');
-    expect(readWorkspaceFromUrl()).toEqual({ projectId: 'demo', documentId: null });
+    expect(readWorkspaceFromUrl()).toEqual({ projectId: 'demo', documentId: null, view: 'documents' });
   });
 
   it('reads a project + document path', () => {
     setPath('/projects/demo/documents/doc-1');
-    expect(readWorkspaceFromUrl()).toEqual({ projectId: 'demo', documentId: 'doc-1' });
+    expect(readWorkspaceFromUrl()).toEqual({ projectId: 'demo', documentId: 'doc-1', view: 'documents' });
   });
 
   it('decodes encoded segments', () => {
     setPath('/projects/a%20b/documents/c%2Fd');
-    expect(readWorkspaceFromUrl()).toEqual({ projectId: 'a b', documentId: 'c/d' });
+    expect(readWorkspaceFromUrl()).toEqual({ projectId: 'a b', documentId: 'c/d', view: 'documents' });
   });
 
   it('ignores unrelated paths', () => {
     setPath('/something/else');
-    expect(readWorkspaceFromUrl()).toEqual({ projectId: null, documentId: null });
+    expect(readWorkspaceFromUrl()).toEqual({ projectId: null, documentId: null, view: 'documents' });
   });
 
   it('round-trips with workspacePathname', () => {
     setPath(workspacePathname('demo', 'doc-1'));
-    expect(readWorkspaceFromUrl()).toEqual({ projectId: 'demo', documentId: 'doc-1' });
+    expect(readWorkspaceFromUrl()).toEqual({ projectId: 'demo', documentId: 'doc-1', view: 'documents' });
+  });
+});
+
+describe('board view URLs', () => {
+  it('builds the board path and the board-opened document path', () => {
+    expect(workspacePathname('demo', null, 'board')).toBe('/projects/demo/board');
+    expect(workspacePathname('demo', 'doc-1', 'board')).toBe(
+      '/projects/demo/board/documents/doc-1',
+    );
+  });
+
+  it('reads the board path', () => {
+    setPath('/projects/demo/board');
+    expect(readWorkspaceFromUrl()).toEqual({ projectId: 'demo', documentId: null, view: 'board' });
+  });
+
+  it('reads a document opened from the board', () => {
+    setPath('/projects/demo/board/documents/doc-1');
+    expect(readWorkspaceFromUrl()).toEqual({
+      projectId: 'demo',
+      documentId: 'doc-1',
+      view: 'board',
+    });
+  });
+
+  it('syncs the board view into the path', () => {
+    setPath('/projects/demo');
+    syncWorkspaceUrl('demo', null, 'board');
+    expect(window.location.pathname).toBe('/projects/demo/board');
   });
 });
 

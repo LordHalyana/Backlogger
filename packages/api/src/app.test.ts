@@ -3,48 +3,11 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import request from 'supertest';
-import { fileURLToPath } from 'node:url';
-import type { Express } from 'express';
 import { createApp } from './app.js';
 import { buildContext } from './context.js';
-import { openDatabase, type Db } from './db/database.js';
+import { openDatabase } from './db/database.js';
 import { loadTemplatesFromDir, TemplateRegistry } from './templates/registry.js';
-
-const MIGRATIONS_DIR = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  '..',
-  '..',
-  '..',
-  'migrations',
-);
-
-const TEMPLATES_DIR = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  '..',
-  'templates',
-);
-
-interface Harness {
-  app: Express;
-  dataDir: string;
-  db: Db;
-}
-
-async function setup(): Promise<Harness> {
-  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'backlogger-api-'));
-  const db = openDatabase({ file: ':memory:', migrationsDir: MIGRATIONS_DIR });
-  const templates = new TemplateRegistry();
-  const { loaded } = await loadTemplatesFromDir(TEMPLATES_DIR);
-  templates.setAll(loaded);
-  const ctx = buildContext({ db, dataDir, templates });
-  await ctx.fs.ensureRoot();
-  return { app: createApp(ctx), dataDir, db };
-}
-
-async function teardown(h: Harness): Promise<void> {
-  h.db.close();
-  await fs.rm(h.dataDir, { recursive: true, force: true });
-}
+import { MIGRATIONS_DIR, setup, teardown, TEMPLATES_DIR, type Harness } from './test-support.js';
 
 describe('GET /health', () => {
   let h: Harness;
@@ -95,15 +58,8 @@ describe('CORS allow-list', () => {
     h = null;
   });
 
-  async function setupWithOrigins(allowed: string[] | '*' | undefined): Promise<Harness> {
-    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'backlogger-api-cors-'));
-    const db = openDatabase({ file: ':memory:', migrationsDir: MIGRATIONS_DIR });
-    const templates = new TemplateRegistry();
-    const { loaded } = await loadTemplatesFromDir(TEMPLATES_DIR);
-    templates.setAll(loaded);
-    const ctx = buildContext({ db, dataDir, templates });
-    await ctx.fs.ensureRoot();
-    return { app: createApp(ctx, { allowedOrigins: allowed }), dataDir, db };
+  function setupWithOrigins(allowed: string[] | '*' | undefined): Promise<Harness> {
+    return setup({ allowedOrigins: allowed });
   }
 
   it('reflects any origin when allowedOrigins is "*"', async () => {
@@ -356,7 +312,7 @@ describe('Documents API', () => {
       .send({ title: 'Lock', type: 'note' });
     const res = await request(h.app)
       .put(`/api/documents/${created.body.id}`)
-      .set('If-Match', created.body.updated_at)
+      .set('If-Match', created.body.revision)
       .send({ title: 'New2' });
     expect(res.status).toBe(200);
     expect(res.body.title).toBe('New2');
@@ -825,7 +781,7 @@ describe('Links API', () => {
     const doc = (await request(h.app).get(`/api/documents/${sourceId}`)).body;
     const upd = await request(h.app)
       .put(`/api/documents/${sourceId}`)
-      .set('If-Match', doc.updated_at)
+      .set('If-Match', doc.revision)
       .send({ body: 'See [[B]] now' });
     expect(upd.status).toBe(200);
 
@@ -850,7 +806,7 @@ describe('Links API', () => {
     const doc = (await request(h.app).get(`/api/documents/${targetId}`)).body;
     const upd = await request(h.app)
       .put(`/api/documents/${targetId}`)
-      .set('If-Match', doc.updated_at)
+      .set('If-Match', doc.revision)
       .send({ title: 'Second Name' });
     expect(upd.status).toBe(200);
 
@@ -1008,7 +964,7 @@ describe('Templates API — user templates', () => {
       userTemplatesDir: userDir,
     });
     await ctx.fs.ensureRoot();
-    h = { app: createApp(ctx), dataDir, db };
+    h = { app: createApp(ctx), dataDir, db, ctx };
   });
 
   afterEach(async () => {
@@ -1331,7 +1287,7 @@ describe('Project Reload API', () => {
 
     const update = await request(h.app)
       .put(`/api/documents/${doc!.id}`)
-      .set('If-Match', fetched.body.updated_at)
+      .set('If-Match', fetched.body.revision)
       .send({ title: 'Adopted', body: 'adopted body' });
     expect(update.status).toBe(200);
     expect(update.body).toMatchObject({

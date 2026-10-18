@@ -28,3 +28,4 @@ export * from './wiki-link.js';
 export * from './tags.js';
 export * from './import.js';
 export * from './sidecar.js';
+export * from './tasks.js';

@@ -17,15 +17,15 @@ export interface DocumentBufferMeta {
 export interface DocumentBuffer {
   body: string;
   meta: DocumentBufferMeta;
-  /** Server `updated_at` this buffer is rebased on. */
-  baseUpdatedAt: string;
+  /** Server revision this buffer is rebased on; sent as `If-Match`. */
+  baseRevision: string;
 }
 
 function bufferFromDoc(doc: Document): DocumentBuffer {
   return {
     body: doc.body,
     meta: { title: doc.title, status: doc.status, tags: [...doc.tags] },
-    baseUpdatedAt: doc.updated_at,
+    baseRevision: doc.revision,
   };
 }
 
@@ -72,7 +72,7 @@ export function useDocumentBuffer(projectId: string, doc: Document | null | unde
     setDirty(false);
     setConflict(false);
     setSaveError(null);
-  }, [doc?.id, doc?.updated_at]);
+  }, [doc?.id, doc?.revision]);
 
   const flush = useCallback(() => {
     const current = docRef.current;
@@ -86,7 +86,7 @@ export function useDocumentBuffer(projectId: string, doc: Document | null | unde
     update.mutate(
       {
         id: current.id,
-        ifMatch: buf.baseUpdatedAt,
+        ifMatch: buf.baseRevision,
         input: {
           title: buf.meta.title,
           status: buf.meta.status,
@@ -98,7 +98,7 @@ export function useDocumentBuffer(projectId: string, doc: Document | null | unde
         onSuccess: (updated) => {
           setDirty(false);
           setSaveError(null);
-          // The useEffect on doc.updated_at will rebase the buffer.
+          // The useEffect on doc.revision will rebase the buffer.
           setDocumentCache(qc, updated);
         },
         onError: (err) => {

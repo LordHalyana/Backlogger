@@ -78,6 +78,8 @@ npm run bundle-audit
 API and services:
 
 - `packages/api/src/app.test.ts`
+- `packages/api/src/task-board.test.ts` (board, task state and write-safety; on-disk Markdown asserted byte for byte)
+- `packages/api/src/test-support.ts` (shared `setup()`/`teardown()` harness)
 - `packages/api/src/fs/*.test.ts`
 - `packages/api/src/services/*.test.ts`
 - `packages/api/src/templates/*.test.ts`

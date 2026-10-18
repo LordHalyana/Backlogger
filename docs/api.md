@@ -195,8 +195,13 @@ Body:
 
 Valid `type` values are `idea`, `note`, `design_doc`, `implementation_plan`,
 `backlog_item`, and `finding` (note underscores). Valid `status` values are
-`draft`, `active`, and `archived`. `status`, `tags`, `body`, `template`, and
-`folder` are all optional.
+`draft`, `active`, and `archived`. `status`, `task_state`, `tags`, `body`,
+`template`, and `folder` are all optional.
+
+New backlog items (blank or from a template) are written with
+`task_state: todo` right after `status`, unless the request sets `task_state`
+to `in_progress` or `done`. Any other value returns `400 VALIDATION_FAILED`;
+`task_state` on any other type returns `400 TASK_STATE_NOT_ALLOWED`.
 
 Returns `201` with the full document.
 
@@ -206,7 +211,7 @@ Returns `409 PROJECT_READ_ONLY` while the project is in read-only mode.
 
 Returns a full document including `body`.
 
-Full document responses also include `readOnly`.
+Full document responses also include `readOnly` and `revision` (see `PUT` below).
 
 ### `PUT /api/documents/:id`
 
@@ -216,6 +221,7 @@ Body can contain any of:
 {
   "title": "New Title",
   "status": "active",
+  "task_state": "in_progress",
   "tags": ["docs"],
   "body": "Updated body\n"
 }
@@ -223,13 +229,19 @@ Body can contain any of:
 
 At least one field is required. `type` cannot be changed through an update.
 
+`task_state` moves a backlog item between board columns. Only `todo`, `in_progress` and `done` are accepted (`400 VALIDATION_FAILED` otherwise), and only on a `backlog_item` (`400 TASK_STATE_NOT_ALLOWED` on other types and on sidecar-backed documents). It is written to the frontmatter immediately after `status`. An update without `task_state` keeps the stored value as written, including unrecognised values. Archiving or restoring (`status`) never changes it.
+
 Header:
 
 ```text
-If-Match: <updated_at value>
+If-Match: <revision value>
 ```
 
-If the header does not match the current `updated_at`, the API returns `409 DOCUMENT_VERSION_MISMATCH`.
+`revision` is an opaque fingerprint of the persisted document (the `.md` file, plus its sidecar entry for sidecar-backed documents). Every summary and full document response carries it, and it changes with every successful write and with any out-of-band edit of the file on disk. `updated_at` is for display only and is not a valid `If-Match` value.
+
+The check runs inside the project's mutation queue against the file as it is on disk at that moment. If the header does not match the current revision, the API returns `409 DOCUMENT_VERSION_MISMATCH` and leaves the file unchanged. Of two overlapping updates sent with the same revision, exactly one succeeds and the other gets `409`.
+
+A missing `If-Match` header is accepted: the update is applied unconditionally, as before. The web editor (and the board) always send it.
 
 If the project is in read-only mode, the API returns `409 PROJECT_READ_ONLY`.
 
@@ -274,6 +286,39 @@ Response headers include:
 ### `GET /api/documents/:id/backlinks`
 
 Returns documents that link to this document.
+
+## Board
+
+### `GET /api/projects/:projectId/board`
+
+Returns the project board: every non-archived `backlog_item` (drafts included), grouped by task state.
+
+```json
+{
+  "columns": {
+    "todo": [
+      {
+        "id": "…",
+        "title": "Write the spec",
+        "tags": ["docs"],
+        "status": "draft",
+        "readOnly": false,
+        "revision": "…",
+        "task_state": null,
+        "created_at": "2026-10-18T08:00:00.000Z"
+      }
+    ],
+    "in_progress": [],
+    "done": []
+  }
+}
+```
+
+- `task_state` is the frontmatter value, verbatim (`null` when absent). Recognised values are exactly `todo`, `in_progress` and `done`. Absent or unrecognised values (e.g. `Doing`) place the card in `todo` and are kept as written until the card is moved.
+- Each column is ordered by `created_at` ascending, then by document ID. No order is persisted.
+- `readOnly` is `true` when the project is read-only (or the document is a derived, read-only document).
+- Sidecar-mode projects return empty columns; the first board covers frontmatter-mode projects only.
+- Returns `404 PROJECT_NOT_FOUND` for an unknown project.
 
 ## Search
 

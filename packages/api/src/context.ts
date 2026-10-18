@@ -2,11 +2,13 @@ import type { Db } from './db/database.js';
 import { DocumentsRepo } from './db/documents-repo.js';
 import { ProjectsRepo } from './db/projects-repo.js';
 import { FsRepository, PathResolver, SidecarStore } from './fs/index.js';
+import { BoardService } from './services/board-service.js';
 import { DocumentService } from './services/document-service.js';
 import { HealthService } from './services/health-service.js';
 import { ImportService } from './services/import-service.js';
 import { LinkService } from './services/link-service.js';
 import { ProjectService } from './services/project-service.js';
+import { ProjectQueue } from './services/project-queue.js';
 import { ReindexService } from './services/reindex-service.js';
 import { SearchService } from './services/search-service.js';
 import { GraphService } from './services/graph-service.js';
@@ -24,6 +26,7 @@ export interface AppContext {
   documentsRepo: DocumentsRepo;
   projectService: ProjectService;
   documentService: DocumentService;
+  boardService: BoardService;
   reindexService: ReindexService;
   searchService: SearchService;
   linkService: LinkService;
@@ -58,6 +61,7 @@ export function buildContext(opts: BuildContextOptions): AppContext {
   const linkService = new LinkService(opts.db);
   const tagsService = new TagsService(opts.db);
   const graphService = new GraphService(opts.db);
+  const queue = new ProjectQueue();
   const documentService = new DocumentService({
     documentsRepo,
     projectsRepo,
@@ -67,8 +71,19 @@ export function buildContext(opts: BuildContextOptions): AppContext {
     tagsService,
     graphService,
     sidecarStore,
+    queue,
   });
-  const reindexService = new ReindexService({ documentsRepo, projectsRepo, fs, linkService, tagsService, graphService, sidecarStore });
+  const reindexService = new ReindexService({
+    documentsRepo,
+    projectsRepo,
+    fs,
+    linkService,
+    tagsService,
+    graphService,
+    sidecarStore,
+    queue,
+  });
+  const boardService = new BoardService({ documentsRepo, projectsRepo });
   const searchService = new SearchService(opts.db);
   const healthService = new HealthService({
     db: opts.db,
@@ -86,6 +101,7 @@ export function buildContext(opts: BuildContextOptions): AppContext {
     documentsRepo,
     projectService,
     documentService,
+    boardService,
     reindexService,
     searchService,
     linkService,
