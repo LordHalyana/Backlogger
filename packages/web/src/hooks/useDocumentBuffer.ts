@@ -55,36 +55,90 @@ export function useDocumentBuffer(projectId: string, doc: Document | null | unde
   const bufferRef = useRef<DocumentBuffer | null>(null);
   const [dirty, setDirty] = useState(false);
   const [conflict, setConflict] = useState(false);
+  const conflictRef = useRef(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const docRef = useRef<Document | null>(null);
+  /** Last server version the buffer is known to be rebased on. */
+  const serverDocRef = useRef<Document | null>(null);
+  /** Bumped on every local edit, so an ack can tell whether it covers the buffer. */
+  const generationRef = useRef(0);
+  /** The one active save for this hook; later flushes queue behind it. */
+  const activeSaveRef = useRef<{ docId: string; generation: number } | null>(null);
+  const flushQueuedRef = useRef(false);
 
   useEffect(() => {
     docRef.current = doc ?? null;
   }, [doc]);
 
-  // Rebase only when the selected document or server version changes.
+  const markConflict = useCallback((next: boolean) => {
+    conflictRef.current = next;
+    setConflict(next);
+  }, []);
+
+  // The ref is written synchronously so an ack always sees the latest edits.
+  const replaceBuffer = useCallback((next: DocumentBuffer | null) => {
+    bufferRef.current = next;
+    setBuffer(next);
+  }, []);
+
+  /** Throw away local edits and show `serverDoc` as saved. */
+  const resetTo = useCallback(
+    (serverDoc: Document) => {
+      serverDocRef.current = serverDoc;
+      generationRef.current += 1;
+      flushQueuedRef.current = false;
+      replaceBuffer(bufferFromDoc(serverDoc));
+      setDirty(false);
+      markConflict(false);
+      setSaveError(null);
+    },
+    [replaceBuffer, markConflict],
+  );
+
+  // Rebase only when the selected document or server version changes. An
+  // active save or an unresolved conflict owns the buffer: the save's own
+  // acknowledgement rebases it, and conflicted unsaved edits wait for the user.
   useEffect(() => {
     const current = docRef.current;
     if (!current) return;
-    const fresh = bufferFromDoc(current);
-    setBuffer(fresh);
-    bufferRef.current = fresh;
-    setDirty(false);
-    setConflict(false);
-    setSaveError(null);
-  }, [doc?.id, doc?.revision]);
+    const sameDoc = serverDocRef.current?.id === current.id;
+    if (sameDoc && (activeSaveRef.current || conflictRef.current)) return;
+    if (sameDoc && bufferRef.current?.baseRevision === current.revision) return;
+    resetTo(current);
+  }, [doc?.id, doc?.revision, resetTo]);
+
+  const flushRef = useRef<() => void>(() => {});
 
   const flush = useCallback(() => {
     const current = docRef.current;
+    const serverDoc = serverDocRef.current;
     const buf = bufferRef.current;
-    if (!buf || !current) return;
+    if (!buf || !current || !serverDoc || serverDoc.id !== current.id) return;
     if (current.readOnly) return;
-    if (!bufferDiffersFromDoc(buf, current)) {
+    // Conflicted unsaved edits are kept for explicit reconciliation, never resent.
+    if (conflictRef.current) return;
+    if (activeSaveRef.current) {
+      flushQueuedRef.current = true;
+      return;
+    }
+    if (!bufferDiffersFromDoc(buf, serverDoc)) {
       setDirty(false);
       return;
     }
-    update.mutate(
-      {
+    const save = { docId: current.id, generation: generationRef.current };
+    activeSaveRef.current = save;
+    flushQueuedRef.current = false;
+
+    /** False when another document opened meanwhile; its queued save may go now. */
+    const settle = (): boolean => {
+      activeSaveRef.current = null;
+      if (serverDocRef.current?.id === save.docId) return true;
+      if (flushQueuedRef.current) flushRef.current();
+      return false;
+    };
+
+    update
+      .mutateAsync({
         id: current.id,
         ifMatch: buf.baseRevision,
         input: {
@@ -93,69 +147,72 @@ export function useDocumentBuffer(projectId: string, doc: Document | null | unde
           tags: buf.meta.tags,
           body: buf.body,
         },
-      },
-      {
-        onSuccess: (updated) => {
-          setDirty(false);
-          setSaveError(null);
-          // The useEffect on doc.revision will rebase the buffer.
+      })
+      .then(
+        (updated) => {
           setDocumentCache(qc, updated);
+          if (!settle()) return;
+          const local = bufferRef.current;
+          if (generationRef.current === save.generation || !local) {
+            resetTo(updated);
+            return;
+          }
+          // Newer input arrived while saving: keep it, rebased on the ack.
+          serverDocRef.current = updated;
+          setSaveError(null);
+          replaceBuffer({ ...local, baseRevision: updated.revision });
+          if (flushQueuedRef.current) flushRef.current();
         },
-        onError: (err) => {
+        (err: Error) => {
+          if (!settle()) return;
+          // Queued edits stay visibly unsaved; the next edit tries again.
+          flushQueuedRef.current = false;
           if (err instanceof ApiError && err.status === 409) {
-            setConflict(true);
+            markConflict(true);
           } else {
             setSaveError(err.message);
           }
         },
-      },
-    );
-  }, [qc, update]);
+      );
+  }, [qc, update, markConflict, replaceBuffer, resetTo]);
+
+  useEffect(() => {
+    flushRef.current = flush;
+  }, [flush]);
 
   const debouncedFlush = useDebouncedCallback(flush, SAVE_DEBOUNCE_MS);
 
-  const handleBodyChange = useCallback(
-    (next: string) => {
-      setBuffer((prev) => {
-        if (!prev) return prev;
-        const updated = { ...prev, body: next };
-        bufferRef.current = updated;
-        return updated;
-      });
+  const edit = useCallback(
+    (change: (prev: DocumentBuffer) => DocumentBuffer) => {
+      const prev = bufferRef.current;
+      if (!prev) return;
+      replaceBuffer(change(prev));
+      generationRef.current += 1;
       setDirty(true);
       debouncedFlush();
     },
-    [debouncedFlush],
+    [replaceBuffer, debouncedFlush],
+  );
+
+  const handleBodyChange = useCallback(
+    (next: string) => edit((prev) => ({ ...prev, body: next })),
+    [edit],
   );
 
   const handleMetaChange = useCallback(
-    (next: DocumentBufferMeta) => {
-      setBuffer((prev) => {
-        if (!prev) return prev;
-        const updated = { ...prev, meta: next };
-        bufferRef.current = updated;
-        return updated;
-      });
-      setDirty(true);
-      debouncedFlush();
-    },
-    [debouncedFlush],
+    (next: DocumentBufferMeta) => edit((prev) => ({ ...prev, meta: next })),
+    [edit],
   );
 
   const resetConflictToDocument = useCallback(() => {
     const current = docRef.current;
-    setConflict(false);
-    if (!current) {
-      setBuffer(null);
-      bufferRef.current = null;
+    if (current) {
+      resetTo(current);
       return;
     }
-    const fresh = bufferFromDoc(current);
-    setBuffer(fresh);
-    bufferRef.current = fresh;
-    setDirty(false);
-    setSaveError(null);
-  }, []);
+    markConflict(false);
+    replaceBuffer(null);
+  }, [resetTo, markConflict, replaceBuffer]);
 
   return {
     buffer,

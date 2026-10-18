@@ -204,3 +204,146 @@ describe('DocumentWorkspace dirty → save → clean flow', () => {
     });
   });
 });
+
+interface HeldPut {
+  ifMatch: string;
+  body: { title: string };
+  respond: (status: number, payload: unknown) => void;
+}
+
+function jsonResponse(status: number, payload: unknown): Response {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+/** Fetch mock whose PUTs stay pending until the test answers them. */
+function setupHeldSaves(doc: Document = initialDoc): { puts: HeldPut[] } {
+  const puts: HeldPut[] = [];
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input.toString();
+    if (url !== `/api/documents/${doc.id}`) {
+      return jsonResponse(404, { error: { code: 'NOT_FOUND', message: url } });
+    }
+    if (init?.method !== 'PUT') return jsonResponse(200, doc);
+    return new Promise<Response>((resolve) => {
+      puts.push({
+        ifMatch: (init.headers as Record<string, string>)['If-Match']!,
+        body: JSON.parse(init.body as string) as { title: string },
+        respond: (status, payload) => resolve(jsonResponse(status, payload)),
+      });
+    });
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  return { puts };
+}
+
+describe('DocumentWorkspace autosave during a delayed save', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    cleanup();
+  });
+
+  async function typeAThenHoldSave(): Promise<{
+    puts: HeldPut[];
+    titleInput: HTMLElement;
+    user: ReturnType<typeof userEvent.setup>;
+  }> {
+    const { puts } = setupHeldSaves();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderWorkspace();
+    const titleInput = await screen.findByDisplayValue('Hello');
+    await user.clear(titleInput);
+    await user.type(titleInput, 'A');
+    await act(async () => {
+      vi.advanceTimersByTime(900);
+    });
+    await waitFor(() => expect(puts).toHaveLength(1));
+    expect(puts[0]!.body.title).toBe('A');
+    return { puts, titleInput, user };
+  }
+
+  it('keeps B in the editor when the save of A returns, then persists B', async () => {
+    const { puts, titleInput, user } = await typeAThenHoldSave();
+
+    await user.type(titleInput, 'B');
+    await act(async () => {
+      vi.advanceTimersByTime(900);
+    });
+    // One active save per document: B waits for A's response.
+    expect(puts).toHaveLength(1);
+
+    await act(async () => {
+      puts[0]!.respond(200, { ...initialDoc, title: 'A', revision: 'rev-2' });
+    });
+
+    await waitFor(() => expect(puts).toHaveLength(2));
+    expect(screen.getByDisplayValue('AB')).toBeTruthy();
+    expect(puts[1]!.ifMatch).toBe('rev-2');
+    expect(puts[1]!.body.title).toBe('AB');
+
+    await act(async () => {
+      puts[1]!.respond(200, { ...initialDoc, title: 'AB', revision: 'rev-3' });
+    });
+    await waitFor(() => expect(screen.getByText(/^Saved$/)).toBeTruthy());
+    expect(screen.getByDisplayValue('AB')).toBeTruthy();
+    expect(puts).toHaveLength(2);
+  });
+
+  it('keeps B unsaved after A succeeds while B is still being typed', async () => {
+    const { puts, titleInput, user } = await typeAThenHoldSave();
+
+    await user.type(titleInput, 'B');
+    await act(async () => {
+      puts[0]!.respond(200, { ...initialDoc, title: 'A', revision: 'rev-2' });
+    });
+
+    await waitFor(() => expect(screen.getByText(/Unsaved changes/)).toBeTruthy());
+    expect(screen.getByDisplayValue('AB')).toBeTruthy();
+
+    await act(async () => {
+      vi.advanceTimersByTime(900);
+    });
+    await waitFor(() => expect(puts).toHaveLength(2));
+    expect(puts[1]!.ifMatch).toBe('rev-2');
+    expect(puts[1]!.body.title).toBe('AB');
+  });
+
+  it('keeps unsaved edits on conflict and does not retry them', async () => {
+    const { puts, titleInput, user } = await typeAThenHoldSave();
+
+    await user.type(titleInput, 'B');
+    await act(async () => {
+      puts[0]!.respond(409, { error: { code: 'CONFLICT', message: 'stale' } });
+    });
+
+    await screen.findByRole('alert');
+    expect(screen.getByDisplayValue('AB')).toBeTruthy();
+    expect(screen.getByText(/Unsaved changes/)).toBeTruthy();
+
+    await user.type(titleInput, 'C');
+    await act(async () => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(screen.getByDisplayValue('ABC')).toBeTruthy();
+    expect(puts).toHaveLength(1);
+  });
+
+  it('keeps B visibly unsaved when the save of A fails', async () => {
+    const { puts, titleInput, user } = await typeAThenHoldSave();
+
+    await user.type(titleInput, 'B');
+    await act(async () => {
+      puts[0]!.respond(500, { error: { code: 'INTERNAL', message: 'disk full' } });
+    });
+
+    await screen.findByText(/Save failed: disk full/);
+    expect(screen.getByDisplayValue('AB')).toBeTruthy();
+    expect(screen.getByText(/Unsaved changes/)).toBeTruthy();
+  });
+});
