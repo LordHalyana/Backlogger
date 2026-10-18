@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { TASK_STATES, type BoardCard, type Project, type TaskState } from '@backlogger/shared';
 import { ApiError } from '../lib/api.js';
+import { isTextField } from '../lib/keyboard.js';
 import { useBoard } from '../lib/board.js';
 import {
   filingTargets,
@@ -8,6 +9,7 @@ import {
   rememberTarget,
   useFileItem,
   useUpdateItem,
+  type ItemChange,
 } from '../lib/inbox.js';
 import { StatusMessage } from './StatusMessage.js';
 import { TaskStateSelect } from './TaskStateSelect.js';
@@ -23,18 +25,6 @@ function inboxItems(columns: Record<TaskState, BoardCard[]>): BoardCard[] {
     a.created_at === b.created_at
       ? a.id.localeCompare(b.id)
       : a.created_at.localeCompare(b.created_at),
-  );
-}
-
-/** Text fields own their keys; triage shortcuts never fire while typing. */
-function isTyping(target: EventTarget | null): boolean {
-  const el = target as HTMLElement | null;
-  return (
-    !!el &&
-    (el.tagName === 'INPUT' ||
-      el.tagName === 'TEXTAREA' ||
-      el.tagName === 'SELECT' ||
-      el.isContentEditable)
   );
 }
 
@@ -120,7 +110,7 @@ function Triage({
     );
   };
 
-  const update = (change: { task_state: TaskState } | { status: 'archived' }): void => {
+  const update = (change: ItemChange): void => {
     if (!item || busy) return;
     const archiving = 'status' in change;
     setBusy({ id: item.id, label: archiving ? 'Archiving…' : 'Saving…' });
@@ -146,7 +136,7 @@ function Triage({
   // Keep the latest handlers for the window listener without re-binding it.
   const keys = useRef<(e: KeyboardEvent) => void>(() => undefined);
   keys.current = (e: KeyboardEvent): void => {
-    if (!item || e.ctrlKey || e.metaKey || e.altKey || isTyping(e.target)) return;
+    if (!item || e.ctrlKey || e.metaKey || e.altKey || isTextField(e.target)) return;
     if (document.querySelector('[aria-modal="true"]')) return;
     const n = Number(e.key);
     if (Number.isInteger(n) && n >= 1 && n <= quick.length) {

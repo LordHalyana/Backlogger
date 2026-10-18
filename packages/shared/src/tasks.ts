@@ -48,6 +48,17 @@ export interface Board {
   columns: Record<TaskState, BoardCard[]>;
 }
 
+/**
+ * A file the reindex left out because another file carries the same id (a
+ * filing interrupted between writing the target and deleting the source).
+ * The user deletes `path`; `keptPath` is the indexed copy.
+ */
+export interface DuplicateFile {
+  id: string;
+  path: string;
+  keptPath: string;
+}
+
 /** The project heading of a Current work group. */
 export interface CurrentWorkProject {
   id: string;

@@ -1,6 +1,7 @@
 import { createElement } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ReindexResultSummary, type DuplicateFile } from '../components/ReindexResultSummary.js';
+import type { DuplicateFile } from '@backlogger/shared';
+import { ReindexResultSummary } from '../components/ReindexResultSummary.js';
 import { apiFetch } from './api.js';
 import { toastError, useDialog } from './dialog.js';
 import { invalidateGlobalReindex } from './query-keys.js';

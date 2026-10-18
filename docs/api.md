@@ -48,6 +48,13 @@ Common codes include:
 - `PROJECT_READ_ONLY`
 - `DOCUMENT_NOT_FOUND`
 - `DOCUMENT_VERSION_MISMATCH`
+- `REVISION_CONFLICT` (filing only; `details: { currentRevision, currentProjectId }`)
+- `CAPTURE_ID_CONFLICT`
+- `PROJECT_NOT_WRITABLE`
+- `NOT_A_BACKLOG_ITEM`
+- `TARGET_PATH_TAKEN`
+- `INBOX_PROTECTED`
+- `INBOX_UNAVAILABLE` (`500`)
 - `DERIVED_DOCUMENT_READ_ONLY`
 - `RELOAD_IN_PROGRESS`
 - `FOLDER_NOT_FOUND`
@@ -106,10 +113,18 @@ Project objects include:
   "description": "Optional",
   "readOnly": false,
   "metadataMode": "frontmatter",
+  "isInbox": false,
   "created_at": "2026-06-04T10:00:00.000Z",
   "updated_at": "2026-06-04T10:00:00.000Z"
 }
 ```
+
+`isInbox` is `true` for the one designated Inbox. The designation is stored only
+in `<dataDir>/workspace.json` (`{ "inbox_project_id": "inbox" }`); the server
+creates the Inbox at start when that file is missing (`inbox`, or `inbox-2`, …
+if the id is taken) and never adopts an existing project because of its id or
+name. Deleting the Inbox or making it read-only returns `409 INBOX_PROTECTED`;
+renaming it is allowed.
 
 ### `POST /api/projects`
 
@@ -286,6 +301,69 @@ Response headers include:
 ### `GET /api/documents/:id/backlinks`
 
 Returns documents that link to this document.
+
+### `POST /api/documents/:id/file`
+
+Files a backlog item into another writable, frontmatter-mode project, keeping
+its id.
+
+```json
+{ "target_project_id": "work", "revision": "<current revision>" }
+```
+
+- Only the frontmatter `project:` value changes; every other byte of the file
+  is kept, and the file keeps its project-relative path.
+- Already in the target project: `200` with the current document, no write,
+  revision not checked (so a resend after a lost reply is safe).
+- Stale revision: `409 REVISION_CONFLICT` with
+  `details: { currentRevision, currentProjectId }`; no files change.
+- Read-only or sidecar source or target: `409 PROJECT_NOT_WRITABLE`; unknown
+  target: `404 PROJECT_NOT_FOUND`; not a backlog item: `400 NOT_A_BACKLOG_ITEM`.
+- The target is written first, then the source deleted, then the index
+  updated. If the process stops in between, reindex resolves the two copies
+  (see `duplicates` in [Operations](api/operations.md)).
+
+## Capture
+
+### `POST /api/capture`
+
+Creates a draft To do backlog item from a title alone.
+
+```json
+{ "id": "<client-generated lowercase uuid v4>", "title": "1–200 chars", "project_id": "optional" }
+```
+
+- Omitted `project_id` → the designated Inbox (`500 INBOX_UNAVAILABLE` if it
+  could not be created at start).
+- `201` with the document when created. Resending the same id and title
+  returns `200` with the item as it is now, wherever it lives. The same id with
+  a different title or type returns `409 CAPTURE_ID_CONFLICT`.
+- Clients generate a new id per capture and reuse it only on Retry.
+- Unknown project: `404 PROJECT_NOT_FOUND`; read-only or sidecar project:
+  `409 PROJECT_NOT_WRITABLE`.
+
+## Current work
+
+### `GET /api/current-work`
+
+Backlog items whose task state is `in_progress`, across native projects.
+
+```json
+{
+  "groups": [
+    {
+      "project": { "id": "inbox", "name": "Inbox", "readOnly": false, "isInbox": true },
+      "items": [ /* board cards, as in GET /api/projects/:projectId/board */ ]
+    }
+  ]
+}
+```
+
+- Follows the board's rules: drafts included, archived items and sidecar-mode
+  projects excluded. Read-only projects are included and marked.
+- Groups: Inbox first, then by project name; projects with nothing In progress
+  are omitted. Items are ordered by `created_at`, then id.
+- Change a task state with `PUT /api/documents/:id` and `If-Match`, as the board does.
 
 ## Board
 

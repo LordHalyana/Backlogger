@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { isTextField } from '../lib/keyboard.js';
 
 interface GlobalShortcuts {
   onToggleCommandPalette: () => void;
@@ -6,15 +7,6 @@ interface GlobalShortcuts {
   onCapture: () => void;
 }
 
-function isTextField(t: HTMLElement | null): boolean {
-  return (
-    !!t &&
-    (t.tagName === 'INPUT' ||
-      t.tagName === 'TEXTAREA' ||
-      t.tagName === 'SELECT' ||
-      t.isContentEditable)
-  );
-}
 
 /**
  * Registers a single `keydown` listener on `window` covering all global
@@ -62,7 +54,7 @@ export function useGlobalShortcuts({
         !event.ctrlKey &&
         !event.metaKey &&
         !event.altKey &&
-        !isTextField(event.target as HTMLElement | null) &&
+        !isTextField(event.target) &&
         !document.querySelector('[aria-modal="true"]')
       ) {
         event.preventDefault();

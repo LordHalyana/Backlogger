@@ -28,7 +28,7 @@ import type { DocumentsRepo } from '../db/documents-repo.js';
 import type { LinkService } from './link-service.js';
 import type { TagsService } from './tags-service.js';
 import type { GraphService } from './graph-service.js';
-import type { ProjectRecord as Project, ProjectsRepo } from '../db/projects-repo.js';
+import type { ProjectRecord, ProjectsRepo } from '../db/projects-repo.js';
 import { applyPlaceholders, type TemplateRegistry } from '../templates/registry.js';
 import type { ProjectQueue } from './project-queue.js';
 import type { InboxService } from './inbox-service.js';
@@ -674,10 +674,7 @@ export class DocumentService {
     const rewritten = rewriteProjectLine(text, targetProjectId);
     const check = FrontmatterSchema.safeParse(parseFrontmatter(rewritten));
     if (!check.success || check.data.id !== id || check.data.project !== targetProjectId) {
-      throw new ConflictError(
-        'DERIVED_DOCUMENT_READ_ONLY',
-        'This document has frontmatter Backlogger cannot rewrite safely; edit its project line by hand.',
-      );
+      throw frontmatterNotRewritable();
     }
 
     const nextPath = `${targetProjectId}/${summary.path.slice(sourceId.length + 1)}`;
@@ -747,7 +744,7 @@ export class DocumentService {
     return summary;
   }
 
-  private getProject(projectId: string): Project {
+  private getProject(projectId: string): ProjectRecord {
     const project = this.projectsRepo.find(projectId);
     if (!project) {
       throw new NotFoundError('PROJECT_NOT_FOUND', `Project not found: ${projectId}`);
@@ -755,7 +752,7 @@ export class DocumentService {
     return project;
   }
 
-  private assertProjectWritable(projectId: string): Project {
+  private assertProjectWritable(projectId: string): ProjectRecord {
     const project = this.getProject(projectId);
     if (project.readOnly) {
       throw new ConflictError(
@@ -767,7 +764,7 @@ export class DocumentService {
   }
 
   /** Writable and frontmatter-mode: a project that can hold a new or filed backlog item. */
-  private assertProjectAcceptsBacklogItems(projectId: string): Project {
+  private assertProjectAcceptsBacklogItems(projectId: string): ProjectRecord {
     const project = this.getProject(projectId);
     if (project.readOnly || project.metadataMode === 'sidecar') {
       throw new ConflictError(
@@ -779,7 +776,7 @@ export class DocumentService {
   }
 
   private applyProjectReadOnly(
-    project: Project,
+    project: ProjectRecord,
     documents: DocumentSummary[],
   ): DocumentSummary[] {
     return documents.map((doc) => ({ ...doc, readOnly: project.readOnly }));
@@ -842,14 +839,17 @@ function assertEditableBackloggerDocument(summary: DocumentSummary, raw: RawDocu
 function rewriteProjectLine(text: string, projectId: string): string {
   const match = /^(---\r?\n)([\s\S]*?\r?\n)(---(?:\r?\n|$))/.exec(text);
   const lines = match ? match[2]!.match(/^project:[^\r\n]*$/gm) : null;
-  if (!match || !lines || lines.length !== 1) {
-    throw new ConflictError(
-      'DERIVED_DOCUMENT_READ_ONLY',
-      'This document has frontmatter Backlogger cannot rewrite safely; edit its project line by hand.',
-    );
-  }
+  if (!match || !lines || lines.length !== 1) throw frontmatterNotRewritable();
   const block = match[2]!.replace(/^project:[^\r\n]*$/m, `project: ${projectId}`);
   return match[1] + block + text.slice(match[1]!.length + match[2]!.length);
+}
+
+/** Frontmatter whose `project:` line Backlogger cannot rewrite without touching other bytes. */
+function frontmatterNotRewritable(): ConflictError {
+  return new ConflictError(
+    'DERIVED_DOCUMENT_READ_ONLY',
+    'This document has frontmatter Backlogger cannot rewrite safely; edit its project line by hand.',
+  );
 }
 
 function parseFrontmatter(text: string): Record<string, unknown> {

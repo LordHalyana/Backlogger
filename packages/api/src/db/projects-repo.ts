@@ -1,8 +1,8 @@
 import type { MetadataMode, Project } from '@backlogger/shared';
+import type { Db } from './database.js';
 
 /** A project as stored; the Inbox designation is not part of it. */
 export type ProjectRecord = Omit<Project, 'isInbox'>;
-import type { Db } from './database.js';
 
 interface ProjectRow {
   id: string;

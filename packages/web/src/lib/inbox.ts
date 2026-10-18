@@ -82,11 +82,14 @@ export function useFileItem(): UseMutationResult<Document, Error, FileItemArgs> 
   });
 }
 
+/** What triage and Current work change on a backlog item: its task state, or archive it. */
+export type ItemChange = { task_state: TaskState } | { status: 'archived' };
+
 export interface UpdateItemArgs {
   id: string;
   projectId: string;
   revision: string;
-  change: { task_state: TaskState } | { status: 'archived' };
+  change: ItemChange;
 }
 
 /** A conditional (If-Match) task-state change or archive of one backlog item. */

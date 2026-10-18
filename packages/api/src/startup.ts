@@ -1,5 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import type { DuplicateFile } from '@backlogger/shared';
 import type { AppContext } from './context.js';
 import { logger } from './logger.js';
 import { formatSkippedFiles } from './services/reindex-report.js';
@@ -37,6 +38,7 @@ export async function prepareDataDir(ctx: AppContext): Promise<void> {
         logger.warn(`startup sync project="${project.id}" skipped files: ${formatSkippedFiles(report.skipped)}`);
       }
     }
+    logDuplicates(`startup sync project="${project.id}"`, report.duplicates);
   }
 
   // Auto-reindex on startup if the documents table is empty but the FS has
@@ -49,6 +51,14 @@ export async function prepareDataDir(ctx: AppContext): Promise<void> {
     if (report.skipped.length > 0) {
       logger.warn(`startup reindex skipped files: ${formatSkippedFiles(report.skipped)}`);
     }
+    logDuplicates('startup reindex', report.duplicates);
+  }
+}
+
+/** Leftovers of interrupted filings: the user should delete `path`. */
+function logDuplicates(context: string, duplicates: readonly DuplicateFile[]): void {
+  for (const d of duplicates) {
+    logger.warn(`${context} duplicate id ${d.id}: kept ${d.keptPath}, delete ${d.path}`);
   }
 }
 

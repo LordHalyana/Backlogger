@@ -120,9 +120,17 @@ Example response:
   "removed": 1,
   "skipped": [],
   "durationMs": 24,
-  "removedIds": ["5f8c5b7b-7d9e-4b4d-a017-d3ab3e1d9d31"]
+  "removedIds": ["5f8c5b7b-7d9e-4b4d-a017-d3ab3e1d9d31"],
+  "duplicates": []
 }
 ```
+
+`duplicates` lists files left out because another file has the same id — what
+an interrupted filing leaves behind. Each entry is `{ id, path, keptPath }`:
+the copy outside the designated Inbox is indexed (otherwise the
+lexicographically first path), and `path` is the leftover to delete. A project
+reload only sees a copy in another project once that project is indexed too;
+a full reindex sees all of them.
 
 ### `POST /api/admin/reindex`
 
@@ -134,7 +142,8 @@ The response includes `scanned`, `inserted`, and `skipped` counts. `skipped` is 
 {
   "scanned": 12,
   "inserted": 12,
-  "skipped": []
+  "skipped": [],
+  "duplicates": []
 }
 ```
 

@@ -5,8 +5,12 @@ import {
   type UseMutationResult,
   type UseQueryResult,
 } from '@tanstack/react-query';
-import type { CreateProjectRequest, Project, UpdateProjectRequest } from '@backlogger/shared';
-import type { DuplicateFile } from '../components/ReindexResultSummary.js';
+import type {
+  CreateProjectRequest,
+  DuplicateFile,
+  Project,
+  UpdateProjectRequest,
+} from '@backlogger/shared';
 import { apiFetch } from './api.js';
 import {
   queryKeys,

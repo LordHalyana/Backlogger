@@ -6,6 +6,7 @@ import {
   isArchivedPath,
   storedTaskState,
   type DocumentStatus,
+  type DuplicateFile,
   type Frontmatter,
   type SidecarEntry,
   type SidecarIndex,
@@ -19,17 +20,6 @@ import type { TagsService } from './tags-service.js';
 import type { GraphService } from './graph-service.js';
 import type { ProjectQueue } from './project-queue.js';
 import type { InboxService } from './inbox-service.js';
-
-/**
- * A file left out of the index because another file carries the same id (a
- * filing interrupted between writing the target and deleting the source).
- * The user deletes `path`; `keptPath` is the indexed copy.
- */
-export interface DuplicateFile {
-  id: string;
-  path: string;
-  keptPath: string;
-}
 
 export interface ReindexReport {
   scanned: number;

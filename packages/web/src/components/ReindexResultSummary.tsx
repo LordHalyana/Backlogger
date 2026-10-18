@@ -1,13 +1,8 @@
+import type { DuplicateFile } from '@backlogger/shared';
+
 interface SkippedFile {
   path: string;
   reason: string;
-}
-
-/** A file left out because another file has the same id; the user deletes `path`. */
-export interface DuplicateFile {
-  id: string;
-  path: string;
-  keptPath: string;
 }
 
 interface CountItem {
