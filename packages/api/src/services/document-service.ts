@@ -12,7 +12,6 @@ import {
   type Document,
   type DocumentSummary,
   type Frontmatter,
-  type Project,
   type SidecarEntry,
   type UpdateDocumentRequest,
 } from '@backlogger/shared';
@@ -27,7 +26,7 @@ import type { DocumentsRepo } from '../db/documents-repo.js';
 import type { LinkService } from './link-service.js';
 import type { TagsService } from './tags-service.js';
 import type { GraphService } from './graph-service.js';
-import type { ProjectsRepo } from '../db/projects-repo.js';
+import type { ProjectRecord as Project, ProjectsRepo } from '../db/projects-repo.js';
 import { applyPlaceholders, type TemplateRegistry } from '../templates/registry.js';
 import type { ProjectQueue } from './project-queue.js';
 
