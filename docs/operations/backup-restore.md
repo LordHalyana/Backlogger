@@ -25,7 +25,10 @@ By default this is:
 
 It contains:
 
-- `projects/`: Markdown files and project folders.
+- `projects/`: Markdown files and project folders, including the designated
+  Inbox's folder (`projects/inbox/` unless that id was taken).
+- `workspace.json`: which project is the designated Inbox. It is the only
+  record of that designation.
 - `backlogger.sqlite`: SQLite metadata and derived indexes.
 - `templates/`: user templates.
 
@@ -51,7 +54,12 @@ Also back up:
 
 ```text
 data/templates/
+data/workspace.json
 ```
+
+Without `workspace.json`, the next start creates a new, empty Inbox (`inbox-2`
+if `inbox/` exists); the old Inbox folder comes back as an ordinary read-only
+project.
 
 After restoring a minimal backup, recreate or rediscover project rows and run reindex.
 
@@ -101,6 +109,14 @@ If SQLite is missing but project folders exist:
 - Startup may auto-discover valid project folders.
 - A full reindex (`POST /api/admin/reindex`) rebuilds document metadata from
   Backlogger frontmatter or derives metadata for plain Markdown files.
+- The designated Inbox named in `workspace.json` is registered again as a
+  writable project called "Inbox". Other projects come back read-only with a
+  name derived from their folder (a known limitation).
+
+If a move between projects (filing) was interrupted, the same task can exist
+in two project folders with one id. Reindex indexes one copy — the one outside
+the Inbox, otherwise the first path — and lists the other under `duplicates`
+in its report; delete that file.
 
 Files with invalid Backlogger frontmatter or a mismatched `project` value are
 skipped and reported by reindex. Plain Markdown without Backlogger frontmatter

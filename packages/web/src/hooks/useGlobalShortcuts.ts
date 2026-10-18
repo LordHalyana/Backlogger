@@ -3,6 +3,17 @@ import { useEffect } from 'react';
 interface GlobalShortcuts {
   onToggleCommandPalette: () => void;
   onToggleHelp: () => void;
+  onCapture: () => void;
+}
+
+function isTextField(t: HTMLElement | null): boolean {
+  return (
+    !!t &&
+    (t.tagName === 'INPUT' ||
+      t.tagName === 'TEXTAREA' ||
+      t.tagName === 'SELECT' ||
+      t.isContentEditable)
+  );
 }
 
 /**
@@ -10,6 +21,7 @@ interface GlobalShortcuts {
  * keyboard shortcuts:
  *   - Ctrl/Cmd+K  → toggle command palette
  *   - ?           → toggle help (suppressed inside text inputs)
+ *   - n           → capture (bare key, outside text fields and open dialogs)
  *
  * Both callbacks must be stable references (wrap in `useCallback` at the
  * call site) to avoid unnecessary listener churn.
@@ -19,6 +31,7 @@ interface GlobalShortcuts {
 export function useGlobalShortcuts({
   onToggleCommandPalette,
   onToggleHelp,
+  onCapture,
 }: GlobalShortcuts): void {
   useEffect(() => {
     const handler = (event: KeyboardEvent): void => {
@@ -40,10 +53,24 @@ export function useGlobalShortcuts({
         }
         event.preventDefault();
         onToggleHelp();
+        return;
+      }
+
+      // n → capture palette (bare key only; never while typing or in a dialog)
+      if (
+        event.key === 'n' &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey &&
+        !isTextField(event.target as HTMLElement | null) &&
+        !document.querySelector('[aria-modal="true"]')
+      ) {
+        event.preventDefault();
+        onCapture();
       }
     };
 
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [onToggleCommandPalette, onToggleHelp]);
+  }, [onToggleCommandPalette, onToggleHelp, onCapture]);
 }

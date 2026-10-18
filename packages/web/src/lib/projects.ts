@@ -6,6 +6,7 @@ import {
   type UseQueryResult,
 } from '@tanstack/react-query';
 import type { CreateProjectRequest, Project, UpdateProjectRequest } from '@backlogger/shared';
+import type { DuplicateFile } from '../components/ReindexResultSummary.js';
 import { apiFetch } from './api.js';
 import {
   queryKeys,
@@ -69,6 +70,7 @@ export interface ReloadProjectReport {
   skipped: Array<{ path: string; reason: string }>;
   durationMs: number;
   removedIds: string[];
+  duplicates: DuplicateFile[];
 }
 
 export function useReloadProject(): UseMutationResult<ReloadProjectReport, Error, string> {

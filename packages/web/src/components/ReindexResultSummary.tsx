@@ -3,6 +3,13 @@ interface SkippedFile {
   reason: string;
 }
 
+/** A file left out because another file has the same id; the user deletes `path`. */
+export interface DuplicateFile {
+  id: string;
+  path: string;
+  keptPath: string;
+}
+
 interface CountItem {
   label: string;
   value: number | string;
@@ -11,12 +18,14 @@ interface CountItem {
 interface ReindexResultSummaryProps {
   counts: CountItem[];
   skipped: readonly SkippedFile[];
+  duplicates?: readonly DuplicateFile[];
   limit?: number;
 }
 
 export function ReindexResultSummary({
   counts,
   skipped,
+  duplicates = [],
   limit = 8,
 }: ReindexResultSummaryProps): JSX.Element {
   const shown = skipped.slice(0, limit);
@@ -47,6 +56,21 @@ export function ReindexResultSummary({
         </div>
       ) : (
         <p className="reindex-summary-empty">No skipped files.</p>
+      )}
+      {duplicates.length > 0 && (
+        <div className="reindex-summary-skipped">
+          <p>
+            Duplicate files — the same task twice, probably from an interrupted move. Delete these:
+          </p>
+          <ul>
+            {duplicates.map((item) => (
+              <li key={item.path}>
+                <code>{item.path}</code>
+                <span>kept {item.keptPath}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </div>
   );

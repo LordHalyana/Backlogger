@@ -1,6 +1,6 @@
 import { createElement } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ReindexResultSummary } from '../components/ReindexResultSummary.js';
+import { ReindexResultSummary, type DuplicateFile } from '../components/ReindexResultSummary.js';
 import { apiFetch } from './api.js';
 import { toastError, useDialog } from './dialog.js';
 import { invalidateGlobalReindex } from './query-keys.js';
@@ -9,6 +9,7 @@ interface ReindexResult {
   scanned: number;
   inserted: number;
   skipped: Array<{ path: string; reason: string }>;
+  duplicates: DuplicateFile[];
 }
 
 export function useReindex(): {
@@ -25,7 +26,7 @@ export function useReindex(): {
       dialog.toast(
         `Reindex complete: ${result.inserted} of ${result.scanned} documents (${result.skipped.length} skipped)`,
       );
-      if (result.skipped.length > 0) {
+      if (result.skipped.length > 0 || result.duplicates.length > 0) {
         void dialog.alert({
           title: 'Reindex result',
           message: createElement(ReindexResultSummary, {
@@ -35,6 +36,7 @@ export function useReindex(): {
               { label: 'Skipped', value: result.skipped.length },
             ],
             skipped: result.skipped,
+            duplicates: result.duplicates,
           }),
           confirmLabel: 'OK',
         });

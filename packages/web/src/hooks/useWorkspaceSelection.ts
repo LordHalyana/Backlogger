@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  readTriageFromUrl,
   readWorkspaceFromUrl,
   syncWorkspaceUrl,
   type WorkspaceView,
@@ -17,6 +18,10 @@ export interface WorkspaceSelection {
   view: WorkspaceView;
   /** Active tag filters for the document tree. */
   tags: string[];
+  /** ⌂ Inbox triage mode, in place of a project. */
+  triage: boolean;
+  /** Enter triage mode; selecting a project or opening a document leaves it. */
+  openTriage: () => void;
   /**
    * Select a project.  Switching to a different project clears the open
    * document and tag filters so we never show stale state from the previous
@@ -60,6 +65,7 @@ export function useWorkspaceSelection(): WorkspaceSelection {
   const [documentId, setDocumentId] = useState<string | null>(initial.documentId);
   const [view, setView] = useState<WorkspaceView>(initial.view);
   const [tags, setTags] = useState<string[]>([]);
+  const [triage, setTriage] = useState<boolean>(() => readTriageFromUrl());
   // Mirror of projectId so the stable callbacks can compare against the current
   // value without depending on it (and being recreated every selection).
   const projectIdRef = useRef<string | null>(initial.projectId);
@@ -68,8 +74,8 @@ export function useWorkspaceSelection(): WorkspaceSelection {
   // `?help=` query / hash). Tags stay local state. Skipped when the path
   // already matches (initial load, popstate).
   useEffect(() => {
-    syncWorkspaceUrl(projectId, documentId, view);
-  }, [projectId, documentId, view]);
+    syncWorkspaceUrl(projectId, documentId, view, triage);
+  }, [projectId, documentId, view, triage]);
 
   // Back/forward navigation maps to workspace navigation: re-read the URL and
   // apply it. The sync effect above then sees a matching path and does not push.
@@ -82,12 +88,23 @@ export function useWorkspaceSelection(): WorkspaceSelection {
       setDocumentId(next.documentId);
       setView(next.view);
       setTags([]);
+      setTriage(readTriageFromUrl());
     };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
+  const openTriage = useCallback((): void => {
+    projectIdRef.current = null;
+    setProjectId(null);
+    setDocumentId(null);
+    setView('documents');
+    setTags([]);
+    setTriage(true);
+  }, []);
+
   const selectProject = useCallback((id: string | null): void => {
+    setTriage(false);
     if (projectIdRef.current === id) return;
     projectIdRef.current = id;
     setProjectId(id);
@@ -111,6 +128,7 @@ export function useWorkspaceSelection(): WorkspaceSelection {
   }, []);
 
   const openDocument = useCallback((nextProjectId: string, nextDocumentId: string): void => {
+    setTriage(false);
     if (projectIdRef.current !== nextProjectId) {
       projectIdRef.current = nextProjectId;
       setProjectId(nextProjectId);
@@ -138,6 +156,8 @@ export function useWorkspaceSelection(): WorkspaceSelection {
     documentId,
     view,
     tags,
+    triage,
+    openTriage,
     selectProject,
     selectView,
     selectTreeDocument,

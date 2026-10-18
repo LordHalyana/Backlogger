@@ -1,14 +1,19 @@
-import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import {
   taskStateColumn,
   TASK_STATES,
   TASK_STATE_LABELS,
   type BoardCard,
+  type Project,
   type TaskState,
 } from '@backlogger/shared';
 import { ApiError } from '../lib/api.js';
 import { useArchiveCard, useBoard, useMoveCard, useRestoreCard } from '../lib/board.js';
 import { toastError, useDialog } from '../lib/dialog.js';
+import { useCapture } from '../lib/capture.js';
+import { acceptsBacklogItems } from '../lib/inbox.js';
+import { useProjects } from '../lib/projects.js';
+import { CaptureForm } from './CaptureForm.js';
 import { Icon } from './Icon.js';
 import { StatusMessage } from './StatusMessage.js';
 
@@ -32,6 +37,9 @@ interface TaskBoardProps {
  */
 export function TaskBoard({ projectId, onOpenCard }: TaskBoardProps): JSX.Element {
   const { data, isLoading, isError, error, refetch } = useBoard(projectId);
+  const projects = useProjects();
+  const project = projects.data?.find((p) => p.id === projectId);
+  const canAdd = !!project && acceptsBacklogItems(project);
   const moveCard = useMoveCard(projectId);
   const archiveCard = useArchiveCard(projectId);
   const restoreCard = useRestoreCard(projectId);
@@ -192,7 +200,7 @@ export function TaskBoard({ projectId, onOpenCard }: TaskBoardProps): JSX.Elemen
           </button>
         </div>
       )}
-      {total === 0 ? (
+      {total === 0 && !canAdd ? (
         <div className="workspace-empty">
           <StatusMessage kind="empty">
             No backlog items yet. Documents of type <code>backlog_item</code> appear here.
@@ -223,6 +231,15 @@ export function TaskBoard({ projectId, onOpenCard }: TaskBoardProps): JSX.Elemen
               onStepCard={step}
               onArchiveCard={archive}
               onOpenCard={onOpenCard}
+              addTask={
+                state === 'todo' && canAdd ? (
+                  <BoardAddTask
+                    projectId={projectId}
+                    projects={projects.data ?? []}
+                    onOpenCard={onOpenCard}
+                  />
+                ) : undefined
+              }
             />
           ))}
         </div>
@@ -243,6 +260,30 @@ interface BoardColumnProps {
   onStepCard: (card: BoardCard, delta: -1 | 1) => void;
   onArchiveCard: (card: BoardCard) => void;
   onOpenCard: (documentId: string) => void;
+  /** Shown at the top of the column (To do on writable boards). */
+  addTask?: ReactNode;
+}
+
+/** Inline Add task: a capture into this board's project, title only. */
+function BoardAddTask({
+  projectId,
+  projects,
+  onOpenCard,
+}: {
+  projectId: string;
+  projects: readonly Project[];
+  onOpenCard: (documentId: string) => void;
+}): JSX.Element {
+  const capture = useCapture(projectId);
+  return (
+    <CaptureForm
+      className="board-add-task"
+      capture={capture}
+      projects={projects}
+      placeholder="Add task…"
+      onOpenTask={(doc) => onOpenCard(doc.id)}
+    />
+  );
 }
 
 function BoardColumn({
@@ -257,6 +298,7 @@ function BoardColumn({
   onStepCard,
   onArchiveCard,
   onOpenCard,
+  addTask,
 }: BoardColumnProps): JSX.Element {
   const label = TASK_STATE_LABELS[state];
   return (
@@ -272,6 +314,7 @@ function BoardColumn({
         <h2>{label}</h2>
         <span className="board-column-count">{cards.length}</span>
       </header>
+      {addTask}
       <ul className="board-cards">
         {cards.map((card) => (
           <li key={card.id}>

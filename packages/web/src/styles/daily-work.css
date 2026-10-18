@@ -1,0 +1,331 @@
+/* Daily work: workspace rail, capture, ⌂ Inbox triage and the Current work drawer (layout C). */
+
+.daily-shell {
+  min-width: 0;
+}
+
+.daily-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  overflow: auto;
+}
+
+.daily-main > p {
+  margin: auto;
+}
+
+.inbox-mark {
+  margin-right: 4px;
+  color: var(--accent);
+}
+
+.project-name {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.project-name-lock {
+  width: 12px;
+  height: 12px;
+  margin-left: 4px;
+  opacity: 0.7;
+}
+
+/* Rail */
+
+.workspace-rail {
+  flex: 0 0 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 8px;
+  background: var(--bg-elev);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+}
+
+.workspace-rail-capture {
+  margin-bottom: 8px;
+  justify-content: space-between;
+}
+
+.workspace-rail-label {
+  font-size: 11px;
+  color: var(--fg-muted);
+  text-transform: uppercase;
+  margin: 10px 6px 4px;
+}
+
+.workspace-rail-item {
+  display: flex;
+  align-items: center;
+  background: none;
+  border: none;
+  color: var(--fg);
+  text-align: left;
+  padding: 5px 8px;
+  border-radius: 5px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.workspace-rail-item:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.workspace-rail-item:disabled {
+  color: var(--fg-muted);
+  cursor: default;
+}
+
+.workspace-rail-item.active {
+  background: var(--selected);
+  color: var(--accent);
+}
+
+.workspace-rail-count {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+/* Capture */
+
+.capture-form {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.capture-form-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.capture-form-input,
+.capture-form-destination,
+.task-state-select,
+.inbox-triage-filter input {
+  background: var(--bg-panel);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 13px;
+}
+
+.capture-form-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.capture-form-input:focus,
+.capture-form-destination:focus,
+.task-state-select:focus,
+.inbox-triage-filter input:focus {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.capture-form-feedback {
+  min-height: 18px;
+  font-size: 12px;
+}
+
+.capture-form-error {
+  color: var(--danger);
+}
+
+.capture-form-ok {
+  color: var(--ok);
+}
+
+.capture-palette {
+  padding: 12px;
+  gap: 8px;
+}
+
+.capture-palette .capture-form-input {
+  font-size: 15px;
+  padding: 10px 12px;
+}
+
+.board-add-task {
+  padding: 8px 8px 0;
+}
+
+.task-state-select {
+  padding: 2px 4px;
+  font-size: 12px;
+}
+
+/* ⌂ Inbox triage */
+
+.inbox-triage {
+  padding: 16px 20px 96px;
+  max-width: 820px;
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+  color: var(--fg);
+}
+
+.inbox-triage-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.inbox-triage-head h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.inbox-triage-message {
+  margin-bottom: 10px;
+  border-radius: 6px;
+}
+
+.inbox-triage-message--error {
+  color: var(--danger);
+  border: 1px solid var(--danger);
+}
+
+.inbox-triage-message--ok {
+  color: var(--ok);
+}
+
+.inbox-triage-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.inbox-triage-card.saving {
+  opacity: 0.6;
+}
+
+.inbox-triage-card h3 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.inbox-triage-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.inbox-triage-moving {
+  margin: 0;
+  font-size: 12px;
+}
+
+.inbox-triage-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.inbox-triage-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Current work drawer */
+
+.current-work-drawer {
+  flex: 0 0 320px;
+  border-left: 1px solid var(--border);
+  background: var(--bg-elev);
+  color: var(--fg);
+  padding: 12px 12px 96px;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+
+.current-work-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.current-work-head h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.current-work-group {
+  margin-bottom: 14px;
+}
+
+.current-work-group-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.current-work-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.current-work-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.current-work-row .board-card-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.current-work-row.read-only {
+  opacity: 0.75;
+}
+
+.current-work-row.saving {
+  opacity: 0.6;
+}
+
+/* Narrow: the rail folds into the project switcher; the drawer overlays. */
+@media (max-width: 900px) {
+  .workspace-rail,
+  .current-work-button {
+    display: none;
+  }
+
+  .current-work-drawer {
+    position: fixed;
+    top: 52px;
+    right: 0;
+    bottom: 0;
+    width: min(360px, 100vw);
+    z-index: 50;
+    box-shadow: var(--drawer-shadow);
+  }
+}

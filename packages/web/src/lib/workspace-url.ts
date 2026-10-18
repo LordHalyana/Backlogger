@@ -8,6 +8,7 @@
 //   /projects/:projectId/documents/:documentId           → project + open document
 //   /projects/:projectId/board                           → project, Board view
 //   /projects/:projectId/board/documents/:documentId     → document opened from the board
+//   /inbox                                               → ⌂ Inbox triage mode
 //
 // Only path-based selection lives here; the `?help=` query param (help-link.ts)
 // and any hash are preserved when we rewrite the path. This intentionally stays
@@ -38,6 +39,15 @@ export function readWorkspaceFromUrl(): WorkspaceUrlState {
   return { projectId, documentId, view };
 }
 
+/** The path of ⌂ Inbox triage mode. */
+export const TRIAGE_PATHNAME = '/inbox';
+
+/** True when the current URL is ⌂ Inbox triage mode. */
+export function readTriageFromUrl(): boolean {
+  if (typeof window === 'undefined') return false;
+  return window.location.pathname.replace(/\/+$/, '') === TRIAGE_PATHNAME;
+}
+
 /** Build the pathname for a given selection (no leading project → `/`). */
 export function workspacePathname(
   projectId: string | null,
@@ -59,9 +69,10 @@ export function syncWorkspaceUrl(
   projectId: string | null,
   documentId: string | null,
   view: WorkspaceView = 'documents',
+  triage = false,
 ): void {
   if (typeof window === 'undefined') return;
-  const target = workspacePathname(projectId, documentId, view);
+  const target = triage ? TRIAGE_PATHNAME : workspacePathname(projectId, documentId, view);
   if (window.location.pathname === target) return;
   const u = new URL(window.location.href);
   u.pathname = target;
