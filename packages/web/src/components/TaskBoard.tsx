@@ -1,4 +1,4 @@
-import { useCallback, useState, type DragEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react';
 import {
   taskStateColumn,
   TASK_STATES,
@@ -26,6 +26,19 @@ export function TaskBoard({ projectId, onOpenCard }: TaskBoardProps): JSX.Elemen
   const [saving, setSaving] = useState<ReadonlySet<string>>(() => new Set());
   const [dragging, setDragging] = useState<BoardCard | null>(null);
   const [dropTarget, setDropTarget] = useState<TaskState | null>(null);
+  const boardRef = useRef<HTMLDivElement>(null);
+  // A keyboard-moved card remounts in its new column; focus it there once.
+  const [focusTarget, setFocusTarget] = useState<{ id: string; state: TaskState } | null>(null);
+
+  useEffect(() => {
+    if (!focusTarget) return;
+    const el = boardRef.current?.querySelector<HTMLElement>(
+      `[data-state="${focusTarget.state}"] [data-card-id="${CSS.escape(focusTarget.id)}"]`,
+    );
+    if (!el) return;
+    el.focus();
+    setFocusTarget(null);
+  }, [focusTarget, data]);
 
   const setCardSaving = useCallback((id: string, on: boolean): void => {
     setSaving((prev) => {
@@ -44,6 +57,17 @@ export function TaskBoard({ projectId, onOpenCard }: TaskBoardProps): JSX.Elemen
       moveCard.mutate({ card, to }, { onSettled: () => setCardSaving(card.id, false) });
     },
     [moveCard, saving, setCardSaving],
+  );
+
+  /** Alt+←/→: step to the adjacent column; nothing happens at either edge. */
+  const step = useCallback(
+    (card: BoardCard, delta: -1 | 1): void => {
+      const next = TASK_STATES[TASK_STATES.indexOf(taskStateColumn(card.task_state)) + delta];
+      if (!next) return;
+      setFocusTarget({ id: card.id, state: next });
+      move(card, next);
+    },
+    [move],
   );
 
   if (isLoading) {
@@ -78,7 +102,7 @@ export function TaskBoard({ projectId, onOpenCard }: TaskBoardProps): JSX.Elemen
   };
 
   return (
-    <div className="task-board">
+    <div className="task-board" ref={boardRef}>
       {TASK_STATES.map((state) => (
         <BoardColumn
           key={state}
@@ -99,6 +123,7 @@ export function TaskBoard({ projectId, onOpenCard }: TaskBoardProps): JSX.Elemen
           }}
           onDragStartCard={setDragging}
           onDragEndCard={endDrag}
+          onStepCard={step}
           onOpenCard={onOpenCard}
         />
       ))}
@@ -115,6 +140,7 @@ interface BoardColumnProps {
   onDrop: (e: DragEvent<HTMLElement>) => void;
   onDragStartCard: (card: BoardCard) => void;
   onDragEndCard: () => void;
+  onStepCard: (card: BoardCard, delta: -1 | 1) => void;
   onOpenCard: (documentId: string) => void;
 }
 
@@ -127,6 +153,7 @@ function BoardColumn({
   onDrop,
   onDragStartCard,
   onDragEndCard,
+  onStepCard,
   onOpenCard,
 }: BoardColumnProps): JSX.Element {
   const label = TASK_STATE_LABELS[state];
@@ -151,6 +178,7 @@ function BoardColumn({
               saving={saving.has(card.id)}
               onDragStart={() => onDragStartCard(card)}
               onDragEnd={onDragEndCard}
+              onStep={(delta) => onStepCard(card, delta)}
               onOpen={() => onOpenCard(card.id)}
             />
           </li>
@@ -165,6 +193,7 @@ interface BoardCardViewProps {
   saving: boolean;
   onDragStart: () => void;
   onDragEnd: () => void;
+  onStep: (delta: -1 | 1) => void;
   onOpen: () => void;
 }
 
@@ -173,6 +202,7 @@ function BoardCardView({
   saving,
   onDragStart,
   onDragEnd,
+  onStep,
   onOpen,
 }: BoardCardViewProps): JSX.Element {
   const movable = !card.readOnly && !saving;
@@ -181,8 +211,20 @@ function BoardCardView({
       className={'board-card' + (card.readOnly ? ' read-only' : '') + (saving ? ' saving' : '')}
       aria-label={card.title}
       aria-busy={saving}
+      data-card-id={card.id}
       tabIndex={0}
       draggable={movable}
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
+        if (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+          // Also keeps Alt+← from navigating the browser back.
+          e.preventDefault();
+          if (movable) onStep(e.key === 'ArrowRight' ? 1 : -1);
+        } else if (e.key === 'Enter') {
+          e.preventDefault();
+          onOpen();
+        }
+      }}
       onDragStart={(e) => {
         if (!movable) {
           e.preventDefault();

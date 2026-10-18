@@ -213,6 +213,7 @@ export function App(): JSX.Element {
                 theme="dark"
                 onDeleted={() => selectDocument(null)}
                 onOpenDocument={openDocument}
+                onBackToBoard={view === 'board' ? () => selectDocument(null) : undefined}
               />
             ) : (
               <div className="workspace-empty">

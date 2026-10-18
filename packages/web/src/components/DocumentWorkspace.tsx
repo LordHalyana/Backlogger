@@ -34,6 +34,8 @@ interface DocumentWorkspaceProps {
   theme: Theme;
   onDeleted: () => void;
   onOpenDocument?: (projectId: string, documentId: string) => void;
+  /** Set when the document was opened from the board: shows "Back to board". */
+  onBackToBoard?: () => void;
 }
 
 export function DocumentWorkspace({
@@ -42,6 +44,7 @@ export function DocumentWorkspace({
   theme,
   onDeleted,
   onOpenDocument,
+  onBackToBoard,
 }: DocumentWorkspaceProps): JSX.Element {
   const { data: doc, isLoading, isError, error, refetch } = useDocument(documentId);
   const del = useDeleteDocument(projectId);
@@ -151,6 +154,11 @@ export function DocumentWorkspace({
   return (
     <div className="document-workspace">
       <div className="workspace-header">
+        {onBackToBoard && (
+          <button type="button" className="btn btn--sm btn--ghost" onClick={onBackToBoard}>
+            Back to board
+          </button>
+        )}
         <span className="workspace-title" title={doc.path}>
           {buffer.meta.title || 'Untitled'}
         </span>
