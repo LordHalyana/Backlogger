@@ -568,3 +568,189 @@ describe('Filing interrupted between write and delete (S12)', () => {
     expect(doc.body.project_id).toBe('alpha');
   });
 });
+
+/** Write a Backlogger backlog item straight to disk (then reload the project). */
+async function writeItem(
+  h: Harness,
+  projectId: string,
+  fields: { id: string; title: string; created_at: string; status?: string; task_state?: string },
+): Promise<void> {
+  const slug = fields.title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  const folder = fields.status === 'archived' ? 'archived/backlog' : 'backlog';
+  const lines = [
+    '---',
+    `id: ${fields.id}`,
+    `title: ${fields.title}`,
+    `project: ${projectId}`,
+    'type: backlog_item',
+    `status: ${fields.status ?? 'active'}`,
+    ...(fields.task_state ? [`task_state: ${fields.task_state}`] : []),
+    `created_at: '${fields.created_at}'`,
+    `updated_at: '${fields.created_at}'`,
+    'tags: []',
+    '---',
+    '',
+  ];
+  const dir = path.join(h.dataDir, 'projects', projectId, folder);
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(path.join(dir, `${slug}.md`), lines.join('\n'));
+}
+
+interface CurrentWork {
+  groups: Array<{
+    project: { id: string; name: string; readOnly: boolean; isInbox: boolean };
+    items: Array<{ id: string; readOnly: boolean; task_state: string; revision: string; status: string }>;
+  }>;
+}
+
+async function currentWork(h: Harness): Promise<CurrentWork> {
+  const res = await request(h.app).get('/api/current-work');
+  expect(res.status).toBe(200);
+  return res.body as CurrentWork;
+}
+
+function shape(cw: CurrentWork): Array<[string, string[]]> {
+  return cw.groups.map((g) => [g.project.id, g.items.map((i) => i.id)]);
+}
+
+const IP = {
+  inbox1: '10000000-0000-4000-8000-000000000001',
+  zulu1: '20000000-0000-4000-8000-000000000001',
+  zulu2: '20000000-0000-4000-8000-000000000002',
+  zuluDraft: '20000000-0000-4000-8000-000000000003',
+  zuluArchived: '20000000-0000-4000-8000-000000000004',
+  zuluTodo: '20000000-0000-4000-8000-000000000005',
+  zuluDone: '20000000-0000-4000-8000-000000000006',
+  zuluOdd: '20000000-0000-4000-8000-000000000007',
+  alpha1: '30000000-0000-4000-8000-000000000001',
+  frozen1: '40000000-0000-4000-8000-000000000001',
+  side1: '50000000-0000-4000-8000-000000000001',
+};
+
+describe('Current work: GET /api/current-work', () => {
+  let h: Harness;
+  beforeEach(async () => {
+    h = await setup();
+    await createProject(h, 'a-proj', 'Zulu');
+    await createProject(h, 'b-proj', 'Alpha');
+    await createProject(h, 'frozen', 'Frozen');
+    await createProject(h, 'side', 'Side');
+    await createProject(h, 'quiet', 'Quiet');
+    await writeItem(h, 'inbox', { id: IP.inbox1, title: 'Inbox one', created_at: '2026-01-05T00:00:00.000Z', task_state: 'in_progress' });
+    await writeItem(h, 'a-proj', { id: IP.zulu2, title: 'Zulu two', created_at: '2026-01-03T00:00:00.000Z', task_state: 'in_progress' });
+    await writeItem(h, 'a-proj', { id: IP.zulu1, title: 'Zulu one', created_at: '2026-01-01T00:00:00.000Z', task_state: 'in_progress' });
+    await writeItem(h, 'a-proj', { id: IP.zuluDraft, title: 'Zulu draft', created_at: '2026-01-02T00:00:00.000Z', status: 'draft', task_state: 'in_progress' });
+    await writeItem(h, 'a-proj', { id: IP.zuluArchived, title: 'Zulu archived', created_at: '2026-01-01T00:00:00.000Z', status: 'archived', task_state: 'in_progress' });
+    await writeItem(h, 'a-proj', { id: IP.zuluTodo, title: 'Zulu todo', created_at: '2026-01-01T00:00:00.000Z', task_state: 'todo' });
+    await writeItem(h, 'a-proj', { id: IP.zuluDone, title: 'Zulu done', created_at: '2026-01-01T00:00:00.000Z', task_state: 'done' });
+    await writeItem(h, 'a-proj', { id: IP.zuluOdd, title: 'Zulu odd', created_at: '2026-01-01T00:00:00.000Z', task_state: 'Doing' });
+    await writeItem(h, 'b-proj', { id: IP.alpha1, title: 'Alpha one', created_at: '2026-01-09T00:00:00.000Z', task_state: 'in_progress' });
+    await writeItem(h, 'frozen', { id: IP.frozen1, title: 'Frozen one', created_at: '2026-01-01T00:00:00.000Z', task_state: 'in_progress' });
+    await writeItem(h, 'side', { id: IP.side1, title: 'Side one', created_at: '2026-01-01T00:00:00.000Z', task_state: 'in_progress' });
+    await request(h.app).put('/api/projects/side').send({ metadataMode: 'sidecar' });
+    for (const id of ['inbox', 'a-proj', 'b-proj', 'frozen', 'side']) {
+      await request(h.app).post(`/api/projects/${id}/reload`);
+    }
+    await request(h.app).put('/api/projects/frozen').send({ readOnly: true });
+  });
+  afterEach(() => teardown(h));
+
+  it('S8: In progress items of native projects, Inbox first then by name, in creation order', async () => {
+    const cw = await currentWork(h);
+    expect(shape(cw)).toEqual([
+      ['inbox', [IP.inbox1]],
+      ['b-proj', [IP.alpha1]],
+      ['frozen', [IP.frozen1]],
+      ['a-proj', [IP.zulu1, IP.zuluDraft, IP.zulu2]],
+    ]);
+    expect(cw.groups[0]!.project).toEqual({ id: 'inbox', name: 'Inbox', readOnly: false, isInbox: true });
+    expect(cw.groups[1]!.project).toEqual({ id: 'b-proj', name: 'Alpha', readOnly: false, isInbox: false });
+  });
+
+  it('S8: read-only projects and their items are marked read-only', async () => {
+    const cw = await currentWork(h);
+    const frozen = cw.groups.find((g) => g.project.id === 'frozen')!;
+    expect(frozen.project.readOnly).toBe(true);
+    expect(frozen.items.map((i) => i.readOnly)).toEqual([true]);
+    const zulu = cw.groups.find((g) => g.project.id === 'a-proj')!;
+    expect(zulu.items.map((i) => i.readOnly)).toEqual([false, false, false]);
+  });
+
+  it('S9: a state change leaves Current work and updates the board and the file', async () => {
+    const before = await currentWork(h);
+    const card = before.groups.find((g) => g.project.id === 'a-proj')!.items[0]!;
+    const res = await request(h.app)
+      .put(`/api/documents/${card.id}`)
+      .set('If-Match', card.revision)
+      .send({ task_state: 'done' });
+    expect(res.status).toBe(200);
+
+    const after = await currentWork(h);
+    expect(shape(after).find(([id]) => id === 'a-proj')![1]).toEqual([IP.zuluDraft, IP.zulu2]);
+    const board = await request(h.app).get('/api/projects/a-proj/board');
+    expect(board.body.columns.done.map((c: { id: string }) => c.id)).toContain(card.id);
+    expect(await readDisk(h, 'a-proj/backlog/zulu-one.md')).toContain('task_state: done\n');
+  });
+
+  it('a restored In progress item returns to Current work', async () => {
+    const archived = await request(h.app).get(`/api/documents/${IP.zuluArchived}`);
+    const restored = await request(h.app)
+      .put(`/api/documents/${IP.zuluArchived}`)
+      .set('If-Match', archived.body.revision)
+      .send({ status: 'active' });
+    expect(restored.status).toBe(200);
+    const cw = await currentWork(h);
+    // Same created_at as zulu1, so the id breaks the tie.
+    expect(shape(cw).find(([id]) => id === 'a-proj')![1]).toEqual([
+      IP.zulu1,
+      IP.zuluArchived,
+      IP.zuluDraft,
+      IP.zulu2,
+    ]);
+  });
+
+  it('is empty when nothing is In progress', async () => {
+    const fresh = await setup();
+    try {
+      expect(await currentWork(fresh)).toEqual({ groups: [] });
+    } finally {
+      await teardown(fresh);
+    }
+  });
+});
+
+describe('Restart with a rebuilt database (S10)', () => {
+  let h: Harness;
+  afterEach(() => teardown(h));
+
+  it('keeps the Inbox, filed items and Current work membership', async () => {
+    h = await setup();
+    await createProject(h, 'work', 'Work');
+    const kept = (await capture(h, { id: UUID.a, title: 'Stays in Inbox' })).body as DocBody;
+    const moved = (await capture(h, { id: UUID.b, title: 'Gets filed' })).body as DocBody;
+    const started = await request(h.app)
+      .put(`/api/documents/${moved.id}`)
+      .set('If-Match', moved.revision)
+      .send({ task_state: 'in_progress' });
+    const filed = await file(h, moved.id, { target_project_id: 'work', revision: started.body.revision });
+    expect(filed.status).toBe(200);
+    const keptStarted = await request(h.app)
+      .put(`/api/documents/${kept.id}`)
+      .set('If-Match', kept.revision)
+      .send({ task_state: 'in_progress' });
+    expect(keptStarted.status).toBe(200);
+    const before = await currentWork(h);
+
+    h = await restart(h);
+
+    const projects = await listProjects(h);
+    expect(projects.filter((p) => p.isInbox)).toEqual([
+      expect.objectContaining({ id: 'inbox', name: 'Inbox', readOnly: false }),
+    ]);
+    const doc = await request(h.app).get(`/api/documents/${UUID.b}`);
+    expect(doc.body).toMatchObject({ id: UUID.b, project_id: 'work', path: filed.body.path });
+    expect(await readDisk(h, filed.body.path)).toContain('task_state: in_progress\n');
+    expect(shape(await currentWork(h))).toEqual(shape(before));
+    // Writability of other projects after a rebuild is a known limitation; not asserted.
+  });
+});

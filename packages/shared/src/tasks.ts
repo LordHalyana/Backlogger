@@ -48,6 +48,23 @@ export interface Board {
   columns: Record<TaskState, BoardCard[]>;
 }
 
+/** The project heading of a Current work group. */
+export interface CurrentWorkProject {
+  id: string;
+  name: string;
+  readOnly: boolean;
+  isInbox: boolean;
+}
+
+/**
+ * `GET /api/current-work`: In progress backlog items across native projects,
+ * grouped by project (Inbox first, then by name), each group in creation
+ * order. Projects with nothing In progress are omitted.
+ */
+export interface CurrentWork {
+  groups: Array<{ project: CurrentWorkProject; items: BoardCard[] }>;
+}
+
 /** The index projection of a frontmatter `task_state` value, kept verbatim. */
 export function storedTaskState(value: unknown): string | null {
   if (value === undefined || value === null) return null;

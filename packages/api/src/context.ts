@@ -4,6 +4,7 @@ import { ProjectsRepo } from './db/projects-repo.js';
 import { FsRepository, PathResolver, SidecarStore } from './fs/index.js';
 import { BoardService } from './services/board-service.js';
 import { DocumentService } from './services/document-service.js';
+import { CurrentWorkService } from './services/current-work-service.js';
 import { InboxService } from './services/inbox-service.js';
 import { HealthService } from './services/health-service.js';
 import { ImportService } from './services/import-service.js';
@@ -29,6 +30,7 @@ export interface AppContext {
   inboxService: InboxService;
   documentService: DocumentService;
   boardService: BoardService;
+  currentWorkService: CurrentWorkService;
   reindexService: ReindexService;
   searchService: SearchService;
   linkService: LinkService;
@@ -89,6 +91,11 @@ export function buildContext(opts: BuildContextOptions): AppContext {
     inbox: inboxService,
   });
   const boardService = new BoardService({ documentsRepo, projectsRepo });
+  const currentWorkService = new CurrentWorkService({
+    documentsRepo,
+    projectsRepo,
+    inbox: inboxService,
+  });
   const searchService = new SearchService(opts.db);
   const healthService = new HealthService({
     db: opts.db,
@@ -108,6 +115,7 @@ export function buildContext(opts: BuildContextOptions): AppContext {
     inboxService,
     documentService,
     boardService,
+    currentWorkService,
     reindexService,
     searchService,
     linkService,

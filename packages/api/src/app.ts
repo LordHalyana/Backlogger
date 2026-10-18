@@ -5,6 +5,7 @@ import { errorMiddleware } from './error-middleware.js';
 import { HEALTH_JSON_SCHEMA } from './health/schema.js';
 import { adminRouter } from './routes/admin.js';
 import { captureRouter } from './routes/capture.js';
+import { currentWorkRouter } from './routes/current-work.js';
 import { projectBoardRouter } from './routes/project-board.js';
 import { documentsRouter, projectDocumentsRouter } from './routes/documents.js';
 import { importRouter } from './routes/import.js';
@@ -56,6 +57,7 @@ export function createApp(ctx: AppContext, options: CreateAppOptions = {}): Expr
   app.use('/api/projects/:projectId/documents', projectDocumentsRouter(ctx.documentService));
   app.use('/api/projects/:projectId/import', importRouter(ctx.importService));
   app.use('/api/capture', captureRouter(ctx.documentService));
+  app.use('/api/current-work', currentWorkRouter(ctx.currentWorkService));
   app.use('/api/documents', documentsRouter(ctx.documentService, ctx.linkService));
   app.use('/api/search', searchRouter(ctx.searchService));
   app.use('/api/tags', tagsRouter(ctx.tagsService));
