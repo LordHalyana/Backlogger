@@ -195,8 +195,13 @@ Body:
 
 Valid `type` values are `idea`, `note`, `design_doc`, `implementation_plan`,
 `backlog_item`, and `finding` (note underscores). Valid `status` values are
-`draft`, `active`, and `archived`. `status`, `tags`, `body`, `template`, and
-`folder` are all optional.
+`draft`, `active`, and `archived`. `status`, `task_state`, `tags`, `body`,
+`template`, and `folder` are all optional.
+
+New backlog items (blank or from a template) are written with
+`task_state: todo` right after `status`, unless the request sets `task_state`
+to `in_progress` or `done`. Any other value returns `400 VALIDATION_FAILED`;
+`task_state` on any other type returns `400 TASK_STATE_NOT_ALLOWED`.
 
 Returns `201` with the full document.
 

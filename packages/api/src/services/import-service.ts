@@ -105,13 +105,19 @@ export class ImportService {
         }
         if (placement.onDuplicate === 'replace') {
           const title = deriveTitle(file, fmRaw, body, placement.titleStrategy) ?? existing.title;
-          const updated = await this.deps.documentService.update(existing.id, {
-            title,
-            body,
-            tags: Array.isArray(fmRaw.tags)
-              ? (fmRaw.tags as unknown[]).filter((t): t is string => typeof t === 'string')
-              : existing.tags,
-          });
+          // task_state is overwritten only when the incoming file has one.
+          const updated = await this.deps.documentService.update(
+            existing.id,
+            {
+              title,
+              body,
+              tags: Array.isArray(fmRaw.tags)
+                ? (fmRaw.tags as unknown[]).filter((t): t is string => typeof t === 'string')
+                : existing.tags,
+            },
+            undefined,
+            { importedTaskState: fmRaw.task_state },
+          );
           result.imported.push({
             filename: file.filename,
             documentId: updated.id,
@@ -142,13 +148,13 @@ export class ImportService {
       : undefined;
 
     try {
-      const created = await this.deps.documentService.create(projectId, {
-        title,
-        type,
-        status,
-        tags,
-        body,
-      });
+      // New and copied backlog items keep the incoming task_state verbatim;
+      // a file without one stays without one.
+      const created = await this.deps.documentService.create(
+        projectId,
+        { title, type, status, tags, body },
+        { importedTaskState: { value: fmRaw.task_state } },
+      );
       result.imported.push({
         filename: file.filename,
         documentId: created.id,

@@ -46,6 +46,21 @@ export interface DocumentServiceDeps {
   newId?: () => string;
 }
 
+/** Internal create options (not exposed over HTTP). */
+export interface CreateOptions {
+  /**
+   * An imported file's `task_state`, written verbatim (recognised or not)
+   * instead of the request's value; `value: undefined` leaves it absent.
+   */
+  importedTaskState?: { value: unknown };
+}
+
+/** Internal update options (not exposed over HTTP). */
+export interface UpdateOptions {
+  /** An imported file's `task_state`, written verbatim when defined. */
+  importedTaskState?: unknown;
+}
+
 export class DocumentService {
   private readonly documentsRepo: DocumentsRepo;
   private readonly projectsRepo: ProjectsRepo;
@@ -116,15 +131,34 @@ export class DocumentService {
     return { absolutePath, diskFilename, title: summary.title };
   }
 
-  async create(projectId: string, input: CreateDocumentRequest): Promise<Document> {
+  async create(
+    projectId: string,
+    input: CreateDocumentRequest,
+    options: CreateOptions = {},
+  ): Promise<Document> {
     this.getProject(projectId);
-    return this.queue.run(projectId, () => this.createInQueue(projectId, input));
+    return this.queue.run(projectId, () => this.createInQueue(projectId, input, options));
   }
 
-  private async createInQueue(projectId: string, input: CreateDocumentRequest): Promise<Document> {
+  private async createInQueue(
+    projectId: string,
+    input: CreateDocumentRequest,
+    options: CreateOptions,
+  ): Promise<Document> {
     const project = this.assertProjectWritable(projectId);
     // Re-validate to apply defaults from the schema (status, tags).
     const parsed = CreateDocumentRequestSchema.parse(input);
+    if (parsed.task_state !== undefined && parsed.type !== 'backlog_item') {
+      throw taskStateNotAllowed(parsed.type);
+    }
+    // New backlog items are written with an explicit task state (`todo`
+    // unless asked otherwise); other types never get one.
+    const taskState =
+      parsed.type !== 'backlog_item' || project.metadataMode === 'sidecar'
+        ? undefined
+        : options.importedTaskState
+          ? options.importedTaskState.value
+          : (parsed.task_state ?? 'todo');
 
     const id = this.newId();
     const now = this.now();
@@ -159,6 +193,7 @@ export class DocumentService {
       project: projectId,
       type: parsed.type,
       status: parsed.status ?? 'draft',
+      ...(taskState !== undefined ? { task_state: taskState } : {}),
       created_at: now,
       updated_at: now,
       tags: parsed.tags ?? [],
@@ -218,21 +253,26 @@ export class DocumentService {
     id: string,
     input: UpdateDocumentRequest,
     ifMatch?: string,
+    options: UpdateOptions = {},
   ): Promise<Document> {
-    return this.inDocumentQueue(id, (summary) => this.updateInQueue(summary, input, ifMatch));
+    return this.inDocumentQueue(id, (summary) =>
+      this.updateInQueue(summary, input, ifMatch, options),
+    );
   }
 
   private async updateInQueue(
     summary: DocumentSummary,
     input: UpdateDocumentRequest,
-    ifMatch?: string,
+    ifMatch: string | undefined,
+    options: UpdateOptions,
   ): Promise<Document> {
     if (input.task_state !== undefined && summary.type !== 'backlog_item') {
-      throw new BadRequestError(
-        'TASK_STATE_NOT_ALLOWED',
-        `Only backlog items have a task state; this document is a ${summary.type}.`,
-      );
+      throw taskStateNotAllowed(summary.type);
     }
+    // The task state to write, if any. Otherwise the stored value is kept.
+    const nextTaskState: unknown =
+      input.task_state ??
+      (summary.type === 'backlog_item' ? options.importedTaskState : undefined);
     const project = this.assertProjectWritable(summary.project_id);
 
     // Validate the caller's revision against what is on disk right now, inside
@@ -250,12 +290,7 @@ export class DocumentService {
     }
     const now = this.now();
     if (project.metadataMode === 'sidecar' && !hasOwnFrontmatter(summary, existing)) {
-      if (input.task_state !== undefined) {
-        throw new BadRequestError(
-          'TASK_STATE_NOT_ALLOWED',
-          'Sidecar-backed documents do not have a task state.',
-        );
-      }
+      if (input.task_state !== undefined) throw taskStateNotAllowed('sidecar-backed document');
       return this.updateViaSidecar(summary, existing, input, now);
     }
     const nextStatus = input.status ?? summary.status;
@@ -266,12 +301,12 @@ export class DocumentService {
           project: summary.project_id,
           type: summary.type,
           status: nextStatus,
-          ...(input.task_state !== undefined ? { task_state: input.task_state } : {}),
+          ...(nextTaskState !== undefined ? { task_state: nextTaskState } : {}),
           created_at: summary.created_at,
           updated_at: now,
           tags: input.tags ?? summary.tags,
         })
-      : buildUpdatedFrontmatter(summary, existing, input, nextStatus, now);
+      : buildUpdatedFrontmatter(summary, existing, input, nextStatus, nextTaskState, now);
     const nextBody = input.body ?? existing.body;
 
     // Move the file when archive status changes.
@@ -607,6 +642,7 @@ function buildUpdatedFrontmatter(
   raw: RawDocument,
   input: UpdateDocumentRequest,
   nextStatus: Frontmatter['status'],
+  nextTaskState: unknown,
   now: string,
 ): Frontmatter {
   assertEditableBackloggerDocument(summary, raw);
@@ -616,10 +652,17 @@ function buildUpdatedFrontmatter(
     ...raw.frontmatter,
     title: input.title ?? summary.title,
     status: nextStatus,
-    ...(input.task_state !== undefined ? { task_state: input.task_state } : {}),
+    ...(nextTaskState !== undefined ? { task_state: nextTaskState } : {}),
     tags: input.tags ?? summary.tags,
     updated_at: now,
   });
+}
+
+function taskStateNotAllowed(what: string): BadRequestError {
+  return new BadRequestError(
+    'TASK_STATE_NOT_ALLOWED',
+    `Only backlog items have a task state; this document is a ${what}.`,
+  );
 }
 
 function assertEditableBackloggerDocument(summary: DocumentSummary, raw: RawDocument): void {

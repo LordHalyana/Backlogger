@@ -42,6 +42,13 @@ Limits:
 - Max 20 files per request.
 - Max 1 MiB per file.
 
+Task state of imported backlog items (`task_state` frontmatter):
+
+- New files and `copy` duplicates keep the incoming value verbatim, recognised or not; a file without one is imported without one.
+- `replace` overwrites the stored value only when the incoming file has one, and otherwise keeps it.
+- `skip` changes nothing.
+- Other document types are never written with a `task_state`.
+
 Status:
 
 - `200` when all files import or skip without per-file errors.

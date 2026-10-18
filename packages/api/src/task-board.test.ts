@@ -643,3 +643,187 @@ describe('Moving a card: PUT task_state', () => {
     expect(await readDisk(h, doc.path)).toBe(before);
   });
 });
+
+describe('New and imported backlog items carry task_state', () => {
+  let h: Harness;
+  beforeEach(async () => {
+    h = await setup();
+    await createProject(h);
+  });
+  afterEach(() => teardown(h));
+
+  function expectedFile(doc: {
+    id: string;
+    title: string;
+    type: string;
+    status: string;
+    task_state?: string;
+    created_at: string;
+    updated_at: string;
+  }, body: string): string {
+    return [
+      '---',
+      `id: ${doc.id}`,
+      `title: ${doc.title}`,
+      `project: ${PROJECT}`,
+      `type: ${doc.type}`,
+      `status: ${doc.status}`,
+      ...(doc.task_state ? [`task_state: ${doc.task_state}`] : []),
+      `created_at: '${doc.created_at}'`,
+      `updated_at: '${doc.updated_at}'`,
+      'tags: []',
+      '---',
+      body,
+    ].join('\n');
+  }
+
+  it('a blank backlog item is written with task_state: todo right after status', async () => {
+    const res = await request(h.app)
+      .post(`/api/projects/${PROJECT}/documents`)
+      .send({ title: 'Blank', type: 'backlog_item', body: 'Body\n' });
+    expect(res.status).toBe(201);
+    expect(await readDisk(h, res.body.path)).toBe(
+      expectedFile({ ...res.body, task_state: 'todo' }, 'Body\n'),
+    );
+    expect(ids((await getBoard(h)).todo)).toEqual([res.body.id]);
+    expect((await getBoard(h)).todo[0]!.task_state).toBe('todo');
+  });
+
+  it('a backlog item from a template is written with task_state: todo', async () => {
+    h.ctx.templates.setAll([
+      ...h.ctx.templates.list().map((t) => h.ctx.templates.getOrThrow(t.id)),
+      { id: 'story', name: 'Story', type: 'backlog_item', source: 'user', body: '# {{title}}\n' },
+    ]);
+    const res = await request(h.app)
+      .post(`/api/projects/${PROJECT}/documents`)
+      .send({ title: 'From template', type: 'backlog_item', template: 'story' });
+    expect(res.status).toBe(201);
+    expect(await readDisk(h, res.body.path)).toBe(
+      expectedFile({ ...res.body, task_state: 'todo' }, '# From template\n'),
+    );
+  });
+
+  it('create accepts an explicit task_state and rejects invalid ones', async () => {
+    const ok = await request(h.app)
+      .post(`/api/projects/${PROJECT}/documents`)
+      .send({ title: 'Started', type: 'backlog_item', task_state: 'in_progress' });
+    expect(ok.status).toBe(201);
+    expect(await readDisk(h, ok.body.path)).toContain('status: draft\ntask_state: in_progress\n');
+    expect(ids((await getBoard(h)).in_progress)).toEqual([ok.body.id]);
+
+    const invalid = await request(h.app)
+      .post(`/api/projects/${PROJECT}/documents`)
+      .send({ title: 'Nope', type: 'backlog_item', task_state: 'Doing' });
+    expect(invalid.status).toBe(400);
+
+    const onNote = await request(h.app)
+      .post(`/api/projects/${PROJECT}/documents`)
+      .send({ title: 'Note', type: 'note', task_state: 'done' });
+    expect(onNote.status).toBe(400);
+    expect(onNote.body.error.code).toBe('TASK_STATE_NOT_ALLOWED');
+    expect(await h.ctx.fs.listProjectFiles(PROJECT)).toHaveLength(1);
+  });
+
+  it('other document types are never written with task_state', async () => {
+    const res = await request(h.app)
+      .post(`/api/projects/${PROJECT}/documents`)
+      .send({ title: 'Plain note', type: 'note', body: 'Body\n' });
+    expect(res.status).toBe(201);
+    expect(await readDisk(h, res.body.path)).toBe(expectedFile(res.body, 'Body\n'));
+  });
+
+  function importFile(content: string, onDuplicate: 'skip' | 'copy' | 'replace' = 'skip') {
+    return request(h.app)
+      .post(`/api/projects/${PROJECT}/import`)
+      .send({
+        placement: { type: 'backlog_item', titleStrategy: 'frontmatter', onDuplicate },
+        files: [{ filename: 'item.md', content }],
+      });
+  }
+
+  function exported(title: string, extra: string[], id = ID.a): string {
+    return [
+      '---',
+      `id: ${id}`,
+      `title: ${title}`,
+      'type: backlog_item',
+      'status: active',
+      ...extra,
+      '---',
+      '',
+      `# ${title}`,
+      '',
+    ].join('\n');
+  }
+
+  async function imported(res: request.Response): Promise<{ id: string; path: string }> {
+    expect(res.status).toBe(200);
+    const id = res.body.imported[0].documentId as string;
+    return { id, path: (await request(h.app).get(`/api/documents/${id}`)).body.path as string };
+  }
+
+  async function importedPath(res: request.Response): Promise<string> {
+    return (await imported(res)).path;
+  }
+
+  it('import (new) keeps the value verbatim, recognised or not, and absent stays absent', async () => {
+    const doing = await importedPath(await importFile(exported('Doing', ['task_state: Doing'])));
+    expect(await readDisk(h, doing)).toContain('status: active\ntask_state: Doing\n');
+
+    const done = await importedPath(await importFile(exported('Done', ['task_state: done'], ID.b)));
+    expect(await readDisk(h, done)).toContain('status: active\ntask_state: done\n');
+
+    const absent = await importedPath(await importFile(exported('Absent', [], ID.c)));
+    expect(await readDisk(h, absent)).not.toContain('task_state');
+  });
+
+  it('import (copy) of a duplicate keeps the incoming value verbatim', async () => {
+    const original = await importedPath(await importFile(exported('Orig', ['task_state: done'])));
+    const exportedBytes = await readDisk(h, original);
+    const copy = await importedPath(
+      await importFile(exportedBytes.replace('task_state: done', 'task_state: Later'), 'copy'),
+    );
+    expect(copy).not.toBe(original);
+    expect(await readDisk(h, copy)).toContain('task_state: Later\n');
+    expect(await readDisk(h, original)).toBe(exportedBytes);
+  });
+
+  it('import (replace) overwrites task_state only when the incoming file has one', async () => {
+    const { id, path: target } = await imported(
+      await importFile(exported('Target', ['task_state: in_progress'])),
+    );
+
+    const without = await importFile(exported('Target v2', [], id), 'replace');
+    expect(without.status).toBe(200);
+    expect(await readDisk(h, target)).toContain('title: Target v2\n');
+    expect(await readDisk(h, target)).toContain('task_state: in_progress\n');
+
+    const withValue = await importFile(exported('Target v3', ['task_state: done'], id), 'replace');
+    expect(withValue.status).toBe(200);
+    expect(await readDisk(h, target)).toContain('status: active\ntask_state: done\n');
+    expect(ids((await getBoard(h)).done)).toHaveLength(1);
+  });
+
+  it('import (skip) of a duplicate changes nothing', async () => {
+    const { id, path: target } = await imported(
+      await importFile(exported('Kept', ['task_state: done'])),
+    );
+    const before = await readDisk(h, target);
+    const res = await importFile(exported('Ignored', ['task_state: todo'], id), 'skip');
+    expect(res.status).toBe(200);
+    expect(res.body.skipped).toHaveLength(1);
+    expect(await readDisk(h, target)).toBe(before);
+  });
+
+  it('raw export returns the file as stored, task_state included', async () => {
+    const doc = await createDoc(h, { title: 'Export me', task_state: 'done' });
+    const res = await request(h.app).get(`/api/documents/${doc.id}/raw`).buffer(true).parse((r, cb) => {
+      let text = '';
+      r.on('data', (chunk: Buffer) => (text += chunk.toString('utf8')));
+      r.on('end', () => cb(null, text));
+    });
+    expect(res.status).toBe(200);
+    expect(res.body).toBe(await readDisk(h, doc.path));
+    expect(res.body).toContain('task_state: done\n');
+  });
+});

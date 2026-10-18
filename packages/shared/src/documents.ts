@@ -131,6 +131,8 @@ export const CreateDocumentRequestSchema = z.object({
   title: z.string().min(1).max(200),
   type: DocumentTypeSchema,
   status: DocumentStatusSchema.optional(),
+  /** Backlog items only (400 otherwise). Defaults to `todo` for backlog items. */
+  task_state: TaskStateSchema.optional(),
   tags: z.array(TagSchema).optional(),
   body: z.string().optional(),
   /** Optional template id; resolved by Block 5. */
