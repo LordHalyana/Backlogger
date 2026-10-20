@@ -1,0 +1,726 @@
+<title>Recovery Review</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<!-- PROTOTYPE — throwaway, issue #61. Branch prototype/recovery-review-61 only. Do not merge.
+     Three variants of where recovery lives, how the review panel looks for a comment conflict versus a
+     structural problem (transfer or deletion), and how Moving…, Deletion pending and Recovery required look
+     on boards, in Current work and on the item. Switch with the floating bar (or ?variant=A|B|C locally).
+     In-memory only; no API calls. Assumption: standalone page using Backlogger's theme tokens and the shell
+     from App.tsx / TaskBoard.tsx / CurrentWorkDrawer.tsx on main, because no recovery API exists yet. -->
+<style>
+/* Layout: a review sheet. Controls on top, one Backlogger window as the stage, notes beneath. Tokens reuse Backlogger's own theme. */
+:root {
+  --bg: #f6f7f9; --bg-elev: #ffffff; --bg-panel: #eef1f5; --border: #d5dbe3;
+  --fg: #1c2330; --fg-muted: #5d6878; --accent: #2f6fd6; --accent-fg: #ffffff;
+  --danger: #c43c3c; --ok: #1f8a5b; --warning: #a86400; --warn-bg: rgba(184,110,0,.10); --focus: #2f6fd6;
+  --selected: rgba(47,111,214,.10); --backdrop: rgba(20,26,36,.35); --page: #fbfbfc; --ink: #141a24;
+  --add: rgba(31,138,91,.14); --del: rgba(196,60,60,.12);
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0e1116; --bg-elev: #161b22; --bg-panel: #1c2129; --border: #2a313c;
+  --fg: #d9dee6; --fg-muted: #8b95a5; --accent: #6aa7ff; --accent-fg: #0e1116;
+  --danger: #ff6b6b; --ok: #5ad19a; --warning: #f5a524; --warn-bg: rgba(245,165,36,.12); --focus: #4f8ef7;
+  --selected: rgba(255,255,255,.08); --backdrop: rgba(0,0,0,.55); --page: #0b0d11; --ink: #eef1f5;
+  --add: rgba(90,209,154,.16); --del: rgba(255,107,107,.14); color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #0e1116; --bg-elev: #161b22; --bg-panel: #1c2129; --border: #2a313c;
+  --fg: #d9dee6; --fg-muted: #8b95a5; --accent: #6aa7ff; --accent-fg: #0e1116;
+  --danger: #ff6b6b; --ok: #5ad19a; --warning: #f5a524; --warn-bg: rgba(245,165,36,.12); --focus: #4f8ef7;
+  --selected: rgba(255,255,255,.08); --backdrop: rgba(0,0,0,.55); --page: #0b0d11; --ink: #eef1f5;
+  --add: rgba(90,209,154,.16); --del: rgba(255,107,107,.14); color-scheme: dark; }
+
+body { background: var(--page); color: var(--ink); font-family: var(--font); line-height: 1.5; }
+.wrap { max-width: 1240px; margin: 0 auto; padding-block: 28px 120px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; gap: 22px; }
+h1 { font-size: 1.6rem; margin: 0; text-wrap: balance; letter-spacing: -0.01em; }
+h2 { font-size: 1.1rem; margin: 0; text-wrap: balance; }
+h3 { margin: 0; font-size: 13px; text-wrap: balance; }
+.lede { color: var(--fg-muted); max-width: 78ch; margin: 6px 0 0; }
+.eyebrow { font: 600 11px/1 var(--font); text-transform: uppercase; letter-spacing: .08em; color: var(--fg-muted); }
+.controls { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
+.controls label { display: flex; gap: 6px; align-items: center; font-size: 13px; color: var(--fg-muted); }
+select { font: inherit; font-size: 13px; padding: 5px 8px; border-radius: 5px; border: 1px solid var(--border); background: var(--bg-elev); color: var(--fg); }
+.readout { font: 12px/1.5 var(--mono); color: var(--fg-muted); background: var(--bg-panel); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; overflow-wrap: anywhere; }
+.readout b { color: var(--fg); font-weight: 600; }
+
+/* Stage */
+.scroller { overflow-x: auto; border-radius: 8px; }
+.app { position: relative; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; font-size: 13px; min-width: 1040px; height: 680px; display: flex; flex-direction: column; }
+.topbar { display: flex; gap: 6px; align-items: center; padding: 6px 12px; border-bottom: 1px solid var(--border); background: var(--bg-elev); }
+.brand { font-weight: 700; margin-right: 8px; }
+.spacer { flex: 1; }
+.tb { font: inherit; font-size: 12px; padding: 4px 9px; border-radius: 4px; border: 1px solid transparent; background: none; color: var(--fg-muted); cursor: pointer; display: inline-flex; gap: 6px; align-items: center; }
+.tb:hover { background: var(--bg-panel); }
+.tb.on { background: var(--selected); color: var(--fg); }
+.tb.rec { color: var(--warning); border-color: var(--warning); background: var(--warn-bg); font-weight: 600; }
+.count { font-size: 11px; min-width: 18px; padding: 0 5px; border-radius: 9px; background: var(--bg-panel); color: var(--fg-muted); text-align: center; font-variant-numeric: tabular-nums; }
+.tb.rec .count { background: var(--warning); color: var(--bg-elev); }
+.appbanner { display: flex; gap: 10px; align-items: center; padding: 6px 14px; background: var(--warn-bg); border-bottom: 1px solid var(--warning); color: var(--fg); font-size: 12px; flex-wrap: wrap; }
+.appbanner strong { color: var(--warning); }
+.body { flex: 1; display: flex; min-height: 0; position: relative; }
+.rail { flex: 0 0 176px; border-right: 1px solid var(--border); background: var(--bg-elev); padding: 10px 8px; display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+.rail .h { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--fg-muted); padding: 4px 6px; }
+.proj { font: inherit; text-align: left; border: 0; background: none; color: var(--fg-muted); padding: 4px 6px; border-radius: 4px; cursor: pointer; display: flex; gap: 6px; align-items: center; }
+.proj.on { color: var(--fg); font-weight: 600; background: var(--selected); }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--warning); flex: none; }
+.railfoot { margin-top: auto; border-top: 1px solid var(--border); padding-top: 8px; }
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.head { display: flex; gap: 8px; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.head .t { font-weight: 600; font-size: 14px; }
+.muted { color: var(--fg-muted); font-size: 12px; }
+.mono { font-family: var(--mono); font-size: 11.5px; overflow-wrap: anywhere; }
+
+.btn { display: inline-flex; align-items: center; gap: 4px; font: inherit; font-size: 12px; line-height: 1; padding: 6px 10px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg-panel); color: var(--fg); white-space: nowrap; cursor: pointer; }
+.btn.ghost { background: none; border-color: transparent; }
+.btn.pri { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.btn.danger { background: var(--danger); color: var(--bg-elev); border-color: var(--danger); }
+.btn.dangerline { color: var(--danger); border-color: var(--danger); background: none; }
+.btn.link { background: none; border: 0; color: var(--accent); padding: 2px 0; }
+.btn[disabled] { opacity: .5; cursor: not-allowed; }
+button:focus-visible, [tabindex]:focus-visible, select:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* Badges */
+.badge { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; padding: 1px 6px; border-radius: 3px; border: 1px solid var(--border); color: var(--fg-muted); white-space: nowrap; background: var(--bg-elev); }
+.badge.rec { color: var(--warning); border-color: var(--warning); background: var(--warn-bg); }
+.badge.mov { color: var(--accent); border-color: var(--accent); }
+.badge.del { color: var(--danger); border-color: var(--danger); }
+.badge.ok { color: var(--ok); border-color: var(--ok); }
+
+/* Board */
+.board { flex: 1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 12px 14px; min-height: 0; overflow: auto; align-content: start; }
+.col { background: var(--bg-panel); border-radius: 6px; padding: 8px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.col-h { display: flex; gap: 6px; align-items: center; font-weight: 600; font-size: 12px; padding: 2px 4px; }
+.card { background: var(--bg-elev); border: 1px solid var(--border); border-radius: 5px; padding: 8px 10px; display: flex; flex-direction: column; gap: 5px; }
+.card.blocked { border-left: 3px solid var(--warning); }
+.card.dim { opacity: .75; }
+.card.ph { background: none; border-style: dashed; }
+.card .ct { font: inherit; font-weight: 600; text-align: left; background: none; border: 0; padding: 0; color: var(--fg); cursor: pointer; }
+.card .cm { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; }
+.boardnote { margin: 10px 14px 0; }
+.lane { margin: 0 14px 12px; border: 1px dashed var(--border); border-radius: 6px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+.lane-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+/* Notices */
+.notice { display: flex; gap: 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--border); border-left: 3px solid var(--fg-muted); background: var(--bg-panel); border-radius: 4px; flex-wrap: wrap; }
+.notice.warn { border-left-color: var(--warning); background: var(--warn-bg); }
+.notice.info { border-left-color: var(--accent); }
+.notice.ok { border-left-color: var(--ok); }
+.notice.err { border-left-color: var(--danger); }
+.notice > div { flex: 1; min-width: 220px; }
+.notice-wrap { padding: 10px 14px 0; }
+
+/* Task workspace */
+.tabs { display: flex; padding: 0 14px; border-bottom: 1px solid var(--border); background: var(--bg-elev); }
+.tab { font: inherit; padding: 7px 10px 5px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--fg-muted); cursor: pointer; display: inline-flex; gap: 5px; align-items: center; }
+.tab.on { color: var(--fg); border-bottom-color: var(--accent); font-weight: 600; }
+.tab.rectab.on { border-bottom-color: var(--warning); }
+.work { flex: 1; display: flex; min-height: 0; }
+.area { flex: 1; min-width: 0; display: flex; flex-direction: column; border-right: 1px solid var(--border); overflow: auto; }
+.meta { flex: 0 0 210px; background: var(--bg-elev); padding: 12px; display: flex; flex-direction: column; gap: 8px; font-size: 12px; }
+.meta .lbl { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--fg-muted); }
+.meta .acts { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.desc { padding: 14px 18px; max-width: 70ch; display: flex; flex-direction: column; gap: 10px; }
+.desc p { margin: 0; }
+.cmts { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.cmt { border: 1px solid var(--border); border-radius: 6px; background: var(--bg-elev); }
+.cmt-h { display: flex; gap: 6px; padding: 4px 10px; background: var(--bg-panel); border-bottom: 1px solid var(--border); border-radius: 6px 6px 0 0; font-size: 12px; color: var(--fg-muted); font-weight: 600; align-items: center; }
+.cmt .md { padding: 8px 12px; }
+.composer { border-top: 1px solid var(--border); background: var(--bg-elev); padding: 8px 14px; margin-top: auto; display: flex; gap: 8px; align-items: center; }
+.composer .fake { flex: 1; color: var(--fg-muted); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; }
+
+/* Current work drawer */
+.drawer { position: absolute; top: 0; right: 0; bottom: 0; width: 340px; background: var(--bg-elev); border-left: 1px solid var(--border); box-shadow: -8px 0 24px rgba(0,0,0,.12); display: flex; flex-direction: column; z-index: 3; }
+.drawer-h { display: flex; gap: 8px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.drawer-h h2 { font-size: 14px; }
+.drawer-b { overflow: auto; padding: 8px 12px; display: flex; flex-direction: column; gap: 10px; flex: 1; }
+.grp-h { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--fg-muted); display: flex; gap: 6px; align-items: center; }
+.cwrow { display: flex; flex-direction: column; gap: 3px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 5px; }
+.cwrow .ct { font: inherit; font-weight: 600; text-align: left; background: none; border: 0; padding: 0; color: var(--fg); cursor: pointer; }
+.oprow { font: inherit; text-align: left; display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg); color: var(--fg); cursor: pointer; width: 100%; }
+.oprow.on { background: var(--selected); border-color: var(--accent); }
+.oprow .l1 { display: flex; gap: 6px; align-items: center; justify-content: space-between; }
+.oprow .l1 strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Modal (A) */
+.mback { position: absolute; inset: 0; background: var(--backdrop); display: flex; align-items: flex-start; justify-content: center; padding-top: 28px; z-index: 6; }
+.modal { width: 760px; max-height: 620px; background: var(--bg-elev); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 12px 40px rgba(0,0,0,.25); display: flex; flex-direction: column; overflow: hidden; }
+.modal-h { display: flex; gap: 8px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.modal-b { overflow: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 12px; }
+.modal-f { display: flex; gap: 8px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--border); flex-wrap: wrap; }
+
+/* Recovery page (B) */
+.rpage { flex: 1; display: flex; min-height: 0; }
+.rlist { flex: 0 0 300px; border-right: 1px solid var(--border); background: var(--bg-elev); overflow: auto; padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+.rdetail { flex: 1; min-width: 0; overflow: auto; padding: 14px 18px; display: flex; flex-direction: column; gap: 12px; }
+
+/* Panel parts */
+.facts { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; font-size: 12px; }
+.facts dt { color: var(--fg-muted); }
+.facts dd { margin: 0; min-width: 0; }
+.vers { display: flex; flex-direction: column; gap: 8px; }
+.vers.side { flex-direction: row; }
+.vers.side > .ver { flex: 1; min-width: 0; }
+.ver { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.ver-h { display: flex; gap: 8px; align-items: center; padding: 4px 10px; background: var(--bg-panel); border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 600; flex-wrap: wrap; }
+.ver-h .acts { margin-left: auto; display: flex; gap: 4px; }
+.ver pre { margin: 0; padding: 8px 10px; font: 12px/1.55 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; background: var(--bg-elev); }
+.ver pre .a { background: var(--add); display: block; }
+.ver pre .d { background: var(--del); display: block; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 5px; overflow: hidden; }
+.seg button { font: inherit; font-size: 12px; border: 0; background: var(--bg-elev); color: var(--fg-muted); padding: 5px 10px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--selected); color: var(--fg); font-weight: 600; }
+table.paths { width: 100%; border-collapse: collapse; font-size: 12px; }
+table.paths th, table.paths td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+table.paths th { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--fg-muted); font-weight: 600; }
+table.paths tr.bad td { background: var(--warn-bg); }
+.steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0; }
+.timeline li { display: flex; gap: 10px; padding: 6px 0; border-left: 2px solid var(--border); padding-left: 12px; margin-left: 6px; position: relative; }
+.timeline li::before { content: ""; position: absolute; left: -7px; top: 10px; width: 10px; height: 10px; border-radius: 50%; background: var(--bg-elev); border: 2px solid var(--border); }
+.timeline li.done::before { background: var(--ok); border-color: var(--ok); }
+.timeline li.stop::before { background: var(--warning); border-color: var(--warning); }
+.timeline li .w { flex: 0 0 150px; font-weight: 600; }
+.timeline li.todo { color: var(--fg-muted); }
+.confirm { border: 1px solid var(--danger); border-radius: 6px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; background: var(--bg-elev); }
+.confirm .row { display: flex; gap: 8px; flex-wrap: wrap; }
+.final { border: 1px solid var(--border); border-left: 3px solid var(--fg-muted); border-radius: 6px; padding: 10px 12px; background: var(--bg-panel); display: flex; flex-direction: column; gap: 4px; }
+.actbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.sticky { position: sticky; bottom: 0; background: var(--bg-elev); border-top: 1px solid var(--border); padding: 10px 14px; margin: 0 -14px -12px; }
+
+/* Toast */
+.toast { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); background: var(--ink); color: var(--page); border-radius: 6px; padding: 8px 12px; display: flex; gap: 10px; align-items: center; z-index: 8; font-size: 12px; max-width: 640px; box-shadow: 0 6px 20px rgba(0,0,0,.3); }
+.toast .btn { background: none; color: var(--page); border-color: var(--page); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* Notes */
+.notes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 1000px) { .notes { grid-template-columns: 1fr; } }
+.note { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 12px 14px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-elev); color: var(--fg); }
+.note.cur { border-color: var(--accent); }
+.note ul, .qs { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.chip { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; padding: 1px 6px; border-radius: 8px; border: 1px solid var(--accent); color: var(--accent); }
+
+/* Floating variant switcher (prototype chrome, not part of the design) */
+.switcher { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 20; display: flex; gap: 10px; align-items: center; background: var(--ink); color: var(--page); border-radius: 999px; padding: 6px 8px; box-shadow: 0 6px 24px rgba(0,0,0,.3); font-size: 13px; max-width: calc(100vw - 32px); }
+.switcher button { font: inherit; background: none; border: 0; color: inherit; cursor: pointer; padding: 4px 10px; border-radius: 999px; }
+.switcher button:hover { background: rgba(127,127,127,.25); }
+.switcher strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Prototype · How should recovery review and blocked items look?</div>
+    <h1>Recovery review</h1>
+    <p class="lede">Three variants of where recovery lives, how its review panel looks, and how items that are moving, pending deletion or blocked show up. The workspace below has four unfinished operations. Open them from the top bar, a board, Current work or the task itself. Try Archive on the blocked task, abandon the comment change, or use the simulation switches to see a stale review and a successful recheck. Nothing here calls the real app.</p>
+  </header>
+
+  <div class="controls">
+    <label for="sc-start">Start at
+      <select id="sc-start">
+        <option value="board-bl">Backlogger board</option>
+        <option value="board-inbox">Inbox board</option>
+        <option value="task-csv">Blocked task (comment conflict)</option>
+        <option value="recovery">Recovery list</option>
+      </select>
+    </label>
+    <label for="sim-stale"><input type="checkbox" id="sim-stale"> Comment file changes again while I review</label>
+    <label for="sim-fixed"><input type="checkbox" id="sim-fixed"> I have repaired the files on disk</label>
+    <button class="btn" type="button" id="reset">Reset</button>
+  </div>
+
+  <div class="scroller"><div class="app" id="app" aria-label="Backlogger prototype"></div></div>
+  <div class="readout" id="readout" aria-live="off"></div>
+  <div class="sr" id="live" aria-live="polite"></div>
+
+  <section aria-labelledby="vh" style="display:flex;flex-direction:column;gap:12px">
+    <h2 id="vh">What each variant proposes</h2>
+    <div class="notes" id="notes"></div>
+  </section>
+  <section aria-labelledby="qh" style="display:flex;flex-direction:column;gap:8px">
+    <h2 id="qh">Questions to react to</h2>
+    <ol class="qs">
+      <li>Where should recovery live: a top-bar drawer with a dialog (A), its own page with a workspace banner (B), or on the item itself with a status entry in the rail (C)? Or a mix, such as A's top-bar entry with B's page?</li>
+      <li>Comment conflict: stacked versions (A), side by side (B), or one version at a time with a switch (C)?</li>
+      <li>Structural problem: a path table with numbered repair steps (A, B), or a step timeline showing where it stopped (C)?</li>
+      <li>Hidden items on the board: a dashed placeholder card in its column (A), one notice above the board (B), or a "Pending" strip under the columns (C)?</li>
+      <li>Abandon confirmation: inline under the panel, with focus starting on Keep reviewing (A, B), or a separate small dialog (C)?</li>
+      <li>After abandoning: should the item stay in the recovery list as Abandoned until dismissed, or leave it at once and show the final state only where you are?</li>
+    </ol>
+  </section>
+</div>
+
+<div class="switcher" role="region" aria-label="Prototype variant switcher">
+  <button type="button" id="prev" aria-label="Previous variant">←</button>
+  <strong id="vlabel"></strong>
+  <button type="button" id="next" aria-label="Next variant">→</button>
+</div>
+
+<script>
+const VARIANTS = [
+  { key: 'A', name: 'Top-bar drawer + review dialog', points: [
+    'A Recovery button appears in the top bar, next to Current work, only while something needs recovery. It shows a count and opens a drawer listing every operation, split into Needs review and In progress.',
+    'Reviewing opens a dialog over whatever you were doing. Esc or Close returns focus to the control that opened it.',
+    'Comment conflict: Current file and Pending change are stacked, with the changed lines tinted. Structural: a table of paths with expected and found state, then numbered repair steps.',
+    'Board: an item hidden by a stopped deletion keeps a dashed placeholder card in its column. Moving items stay in the source column, dimmed, with a Moving… badge.',
+    'Abandon is confirmed inline at the bottom of the dialog, with focus on Keep reviewing.'] },
+  { key: 'B', name: 'Recovery page + workspace banner', points: [
+    'While anything needs review, a banner under the top bar says so on every screen and links to a Recovery page. In-progress moves and deletions do not raise the banner.',
+    'The page is a list on the left and the selected operation on the right. ↑/↓ moves through the list. It has its own address, so a RECOVERY_REQUIRED link opens it directly.',
+    'Comment conflict: Current file and Pending change side by side. Structural: the same path table and numbered steps as A.',
+    'Board: no placeholder cards. One notice above the columns says how many items in this project are pending or stopped, with Review.',
+    'Abandon is confirmed inline, in place of the action row.'] },
+  { key: 'C', name: 'On the item, Recovery tab', points: [
+    'Recovery belongs to the item. A blocked or stopped item gets a third tab, Recovery, beside Description and Comments, and opens on it.',
+    'The rail shows a warning dot on projects with pending work and a Recovery entry at its foot that lists everything, for reaching it from anywhere.',
+    'Comment conflict: one version at a time with a Current file / Pending change switch and a "Show changes" view. Structural: a step timeline that shows where the operation stopped, then repair steps.',
+    'Board: hidden and moving items sit in a "Pending" strip under the columns instead of in a column.',
+    'Abandon is confirmed in a small dialog. Actions sit in a sticky footer on the tab.'] },
+];
+
+const NOW = '21 Oct 2026';
+const TASKS = {
+  csv:   { id: 'csv', title: 'Fix CSV export line endings', project: 'bl', state: 'In progress', tags: ['export'] },
+  tab:   { id: 'tab', title: 'Comments tab layout', project: 'bl', state: 'In progress', tags: ['ui'] },
+  help:  { id: 'help', title: 'Add keyboard help overlay', project: 'bl', state: 'To do', tags: [] },
+  spike: { id: 'spike', title: 'Old spike: Electron shell', project: 'bl', state: 'To do', tags: ['spike'] },
+  rail:  { id: 'rail', title: 'Daily-work rail', project: 'bl', state: 'Done', tags: [] },
+  notes: { id: 'notes', title: 'Draft release notes', project: 'inbox', state: 'To do', tags: [] },
+  nas:   { id: 'nas', title: 'Buy NAS drives', project: 'inbox', state: 'To do', tags: [] },
+  vpn:   { id: 'vpn', title: 'Renew VPN certificate', project: 'lab', state: 'In progress', tags: [] },
+};
+const PROJECTS = { inbox: '⌂ Inbox', bl: 'Backlogger', lab: 'Home lab' };
+
+const CURRENT_V1 = `Export now writes CRLF on Windows and LF elsewhere.
+
+Checked with Excel 365 and LibreOffice 24.8: both open the file.`;
+const CURRENT_V2 = `Export now writes CRLF on Windows and LF elsewhere.
+
+Checked with Excel 365 and LibreOffice 24.8: both open the file.
+Numbers 14 also opens it (checked on the laptop).`;
+const PENDING = `Export now writes CRLF everywhere, as RFC 4180 says.
+
+Checked with Excel 365 and LibreOffice 24.8: both open the file.
+Python's csv module reads it without newline="" too.`;
+
+function makeOps() {
+  return {
+    op1: { id: 'op1', opid: '4b1e0c9a-77d2-4f0e-9a51-3c2d8e6f1a20', kind: 'comment', title: 'Edit comment', task: 'csv', status: 'review', started: '09:42',
+      reason: 'The comment file changed outside Backlogger after your edit started. Its content matches neither the version before your edit nor your edit, so Backlogger stopped instead of overwriting it.',
+      path: 'Backlogger/tickets/7f3c2a10/comments/01JAZK4Q2M.md', current: CURRENT_V1, reviewedVersion: 1, actions: ['recheck', 'abandon'] },
+    op2: { id: 'op2', opid: '9d0f6b3e-1c84-4a2b-b7e5-52a0f3c9e811', kind: 'transfer', title: 'File to Backlogger', task: 'notes', from: 'inbox', to: 'bl', status: 'review', started: '08:15',
+      reason: 'A different file already exists where Backlogger was copying a comment. Filing stopped before the destination was verified. The task is still in the Inbox and nothing was removed.',
+      stoppedAt: 2, actions: ['recheck'],
+      paths: [
+        { p: 'Backlogger/tickets/a91d03ee.md', exp: 'Copied, matches source', found: 'Matches', ok: true },
+        { p: 'Backlogger/tickets/a91d03ee/comments/01JB0RX8TN.md', exp: 'Copied, matches source', found: 'Matches', ok: true },
+        { p: 'Backlogger/tickets/a91d03ee/comments/01JB0S2K7V.md', exp: 'Absent before copy', found: 'Different file present (2.1 KB, edited 07:58)', ok: false },
+      ],
+      repair: ['Open the Backlogger project folder.', 'Move tickets/a91d03ee/comments/01JB0S2K7V.md out of the project folder. Keep it somewhere else if you need it; Backlogger will not delete it for you.', 'Choose Recheck. Backlogger copies the comment again, verifies the destination and finishes filing.'] },
+    op3: { id: 'op3', opid: 'c27a8e41-0b6f-4d39-8e2c-7f15a4d0b962', kind: 'deletion', title: 'Delete permanently', task: 'spike', status: 'review', started: 'Yesterday 17:20',
+      reason: 'A comment file changed after deletion began. Backlogger deleted the files that matched the saved inventory and kept the changed file. The task stays hidden from the board and search until deletion finishes.',
+      stoppedAt: 2, actions: ['recheck'],
+      paths: [
+        { p: 'Backlogger/tickets/e04b77c2.md', exp: 'Delete', found: 'Deleted', ok: true },
+        { p: 'Backlogger/tickets/e04b77c2/comments/01J9WQ0D3F.md', exp: 'Delete', found: 'Deleted', ok: true },
+        { p: 'Backlogger/tickets/e04b77c2/comments/01J9WQ7M1C.md', exp: 'Delete if unchanged', found: 'Changed after inventory, kept', ok: false },
+      ],
+      repair: ['Open the Backlogger project folder.', 'Decide what to do with tickets/e04b77c2/comments/01J9WQ7M1C.md: move it out of the project folder to keep it, or delete it yourself.', 'Choose Recheck. Backlogger removes the empty task folder and finishes the deletion.'] },
+    op4: { id: 'op4', opid: '5e93c0d7-2a18-4b6c-a4f0-e1b8d2730c45', kind: 'transfer', title: 'File to Home lab', task: 'nas', from: 'inbox', to: 'lab', status: 'moving', started: '09:51',
+      reason: 'Copying 2 of 3 files. No action needed.', actions: [] },
+  };
+}
+
+const S = {};
+function reset(start) {
+  Object.assign(S, { variant: S.variant || 'A', view: 'board', project: 'bl', task: null, tab: 'desc', op: null,
+    modal: null, recDrawer: false, cw: false, confirm: false, stale: false, toast: null, live: '', focusId: null, lastFocus: '-',
+    ops: makeOps(), opener: null, cTab: 'pending', cDiff: false, archived: {} });
+  S.ops.op1.current = CURRENT_V1;
+  const st = start || document.getElementById('sc-start').value;
+  if (st === 'board-inbox') S.project = 'inbox';
+  if (st === 'task-csv') openTask('csv', true);
+  if (st === 'recovery') openRecovery(null);
+}
+
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const say = (m) => { S.live = m; const el = document.getElementById('live'); el.textContent = ''; setTimeout(() => { el.textContent = m; }, 30); };
+const opFor = (taskId) => Object.values(S.ops).find((o) => o.task === taskId && o.status !== 'done' && o.status !== 'abandoned-gone');
+const needing = () => Object.values(S.ops).filter((o) => o.status === 'review' || o.status === 'stale');
+const listed = () => Object.values(S.ops).filter((o) => ['review', 'stale', 'moving', 'abandoned'].includes(o.status));
+const hidden = (t) => { const o = opFor(t.id); return o && o.kind === 'deletion'; };
+
+function statusBadge(o) {
+  if (!o) return '';
+  if (o.status === 'abandoned') return '<span class="badge">Abandoned</span>';
+  if (o.status === 'moving') return '<span class="badge mov">Moving…</span>';
+  if (o.kind === 'deletion') return '<span class="badge del">Deletion stopped</span>';
+  return '<span class="badge rec">Recovery required</span>';
+}
+function opLine(o) {
+  const t = TASKS[o.task];
+  if (o.kind === 'comment') return `${o.title} on ${t.title}`;
+  if (o.kind === 'transfer') return `${t.title}: ${PROJECTS[o.from]} → ${PROJECTS[o.to]}`;
+  return `${t.title}: delete permanently`;
+}
+
+/* ---------- Navigation ---------- */
+function openTask(id, fromStart) {
+  S.view = 'task'; S.task = id; S.project = TASKS[id].project; S.confirm = false;
+  const o = opFor(id);
+  S.tab = S.variant === 'C' && o && o.status !== 'moving' ? 'recovery' : 'desc';
+  S.focusId = 'task-h';
+  if (!fromStart) say(`Opened ${TASKS[id].title}.` + (o && o.status !== 'abandoned' ? ' ' + (o.status === 'moving' ? 'Moving.' : 'Recovery required.') : ''));
+}
+function openRecovery(opId, opener) {
+  S.confirm = false; S.opener = opener || null;
+  const first = opId || (needing()[0] || listed()[0] || {}).id || null;
+  if (S.variant === 'A') {
+    if (opId) { S.modal = opId; S.recDrawer = false; S.focusId = 'panel-h'; }
+    else { S.recDrawer = true; S.cw = false; S.focusId = 'rec-drawer-h'; }
+  } else if (S.variant === 'B') {
+    S.view = 'recovery'; S.op = first; S.focusId = 'rec-page-h';
+  } else {
+    const o = opId && S.ops[opId];
+    if (o && o.status !== 'moving') { openTask(o.task); S.tab = 'recovery'; S.focusId = 'panel-h'; }
+    else { S.view = 'recovery'; S.op = first; S.focusId = 'rec-page-h'; }
+  }
+}
+function link(o) { return o ? `/recovery/${o.opid.slice(0, 8)}…` : '/recovery'; }
+function addr() {
+  if (S.modal) return `/projects/backlogger/board  ·  dialog: recovery ${S.ops[S.modal].opid.slice(0, 8)}…`;
+  if (S.view === 'recovery') return S.op ? link(S.ops[S.op]) : '/recovery';
+  if (S.view === 'task') return `/projects/${S.project}/documents/${S.task}` + (S.tab === 'recovery' ? '#recovery' : '');
+  return `/projects/${S.project}/board`;
+}
+
+/* ---------- Shell ---------- */
+function topbar() {
+  const n = needing().length; const m = listed().filter((o) => o.status === 'moving').length;
+  let rec = '';
+  if (S.variant === 'A' && (n || m)) rec = `<button class="tb ${n ? 'rec' : ''}" type="button" id="tb-rec" data-act="rec-drawer" aria-expanded="${S.recDrawer}">${n ? 'Recovery' : 'Moving'} <span class="count">${n || m}</span></button>`;
+  return `<div class="topbar"><span class="brand">Backlogger</span>
+    <span class="muted mono" style="flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${esc(addr())}</span>
+    ${rec}
+    <button class="tb ${S.cw ? 'on' : ''}" type="button" id="tb-cw" data-act="cw" aria-expanded="${S.cw}">Current work <span class="count">3</span></button>
+    <button class="tb" type="button" tabindex="-1">Search <span class="count">Ctrl+K</span></button>
+    <button class="tb" type="button" tabindex="-1">Import</button><button class="tb" type="button" tabindex="-1">Reload</button>
+    <button class="tb" type="button" tabindex="-1">Help</button><button class="tb" type="button" tabindex="-1">Settings</button></div>`
+    + (S.variant === 'B' && n ? `<div class="appbanner" role="status"><strong>${n} ${n === 1 ? 'item needs' : 'items need'} recovery review.</strong><span>Some writes to them are paused until you review.</span><button class="btn" type="button" id="banner-btn" data-act="rec-page">Open Recovery</button></div>` : '');
+}
+function rail() {
+  const pend = (p) => Object.values(S.ops).some((o) => ['review', 'stale'].includes(o.status) && (TASKS[o.task].project === p));
+  const n = needing().length;
+  return `<nav class="rail" aria-label="Projects"><div class="h">Projects</div>
+    ${Object.entries(PROJECTS).map(([k, v]) => `<button class="proj ${S.view === 'board' && S.project === k ? 'on' : ''}" type="button" data-act="board" data-p="${k}">${esc(v)}${S.variant === 'C' && pend(k) ? '<span class="dot" aria-label="needs recovery"></span>' : ''}</button>`).join('')}
+    ${S.variant === 'C' ? `<div class="railfoot"><button class="proj ${S.view === 'recovery' ? 'on' : ''}" type="button" id="rail-rec" data-act="rec-page">Recovery ${n ? `<span class="count" style="background:var(--warning);color:var(--bg-elev)">${n}</span>` : ''}</button></div>` : ''}
+  </nav>`;
+}
+
+/* ---------- Board ---------- */
+function cardHtml(t) {
+  const o = opFor(t.id);
+  const blocked = o && ['review', 'stale'].includes(o.status) && o.kind !== 'deletion';
+  const moving = o && o.status === 'moving';
+  if (o && o.kind === 'deletion' && o.status !== 'abandoned') {
+    if (S.variant !== 'A') return '';
+    return `<li class="card ph"><span class="ct" style="cursor:default;color:var(--fg-muted)">${esc(t.title)}</span><div class="cm">${statusBadge(o)}<button class="btn link" type="button" id="ph-${o.id}" data-act="review" data-op="${o.id}">Review</button></div></li>`;
+  }
+  if (S.variant === 'C' && o && o.kind === 'transfer' && ['review', 'stale', 'moving'].includes(o.status)) return '';
+  return `<li class="card ${blocked ? 'blocked' : ''} ${moving ? 'dim' : ''}"><button class="ct" type="button" data-act="task" data-t="${t.id}">${esc(t.title)}</button>
+    <div class="cm">${o && o.status !== 'abandoned' ? statusBadge(o) : ''}${o && o.kind === 'transfer' && o.status !== 'abandoned' ? `<span class="muted">to ${esc(PROJECTS[o.to])}</span>` : ''}${t.tags.map((g) => `<span class="badge" style="text-transform:none">#${g}</span>`).join('')}
+    ${blocked && S.variant !== 'C' ? `<button class="btn link" type="button" id="cardrev-${o.id}" data-act="review" data-op="${o.id}">Review</button>` : ''}</div></li>`;
+}
+function board() {
+  const tasks = Object.values(TASKS).filter((t) => t.project === S.project && !S.archived[t.id]);
+  const cols = ['To do', 'In progress', 'Done'].map((st) => {
+    const cards = tasks.filter((t) => t.state === st).map(cardHtml).filter(Boolean);
+    return `<section class="col" aria-label="${st}"><div class="col-h">${st} <span class="count">${cards.length}</span></div><ul style="list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px">${cards.join('')}</ul></section>`;
+  }).join('');
+  const projOps = Object.values(S.ops).filter((o) => TASKS[o.task].project === S.project && ['review', 'stale', 'moving'].includes(o.status));
+  let note = '', lane = '';
+  if (S.variant === 'B') {
+    const hid = projOps.filter((o) => o.kind === 'deletion');
+    if (hid.length) note = `<div class="notice warn boardnote"><div><strong>${hid.length} item in this project is hidden while deletion is stopped.</strong> ${esc(TASKS[hid[0].task].title)}</div><button class="btn" type="button" id="bn-${hid[0].id}" data-act="review" data-op="${hid[0].id}">Review</button></div>`;
+  }
+  if (S.variant === 'C') {
+    const pend = projOps.filter((o) => o.kind !== 'comment');
+    if (pend.length) lane = `<section class="lane" aria-label="Pending"><div class="grp-h">Pending <span class="count">${pend.length}</span> <span class="muted" style="text-transform:none;letter-spacing:0;font-weight:400">Not on the board until these finish</span></div>
+      ${pend.map((o) => `<div class="lane-row">${statusBadge(o)}<button class="btn link" type="button" id="lane-${o.id}" data-act="${o.status === 'moving' ? 'rec-op' : 'task'}" data-t="${o.task}" data-op="${o.id}">${esc(TASKS[o.task].title)}</button><span class="muted">${esc(o.kind === 'transfer' ? PROJECTS[o.from] + ' → ' + PROJECTS[o.to] : 'Delete permanently')}${o.status === 'moving' ? ' · ' + esc(o.reason) : ''}</span></div>`).join('')}</section>`;
+  }
+  return `<div class="head"><span class="t">${esc(PROJECTS[S.project])}</span><span class="muted">Board</span></div>${note}<div class="board">${cols}</div>${lane}`;
+}
+
+/* ---------- Current work ---------- */
+function currentWork() {
+  const items = Object.values(TASKS).filter((t) => t.state === 'In progress' && !S.archived[t.id]);
+  const groups = {}; items.forEach((t) => { (groups[t.project] = groups[t.project] || []).push(t); });
+  return `<aside class="drawer" aria-label="Current work"><div class="drawer-h"><h2 id="cw-h" tabindex="-1">Current work</h2><span class="count">${items.length}</span><span class="spacer"></span><button class="btn ghost" type="button" data-act="cw" aria-label="Close Current work">✕</button></div>
+    <div class="drawer-b">${Object.entries(groups).map(([p, ts]) => `<section><div class="grp-h">${esc(PROJECTS[p])} <span class="count">${ts.length}</span></div>
+    ${ts.map((t) => { const o = opFor(t.id); const live = o && ['review', 'stale'].includes(o.status);
+      return `<div class="cwrow" style="${live ? 'border-left:3px solid var(--warning)' : ''}"><button class="ct" type="button" data-act="task" data-t="${t.id}">${esc(t.title)}</button>${live ? `<div class="cm" style="display:flex;gap:6px;align-items:center">${statusBadge(o)}<span class="muted">Comment writes paused</span>${S.variant !== 'C' ? `<button class="btn link" type="button" id="cwrev-${o.id}" data-act="review" data-op="${o.id}">Review</button>` : ''}</div>` : ''}</div>`; }).join('')}</section>`).join('')}</div></aside>`;
+}
+
+/* ---------- Task ---------- */
+function task() {
+  const t = TASKS[S.task]; const o = opFor(t.id);
+  const live = o && ['review', 'stale'].includes(o.status);
+  const moving = o && o.status === 'moving';
+  let notice = '';
+  if (o && o.status === 'abandoned') notice = `<div class="notice-wrap"><div class="notice"><div><strong>Pending change abandoned.</strong> The current file was kept. Comments can be written again.</div><button class="btn ghost" type="button" data-act="dismiss-abandon" data-op="${o.id}">Dismiss</button></div></div>`;
+  else if (moving) notice = `<div class="notice-wrap"><div class="notice info"><div><strong>Moving to ${esc(PROJECTS[o.to])}.</strong> ${esc(o.reason)} Editing is paused until the move finishes.</div></div></div>`;
+  else if (live && S.variant !== 'C') {
+    const what = o.kind === 'comment' ? 'A comment change needs your review.' : o.kind === 'transfer' ? `Filing to ${esc(PROJECTS[o.to])} stopped.` : 'Deletion stopped.';
+    const paused = o.kind === 'comment' ? 'Comment writes, archive, filing and deletion are paused for this task. You can still read everything.' : 'Writes to this task are paused until recovery finishes.';
+    notice = `<div class="notice-wrap"><div class="notice warn"><div><strong>${what}</strong> ${paused}</div><button class="btn" type="button" id="tasknotice-rev" data-act="review" data-op="${o.id}">Review recovery</button></div></div>`;
+  }
+  const tabs = `<div class="tabs" role="tablist" aria-label="Task sections">
+    <button class="tab ${S.tab === 'desc' ? 'on' : ''}" role="tab" aria-selected="${S.tab === 'desc'}" type="button" data-act="tab" data-tab="desc" id="tab-desc">Description</button>
+    <button class="tab ${S.tab === 'comments' ? 'on' : ''}" role="tab" aria-selected="${S.tab === 'comments'}" type="button" data-act="tab" data-tab="comments" id="tab-comments">Comments (3)</button>
+    ${S.variant === 'C' && o && (live || o.status === 'abandoned') ? `<button class="tab rectab ${S.tab === 'recovery' ? 'on' : ''}" role="tab" aria-selected="${S.tab === 'recovery'}" type="button" data-act="tab" data-tab="recovery" id="tab-recovery">Recovery ${live ? '<span class="dot" aria-label="needs review"></span>' : ''}</button>` : ''}</div>`;
+  let area;
+  if (S.tab === 'recovery') area = panelC(o);
+  else if (S.tab === 'comments') area = `<div class="cmts">
+      ${live && S.variant === 'C' ? `<div class="notice warn"><div><strong>A comment change needs your review.</strong> Writes are paused; drafts are kept.</div><button class="btn" type="button" data-act="tab" data-tab="recovery">Review recovery</button></div>` : ''}
+      <article class="cmt"><div class="cmt-h">14 Oct 2026, 16:02</div><div class="md">Repro: export on Windows, open in Numbers. Every row has a stray <code>\\r</code>.</div></article>
+      <article class="cmt"><div class="cmt-h">18 Oct 2026, 11:30 <span class="badge ${live ? 'rec' : ''}">${live ? 'Change pending review' : 'edited'}</span></div><div class="md" style="white-space:pre-wrap">${esc(S.ops.op1.current)}</div></article>
+      <article class="cmt"><div class="cmt-h">20 Oct 2026, 09:10</div><div class="md">Tests pass locally on Linux and in the Windows VM.</div></article></div>
+      <div class="composer"><span class="fake">${live || moving ? 'Writing is paused while recovery is pending. Your draft is kept.' : 'Add a comment…'}</span><button class="btn pri" type="button" ${live || moving ? 'disabled' : ''}>Post</button></div>`;
+  else area = `<div class="desc"><p><strong>Goal:</strong> CSV exports open cleanly in spreadsheet apps on every platform.</p><p>Exports from Windows show a stray carriage return in Numbers. Decide on one line ending and document it.</p></div>`;
+  const disabled = live || moving ? 'aria-disabled="true"' : '';
+  return `<div class="head"><span class="t" id="task-h" tabindex="-1">${esc(t.title)}</span><span class="badge">${esc(t.state)}</span><span class="muted">${esc(PROJECTS[t.project])}</span>${o && o.status !== 'abandoned' ? statusBadge(o) : ''}</div>
+    ${notice}${tabs}<div class="work"><div class="area">${area}</div>
+    <aside class="meta"><div class="lbl">Task state</div><div>${esc(t.state)}</div><div class="lbl">Project</div><div>${esc(PROJECTS[t.project])}</div>
+    <div class="lbl">Actions</div><div class="acts"><button class="btn" type="button" data-act="try" data-what="Archive" id="act-archive" ${disabled}>Archive</button><button class="btn" type="button" data-act="try" data-what="File to…" ${disabled}>File to…</button><button class="btn dangerline" type="button" data-act="try" data-what="Delete permanently" ${disabled}>Delete permanently</button></div></aside></div>`;
+}
+
+/* ---------- Review panel parts ---------- */
+function diffLines(a, b) {
+  const al = a.split('\n'), bl = b.split('\n');
+  return { cur: al.map((l) => bl.includes(l) ? esc(l) || ' ' : `<span class="d">${esc(l) || ' '}</span>`).join('\n'),
+           pen: bl.map((l) => al.includes(l) ? esc(l) || ' ' : `<span class="a">${esc(l) || ' '}</span>`).join('\n') };
+}
+function facts(o) {
+  const t = TASKS[o.task];
+  const rows = [['Attempted', esc(o.kind === 'comment' ? `Edit a comment on ${t.title}` : o.kind === 'transfer' ? `File ${t.title} from ${PROJECTS[o.from]} to ${PROJECTS[o.to]}` : `Delete ${t.title} and its comments permanently`)],
+    ['Started', `${esc(o.started)} · ${NOW}`], ['Operation', `<span class="mono">${o.opid}</span>`]];
+  if (o.path) rows.splice(2, 0, ['File', `<span class="mono">${esc(o.path)}</span>`]);
+  return `<dl class="facts">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>`;
+}
+function verHead(label, which) {
+  return `<div class="ver-h">${label}${which === 'pen' ? `<span class="acts"><button class="btn ghost" type="button" data-act="copy">Copy</button><button class="btn ghost" type="button" data-act="download">Download .md</button></span>` : '<span class="muted" style="font-weight:400">on disk now</span>'}</div>`;
+}
+function versions(o, layout) {
+  const d = diffLines(o.current, PENDING);
+  if (layout === 'switch') {
+    const show = S.cTab === 'current' ? (S.cDiff ? d.cur : esc(o.current)) : (S.cDiff ? d.pen : esc(PENDING));
+    return `<div class="actbar"><div class="seg" role="group" aria-label="Version"><button type="button" aria-pressed="${S.cTab === 'current'}" data-act="ctab" data-c="current">Current file</button><button type="button" aria-pressed="${S.cTab === 'pending'}" data-act="ctab" data-c="pending">Pending change</button></div>
+      <label class="muted" style="display:flex;gap:4px;align-items:center" for="cdiff"><input type="checkbox" id="cdiff" data-act="cdiff" ${S.cDiff ? 'checked' : ''}> Show changes</label></div>
+      <div class="ver">${verHead(S.cTab === 'current' ? 'Current file' : 'Pending change (your edit, not saved)', S.cTab === 'current' ? 'cur' : 'pen')}<pre>${show}</pre></div>`;
+  }
+  return `<div class="vers ${layout === 'side' ? 'side' : ''}"><div class="ver">${verHead('Current file', 'cur')}<pre>${d.cur}</pre></div><div class="ver">${verHead('Pending change (your edit, not saved)', 'pen')}<pre>${d.pen}</pre></div></div>`;
+}
+function pathTable(o) {
+  return `<div style="overflow-x:auto"><table class="paths"><thead><tr><th>Path (relative to workspace)</th><th>Expected</th><th>Found</th></tr></thead><tbody>
+    ${o.paths.map((r) => `<tr class="${r.ok ? '' : 'bad'}"><td class="mono">${esc(r.p)}</td><td>${esc(r.exp)}</td><td>${r.ok ? '' : '<strong>'}${esc(r.found)}${r.ok ? '' : '</strong>'}</td></tr>`).join('')}</tbody></table></div>`;
+}
+function repair(o) {
+  return `<section style="display:flex;flex-direction:column;gap:6px"><h3>To repair</h3><ol class="steps">${o.repair.map((s) => `<li>${esc(s)}</li>`).join('')}</ol><p class="muted" style="margin:0">This operation cannot be abandoned. Backlogger only moves it forward after you repair the files.</p></section>`;
+}
+function timeline(o) {
+  const steps = o.kind === 'transfer' ? ['Inventory source files', 'Copy to destination', 'Verify destination', 'Remove source files', 'Update index'] : ['Save inventory', 'Hide from board and search', 'Delete matching files', 'Remove task folder', 'Update index'];
+  const stop = o.kind === 'transfer' ? 2 : 3;
+  return `<ol class="timeline">${steps.map((s, i) => `<li class="${i < stop ? 'done' : i === stop ? 'stop' : 'todo'}"><span class="w">${esc(s)}</span><span>${i < stop ? 'Done' : i === stop ? `<strong>Stopped here.</strong> ${o.paths.filter((p) => !p.ok).map((p) => `<span class="mono">${esc(p.p)}</span>: ${esc(p.found)}`).join('')}` : 'Not started'}</span></li>`).join('')}</ol>`;
+}
+function statusNotice(o) {
+  if (o.status === 'stale') return `<div class="notice err" id="stale-n" tabindex="-1"><div><strong>The file changed since you opened this review.</strong> Nothing was abandoned. Review the new current file, then choose again.</div></div>`;
+  if (o.recheckMsg) return `<div class="notice info"><div>${esc(o.recheckMsg)}</div></div>`;
+  return '';
+}
+function finalState(o) {
+  return `<div class="final" id="final-h" tabindex="-1"><strong>Pending change abandoned</strong><span>The current comment file was kept unchanged. Your edit was discarded and cannot be recovered from Backlogger. Comment writes on ${esc(TASKS[o.task].title)} are available again.</span><span class="muted">Abandoned ${NOW}, ${o.abandonedAt} · operation <span class="mono">${o.opid.slice(0, 8)}…</span> · retrying the original edit returns this result</span></div>`;
+}
+function doneState(o) {
+  return `<div class="notice ok" id="final-h" tabindex="-1"><div><strong>${o.kind === 'transfer' ? `Filed to ${esc(PROJECTS[o.to])}.` : 'Deleted permanently.'}</strong> Recheck finished the original operation.</div></div>`;
+}
+function confirmBox() {
+  return `<div class="confirm" role="group" aria-labelledby="cf-h"><strong id="cf-h">Keep the current file and abandon your edit?</strong><span>Your pending text is discarded. Copy or download it first if you want to keep it. This cannot be undone.</span>
+    <div class="row"><button class="btn" type="button" id="cf-keep" data-act="cf-no">Keep reviewing</button><button class="btn danger" type="button" data-act="cf-yes">Abandon pending change</button></div></div>`;
+}
+function actions(o, placement) {
+  if (o.status === 'abandoned' || o.status === 'done') return '';
+  if (o.status === 'moving') return `<p class="muted" style="margin:0">No action needed. This finishes on its own; if it stops, it will show here as Recovery required.</p>`;
+  if (S.confirm && placement !== 'dialog') return confirmBox();
+  return `<div class="actbar"><button class="btn pri" type="button" id="act-recheck" data-act="recheck" data-op="${o.id}">Recheck</button>
+    ${o.actions.includes('abandon') ? `<button class="btn dangerline" type="button" id="act-abandon" data-act="abandon" data-op="${o.id}">Keep current file and abandon pending change…</button>` : ''}
+    <span class="muted">Recheck resumes the original operation. It never overwrites a file that changed.</span></div>`;
+}
+function panelBody(o, layout) {
+  const head = `<p style="margin:0">${esc(o.reason)}</p>${statusNotice(o)}${facts(o)}`;
+  if (o.status === 'abandoned') return finalState(o);
+  if (o.status === 'done') return doneState(o);
+  if (o.status === 'moving') return `${head}`;
+  if (o.kind === 'comment') return head + versions(o, layout);
+  return head + (layout === 'switch' ? timeline(o) : pathTable(o)) + repair(o);
+}
+function kindLabel(o) { return o.kind === 'comment' ? 'Content conflict' : o.kind === 'transfer' ? 'Filing stopped' : 'Deletion stopped'; }
+
+/* ---------- Variant A: drawer + dialog ---------- */
+function recDrawerA() {
+  const ops = listed();
+  const sec = (label, arr) => arr.length ? `<section style="display:flex;flex-direction:column;gap:6px"><div class="grp-h">${label} <span class="count">${arr.length}</span></div>${arr.map((o) => `<button class="oprow" type="button" id="row-${o.id}" data-act="review" data-op="${o.id}"><span class="l1"><strong>${esc(TASKS[o.task].title)}</strong>${statusBadge(o)}</span><span class="muted">${esc(o.kind === 'comment' ? 'Content conflict · edit comment' : o.kind === 'transfer' ? PROJECTS[o.from] + ' → ' + PROJECTS[o.to] : 'Delete permanently')} · ${esc(o.started)}</span></button>`).join('')}</section>` : '';
+  return `<aside class="drawer" aria-label="Recovery"><div class="drawer-h"><h2 id="rec-drawer-h" tabindex="-1">Recovery</h2><span class="spacer"></span><button class="btn ghost" type="button" data-act="rec-drawer" aria-label="Close Recovery">✕</button></div>
+    <div class="drawer-b">${sec('Needs review', ops.filter((o) => ['review', 'stale'].includes(o.status)))}${sec('In progress', ops.filter((o) => o.status === 'moving'))}${sec('Finished', ops.filter((o) => o.status === 'abandoned'))}${ops.length ? '' : '<p class="muted">Nothing needs recovery.</p>'}</div></aside>`;
+}
+function modalA() {
+  const o = S.ops[S.modal];
+  return `<div class="mback" data-act="modal-back"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="panel-h">
+    <div class="modal-h"><h2 id="panel-h" tabindex="-1" style="font-size:14px">${esc(opLine(o))}</h2>${o.status === 'review' || o.status === 'stale' ? `<span class="badge rec">${kindLabel(o)}</span>` : statusBadge(o)}<span class="spacer"></span><button class="btn ghost" type="button" data-act="modal-close" aria-label="Close">✕</button></div>
+    <div class="modal-b">${panelBody(o, 'stack')}${S.confirm ? confirmBox() : ''}</div>
+    <div class="modal-f">${S.confirm ? '<span class="muted">Confirm above, or Keep reviewing.</span>' : actions(o, 'dialog') || `<button class="btn" type="button" data-act="modal-close">Close</button>`}${!S.confirm && ['review', 'stale'].includes(o.status) ? '<span class="spacer"></span><button class="btn" type="button" data-act="open-task" data-t="' + o.task + '">Open task</button>' : ''}</div></div></div>`;
+}
+
+/* ---------- Variant B: page ---------- */
+function pageB() {
+  const ops = listed(); const o = S.op && S.ops[S.op];
+  return `<div class="head"><h2 class="t" id="rec-page-h" tabindex="-1" style="font-size:14px">Recovery</h2><span class="muted">${needing().length} need review · ${ops.filter((x) => x.status === 'moving').length} in progress</span></div>
+    <div class="rpage"><div class="rlist" role="listbox" aria-label="Operations" id="rlist">${ops.map((x) => `<button class="oprow ${x.id === S.op ? 'on' : ''}" type="button" role="option" aria-selected="${x.id === S.op}" id="row-${x.id}" data-act="sel" data-op="${x.id}"><span class="l1"><strong>${esc(TASKS[x.task].title)}</strong>${statusBadge(x)}</span><span class="muted">${esc(x.kind === 'comment' ? 'Content conflict' : x.kind === 'transfer' ? PROJECTS[x.from] + ' → ' + PROJECTS[x.to] : 'Delete permanently')} · ${esc(x.started)}</span></button>`).join('') || '<p class="muted">Nothing needs recovery.</p>'}</div>
+    <div class="rdetail">${o ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><h2 id="panel-h" tabindex="-1">${esc(opLine(o))}</h2>${['review', 'stale'].includes(o.status) ? `<span class="badge rec">${kindLabel(o)}</span>` : statusBadge(o)}<span class="spacer"></span>${hidden(TASKS[o.task]) ? '' : `<button class="btn" type="button" data-act="open-task" data-t="${o.task}">Open task</button>`}</div>${panelBody(o, 'side')}${actions(o, 'page')}` : '<p class="muted">Select an operation.</p>'}</div></div>`;
+}
+
+/* ---------- Variant C: tab on the item, list page from the rail ---------- */
+function panelC(o) {
+  if (!o) return '<div class="cmts"><p class="muted">Nothing needs recovery.</p></div>';
+  return `<div class="cmts" style="flex:1"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><h2 id="panel-h" tabindex="-1" style="font-size:14px">${esc(o.kind === 'comment' ? 'A comment change needs your review' : kindLabel(o))}</h2>${['review', 'stale'].includes(o.status) ? `<span class="badge rec">${kindLabel(o)}</span>` : ''}</div>
+    ${panelBody(o, 'switch')}${['review', 'stale'].includes(o.status) ? `<div class="sticky">${S.confirm ? '<span class="muted">Confirm in the dialog.</span>' : actions(o, 'dialog')}</div>` : ''}</div>`;
+}
+function pageC() {
+  const ops = listed();
+  return `<div class="head"><h2 class="t" id="rec-page-h" tabindex="-1" style="font-size:14px">Recovery</h2><span class="muted">Everything unfinished, across projects. Open an item to review it.</span></div>
+    <div class="cmts">${ops.map((x) => `<div class="cwrow" style="flex-direction:row;align-items:center;gap:10px;flex-wrap:wrap">${statusBadge(x)}<button class="ct" type="button" id="row-${x.id}" data-act="rec-op" data-op="${x.id}">${esc(TASKS[x.task].title)}</button><span class="muted">${esc(PROJECTS[TASKS[x.task].project])} · ${esc(x.kind === 'comment' ? 'Content conflict' : x.kind === 'transfer' ? PROJECTS[x.from] + ' → ' + PROJECTS[x.to] : 'Delete permanently')} · ${esc(x.status === 'moving' ? x.reason : x.started)}</span></div>`).join('') || '<p class="muted">Nothing needs recovery.</p>'}
+    ${S.op && S.ops[S.op].status === 'moving' ? `<div class="notice info"><div><strong>${esc(opLine(S.ops[S.op]))}</strong> ${esc(S.ops[S.op].reason)}</div></div>` : ''}</div>`;
+}
+function dialogC() {
+  return `<div class="mback" data-act="cf-no"><div class="modal" style="width:440px" role="alertdialog" aria-modal="true" aria-labelledby="cf-h"><div class="modal-b">${confirmBox()}</div></div></div>`;
+}
+
+/* ---------- Render ---------- */
+function render() {
+  const app = document.getElementById('app');
+  let main;
+  if (S.view === 'task') main = task();
+  else if (S.view === 'recovery') main = S.variant === 'C' ? pageC() : pageB();
+  else main = board();
+  app.innerHTML = topbar() + `<div class="body">${rail()}<main class="main">${main}</main>${S.cw ? currentWork() : ''}${S.variant === 'A' && S.recDrawer ? recDrawerA() : ''}</div>`
+    + (S.variant === 'A' && S.modal ? modalA() : '') + (S.variant === 'C' && S.confirm ? dialogC() : '')
+    + (S.toast ? `<div class="toast" role="status"><span>${S.toast.msg}</span>${S.toast.op ? `<button class="btn" type="button" id="toast-btn" data-act="review" data-op="${S.toast.op}">Review recovery</button>` : ''}<button class="btn" type="button" data-act="toast-x" aria-label="Dismiss">✕</button></div>` : '');
+  document.getElementById('vlabel').textContent = S.variant + ' — ' + VARIANTS.find((v) => v.key === S.variant).name;
+  document.getElementById('notes').innerHTML = VARIANTS.map((v) => `<div class="note${v.key === S.variant ? ' cur' : ''}"><h3>${v.key} — ${v.name}${v.key === S.variant ? ' <span class="chip">showing</span>' : ''}</h3><ul>${v.points.map((p) => `<li>${esc(p)}</li>`).join('')}</ul></div>`).join('');
+  if (S.focusId) { const el = document.getElementById(S.focusId); if (el) { el.focus({ preventScroll: false }); S.lastFocus = S.focusId; } S.focusId = null; }
+  const ops = Object.values(S.ops).map((o) => `${o.id}:${o.status}`).join(' ');
+  document.getElementById('readout').innerHTML = `variant <b>${S.variant}</b> · view <b>${S.view}${S.view === 'task' ? '/' + S.tab : ''}</b> · dialog <b>${S.modal || '-'}</b> · confirm <b>${S.confirm}</b> · ops <b>${ops}</b> · comment file v<b>${S.ops.op1.current === CURRENT_V1 ? 1 : 2}</b> reviewed v<b>${S.ops.op1.reviewedVersion}</b> · focus <b>${S.lastFocus}</b> · last announcement <b>${esc(S.live || '-')}</b>`;
+}
+
+/* ---------- Actions ---------- */
+function recheck(o) {
+  const fixed = document.getElementById('sim-fixed').checked;
+  if (o.kind === 'comment') {
+    o.recheckMsg = 'Rechecked. The file is still different from both known versions, so nothing was applied.'; say('Still needs review.');
+    if (S.stale) { o.current = CURRENT_V2; o.reviewedVersion = 2; o.status = 'review'; o.recheckMsg = 'Rechecked. The current file changed again; it is shown below.'; }
+    return;
+  }
+  if (fixed) { o.status = 'done'; o.recheckMsg = ''; if (o.kind === 'transfer') TASKS[o.task].project = o.to; else S.archived[o.task] = true; say(o.kind === 'transfer' ? `Filed to ${PROJECTS[o.to]}.` : 'Deleted permanently.'); S.focusId = 'final-h'; }
+  else { o.recheckMsg = 'Rechecked. The files are unchanged, so the operation is still stopped. Follow the repair steps first.'; say('Still stopped. Follow the repair steps.'); }
+}
+function abandon(o) {
+  if (document.getElementById('sim-stale').checked && o.reviewedVersion === 1) {
+    o.current = CURRENT_V2; o.reviewedVersion = 2; o.status = 'stale'; S.confirm = false; S.focusId = 'stale-n';
+    say('Not abandoned. The file changed since you opened this review.'); return;
+  }
+  o.status = 'abandoned'; o.abandonedAt = '10:07'; S.confirm = false; S.focusId = 'final-h';
+  say('Pending change abandoned. Current file kept.');
+}
+
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-act]'); if (!el) return;
+  if (el.dataset.act === 'modal-back' && e.target !== el) return;
+  if (el.dataset.act === 'cf-no' && el.classList.contains('mback') && e.target !== el) return;
+  const act = el.dataset.act; const o = el.dataset.op && S.ops[el.dataset.op];
+  switch (act) {
+    case 'board': S.view = 'board'; S.project = el.dataset.p; S.task = null; S.modal = null; break;
+    case 'task': S.recDrawer = false; S.cw = false; openTask(el.dataset.t); break;
+    case 'open-task': S.modal = null; openTask(el.dataset.t); break;
+    case 'tab': S.tab = el.dataset.tab; S.confirm = false; S.focusId = 'tab-' + S.tab; break;
+    case 'cw': S.cw = !S.cw; S.recDrawer = false; S.focusId = S.cw ? 'cw-h' : 'tb-cw'; break;
+    case 'rec-drawer': S.recDrawer = !S.recDrawer; S.cw = false; S.focusId = S.recDrawer ? 'rec-drawer-h' : 'tb-rec'; break;
+    case 'rec-page': openRecovery(null); break;
+    case 'rec-op': if (o.status === 'moving') { S.view = 'recovery'; S.op = o.id; } else openRecovery(o.id); break;
+    case 'review': S.toast = null; S.cw = false; openRecovery(o.id, el.id); break;
+    case 'sel': S.op = o.id; S.confirm = false; S.focusId = 'row-' + o.id; break;
+    case 'modal-back': case 'modal-close': S.modal = null; S.confirm = false; S.focusId = S.opener || 'tb-rec'; break;
+    case 'recheck': recheck(o); break;
+    case 'abandon': S.confirm = true; S.focusId = 'cf-keep'; break;
+    case 'cf-no': S.confirm = false; S.focusId = 'act-abandon'; break;
+    case 'cf-yes': abandon(S.ops.op1); break;
+    case 'ctab': S.cTab = el.dataset.c; break;
+    case 'cdiff': S.cDiff = el.checked; break;
+    case 'copy': try { navigator.clipboard.writeText(PENDING).then(() => say('Pending text copied.'), () => say('Copy failed. Select the text instead.')); } catch (err) { say('Copy failed.'); } S.toast = { msg: 'Pending text copied.' }; break;
+    case 'download': S.toast = { msg: 'Prototype: would save 01JAZK4Q2M-pending.md.' }; break;
+    case 'try': {
+      const op = opFor(S.task);
+      if (op && op.status !== 'abandoned') { S.toast = { msg: `Can't ${esc(el.dataset.what.toLowerCase().replace('…', ''))}: ${op.status === 'moving' ? 'this task is moving.' : 'a pending operation on this task needs review.'}`, op: op.status === 'moving' ? null : op.id }; say('Blocked. Recovery required.'); S.focusId = 'toast-btn'; }
+      else { S.toast = { msg: `Prototype: ${esc(el.dataset.what)} would run now.` }; }
+      break; }
+    case 'toast-x': S.toast = null; break;
+    case 'dismiss-abandon': o.status = 'abandoned-gone'; break;
+    default: return;
+  }
+  render();
+});
+document.addEventListener('keydown', (e) => {
+  const inField = e.target.closest('input, textarea, select, [contenteditable]');
+  if (e.key === 'Escape') {
+    if (S.confirm) { S.confirm = false; S.focusId = 'act-abandon'; render(); return; }
+    if (S.modal) { S.modal = null; S.focusId = S.opener || 'tb-rec'; render(); return; }
+    if (S.recDrawer) { S.recDrawer = false; S.focusId = 'tb-rec'; render(); return; }
+    if (S.cw) { S.cw = false; S.focusId = 'tb-cw'; render(); return; }
+  }
+  if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && S.variant === 'B' && S.view === 'recovery' && e.target.closest('#rlist')) {
+    const ids = listed().map((x) => x.id); const i = ids.indexOf(S.op); const n = ids[(i + (e.key === 'ArrowDown' ? 1 : -1) + ids.length) % ids.length];
+    S.op = n; S.confirm = false; S.focusId = 'row-' + n; e.preventDefault(); render(); return;
+  }
+  if (e.key === 'Tab' && (S.modal || (S.variant === 'C' && S.confirm))) {
+    const box = document.querySelector('.modal'); if (!box) return;
+    const f = [...box.querySelectorAll('button, [tabindex="-1"]')].filter((x) => !x.disabled);
+    const first = f[0], last = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === first) { last.focus(); e.preventDefault(); }
+    else if (!e.shiftKey && document.activeElement === last) { first.focus(); e.preventDefault(); }
+    return;
+  }
+  if (inField || S.modal) return;
+  if (e.key === 'ArrowLeft' && !e.target.closest('.app')) cycle(-1);
+  if (e.key === 'ArrowRight' && !e.target.closest('.app')) cycle(1);
+});
+document.getElementById('sim-stale').addEventListener('change', (e) => { S.stale = e.target.checked; render(); });
+document.getElementById('sim-fixed').addEventListener('change', render);
+document.getElementById('sc-start').addEventListener('change', () => { reset(); render(); });
+document.getElementById('reset').addEventListener('click', () => { reset(); render(); });
+
+function setVariant(k) {
+  S.variant = k;
+  try { const u = new URL(location.href); u.searchParams.set('variant', k); history.replaceState(null, '', u); } catch (e) {}
+  const keepTask = S.view === 'task' && S.task;
+  S.modal = null; S.recDrawer = false; S.confirm = false;
+  if (S.view === 'recovery' && k === 'A') { S.view = 'board'; S.recDrawer = true; }
+  if (keepTask) openTask(S.task, true);
+  render();
+}
+function cycle(d) { const i = VARIANTS.findIndex((v) => v.key === S.variant); setVariant(VARIANTS[(i + d + VARIANTS.length) % VARIANTS.length].key); }
+document.getElementById('prev').addEventListener('click', () => cycle(-1));
+document.getElementById('next').addEventListener('click', () => cycle(1));
+
+try { const v = new URL(location.href).searchParams.get('variant'); if (['A', 'B', 'C'].includes(v)) S.variant = v; } catch (e) {}
+reset('board-bl'); render();
+</script>
