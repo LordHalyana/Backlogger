@@ -1,0 +1,402 @@
+<title>Comments Tab Review</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: a review sheet — page chrome in a quiet column, each mock framed as a Backlogger workspace window. Mock colors reuse Backlogger's own theme tokens. */
+:root {
+  --bg: #f6f7f9; --bg-elev: #ffffff; --bg-panel: #eef1f5; --border: #d5dbe3;
+  --fg: #1c2330; --fg-muted: #5d6878; --accent: #2f6fd6; --accent-fg: #ffffff;
+  --danger: #c43c3c; --ok: #1f8a5b; --warning: #b86e00; --focus: #2f6fd6;
+  --selected: rgba(47,111,214,.10); --hover: rgba(0,0,0,.04);
+  --page: #fbfbfc; --ink: #141a24; --rec: #1f8a5b; --rec-bg: rgba(31,138,91,.10);
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0e1116; --bg-elev: #161b22; --bg-panel: #1c2129; --border: #2a313c;
+  --fg: #d9dee6; --fg-muted: #8b95a5; --accent: #6aa7ff; --accent-fg: #0e1116;
+  --danger: #ff6b6b; --ok: #5ad19a; --warning: #f59e0b; --focus: #4f8ef7;
+  --selected: rgba(255,255,255,.08); --hover: rgba(255,255,255,.05);
+  --page: #0b0d11; --ink: #eef1f5; --rec: #5ad19a; --rec-bg: rgba(90,209,154,.12); color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #0e1116; --bg-elev: #161b22; --bg-panel: #1c2129; --border: #2a313c;
+  --fg: #d9dee6; --fg-muted: #8b95a5; --accent: #6aa7ff; --accent-fg: #0e1116;
+  --danger: #ff6b6b; --ok: #5ad19a; --warning: #f59e0b; --focus: #4f8ef7;
+  --selected: rgba(255,255,255,.08); --hover: rgba(255,255,255,.05);
+  --page: #0b0d11; --ink: #eef1f5; --rec: #5ad19a; --rec-bg: rgba(90,209,154,.12); color-scheme: dark; }
+
+body { background: var(--page); color: var(--ink); font-family: var(--font); line-height: 1.5; }
+.wrap { max-width: 1240px; margin: 0 auto; padding-block: 32px 64px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; gap: 40px; }
+h1 { font-size: 1.75rem; margin: 0; text-wrap: balance; letter-spacing: -0.01em; }
+h2 { font-size: 1.2rem; margin: 0; text-wrap: balance; }
+.lede { color: var(--fg-muted); max-width: 70ch; margin: 6px 0 0; }
+.eyebrow { font: 600 11px/1 var(--font); text-transform: uppercase; letter-spacing: .08em; color: var(--fg-muted); }
+section { display: flex; flex-direction: column; gap: 14px; }
+.sec-head { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px; }
+.sec-head p { margin: 4px 0 0; color: var(--fg-muted); max-width: 75ch; }
+
+/* Layout comparison */
+.layouts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 1100px) { .layouts { grid-template-columns: 1fr; } }
+.lay { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.lay-h { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.lay-h strong { font-size: 15px; }
+.tag { font: 600 10px/1 var(--font); text-transform: uppercase; letter-spacing: .06em; padding: 4px 6px; border-radius: 3px; border: 1px solid var(--border); color: var(--fg-muted); }
+.tag.rec { color: var(--rec); border-color: var(--rec); background: var(--rec-bg); }
+.lay ul { margin: 0; padding-left: 18px; color: var(--fg-muted); font-size: 13px; }
+
+/* Segmented switch */
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--bg-elev); }
+.seg button { font: inherit; font-size: 13px; padding: 6px 12px; border: 0; background: none; color: var(--fg-muted); cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
+.seg button:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+
+.states { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+@media (max-width: 900px) { .states { grid-template-columns: 1fr; } }
+.state { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.state-h { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.state-h strong { font-size: 14px; }
+.state p { margin: 0; font-size: 13px; color: var(--fg-muted); }
+
+/* Workspace mock (Backlogger chrome) */
+.scroller { overflow-x: auto; border-radius: 8px; }
+.wb { background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; font-size: 13px; min-width: 380px; }
+.wb-head { display: flex; gap: 8px; align-items: baseline; padding: 6px 12px; border-bottom: 1px solid var(--border); min-width: 0; }
+.wb-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chip { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; padding: 1px 6px; border-radius: 8px; border: 1px solid var(--border); color: var(--fg-muted); white-space: nowrap; }
+.chip.done { color: var(--ok); border-color: var(--ok); }
+.tabs { display: flex; padding: 0 12px; border-bottom: 1px solid var(--border); background: var(--bg-elev); }
+.tab { padding: 6px 10px 4px; border-bottom: 2px solid transparent; color: var(--fg-muted); white-space: nowrap; }
+.tab.on { color: var(--fg); border-bottom-color: var(--accent); font-weight: 600; }
+.dot { color: var(--accent); }
+.wb-body { display: flex; min-height: 0; }
+.area { flex: 1; min-width: 0; display: flex; flex-direction: column; border-right: 1px solid var(--border); }
+.meta { flex: 0 0 120px; background: var(--bg-elev); padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+.meta .ln { height: 8px; border-radius: 3px; background: var(--bg-panel); }
+.meta .lbl { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--fg-muted); }
+.tall .area { height: 560px; }
+.short .scroll { flex: none; overflow: visible; }
+.scroll { flex: 1; overflow: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.toolbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 14px; border-bottom: 1px solid var(--border); }
+.muted { color: var(--fg-muted); font-size: 12px; }
+
+.btn { display: inline-flex; align-items: center; gap: 4px; font: inherit; font-size: 12px; line-height: 1; padding: 5px 9px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg-panel); color: var(--fg); white-space: nowrap; }
+.btn.ghost { background: none; border-color: transparent; }
+.btn.pri { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.btn.dan { background: var(--danger); color: var(--accent-fg); border-color: var(--danger); }
+.btn.dis { opacity: .5; }
+.red { color: var(--danger); }
+
+.cm { border: 1px solid var(--border); border-radius: 6px; background: var(--bg-elev); }
+.cm.editing { border-color: var(--accent); }
+.cm.focus { outline: 2px solid var(--focus); outline-offset: 2px; }
+.cm.flat { border: 0; background: none; }
+.cm-h { display: flex; align-items: center; gap: 6px; padding: 4px 10px; background: var(--bg-panel); border-bottom: 1px solid var(--border); border-radius: 6px 6px 0 0; flex-wrap: wrap; }
+.cm-h .when { font-weight: 600; color: var(--fg-muted); font-size: 12px; }
+.cm-h .acts { margin-left: auto; display: flex; gap: 2px; }
+.edited { font-size: 11px; font-style: italic; color: var(--fg-muted); }
+.md { padding: 8px 12px; }
+.md p, .md ol, .md blockquote { margin: 0 0 6px; }
+.md > :last-child { margin-bottom: 0; }
+.md ol { padding-left: 20px; }
+.md blockquote { border-left: 3px solid var(--border); padding-left: 10px; color: var(--fg-muted); }
+code { font-family: var(--mono); font-size: 12px; background: var(--bg-panel); padding: 0 3px; border-radius: 3px; }
+
+.ta { font: 12px/1.5 var(--mono); background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; min-height: 64px; white-space: pre-wrap; word-break: break-word; }
+.ta.ph { color: var(--fg-muted); font-family: var(--font); min-height: 0; }
+.ta.focus { outline: 2px solid var(--focus); }
+.ta.ro { opacity: .65; }
+.row { display: flex; align-items: center; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
+.row .muted { margin-right: auto; }
+.composer { display: flex; flex-direction: column; gap: 6px; }
+.err { border: 1px solid var(--danger); color: var(--danger); background: var(--bg-panel); border-radius: 4px; padding: 5px 8px; font-size: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.notice { display: flex; gap: 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--border); border-left: 3px solid var(--fg-muted); background: var(--bg-panel); border-radius: 4px; flex-wrap: wrap; }
+.notice.warn { border-left-color: var(--warning); }
+.notice > div { flex: 1; min-width: 180px; }
+.notice-wrap { padding: 10px 14px 0; }
+.confirm { display: flex; gap: 6px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--danger); background: var(--bg-panel); flex-wrap: wrap; }
+.confirm span { flex: 1; color: var(--danger); font-size: 12px; min-width: 140px; }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.cols > div { border: 1px solid var(--border); border-radius: 4px; min-width: 0; }
+.col-h { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--fg-muted); padding: 3px 8px; border-bottom: 1px solid var(--border); }
+.cols .ta { border: 0; }
+.loadmore { display: flex; gap: 10px; justify-content: center; align-items: center; padding: 4px; flex-wrap: wrap; }
+.dock { border-top: 1px solid var(--border); background: var(--bg-elev); padding: 8px 14px; }
+.empty { margin: auto; text-align: center; padding: 28px 12px; display: flex; flex-direction: column; gap: 6px; align-items: center; }
+.empty p { margin: 0; }
+.hdr { font-weight: 600; font-size: 13px; display: flex; gap: 6px; align-items: baseline; }
+.sep { border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+.cgrid { flex: 1; display: flex; min-height: 0; }
+.clist { flex: 0 0 42%; max-width: 200px; overflow: auto; border-right: 1px solid var(--border); background: var(--bg-elev); }
+.ci { padding: 6px 10px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 1px; }
+.ci.on { background: var(--selected); box-shadow: inset 3px 0 var(--accent); }
+.ci .d { font-size: 10px; color: var(--fg-muted); }
+.ci .s { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ci.new { color: var(--accent); font-weight: 600; }
+.reader { flex: 1; overflow: auto; padding: 10px 12px; min-width: 0; }
+.reader .cols { grid-template-columns: 1fr; }
+.gap { text-align: center; color: var(--fg-muted); font-size: 12px; }
+.sr { font-size: 11px; font-family: var(--mono); color: var(--fg-muted); border-top: 1px dashed var(--border); padding: 4px 14px; background: var(--bg-elev); }
+
+/* Tables and decisions */
+.tbl-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-elev); }
+table { border-collapse: collapse; width: 100%; font-size: 13px; color: var(--fg); }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--fg-muted); background: var(--bg-panel); }
+tr:last-child td { border-bottom: 0; }
+kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 3px; padding: 0 4px; background: var(--bg); }
+.decisions { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.dec { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; background: var(--bg-elev); color: var(--fg); display: flex; flex-direction: column; gap: 6px; }
+.dec h3 { margin: 0; font-size: 14px; }
+.dec p { margin: 0; font-size: 13px; color: var(--fg-muted); }
+.dec .pick { color: var(--rec); font-weight: 600; font-size: 13px; }
+.dec.flag { border-color: var(--warning); }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Backlogger · comments milestone · prototype review</div>
+    <h1>How should the Comments tab look and behave in each state?</h1>
+    <p class="lede">Three layouts for the Comments tab on a backlog item, then every state the spec requires. The Description tab is unchanged in all three. Mock data; nothing here is saved.</p>
+  </header>
+
+  <section aria-labelledby="h-agreed">
+    <div class="sec-head"><div>
+      <div class="eyebrow" style="color:var(--rec)">Chosen 20 Oct · A with reader</div>
+      <h2 id="h-agreed">Thread by default, reader on demand</h2>
+      <p>The tab opens as layout A. Clicking a comment (or pressing <kbd>Enter</kbd> on it) opens it in a reader pane; the thread narrows to one-line rows so you can keep scanning. Edit, delete and conflicts happen in the reader, where there is room. <kbd>Esc</kbd> or ✕ closes the reader and returns focus to that comment in the thread.</p>
+    </div></div>
+    <div class="states" id="agreed"></div>
+  </section>
+
+  <section aria-labelledby="h-lay">
+    <div class="sec-head"><div>
+      <h2 id="h-lay">The three original layouts</h2>
+      <p>Each mock keeps the real workspace frame: title row, Description / Comments tabs, and the metadata panel on the right (narrowed here).</p>
+    </div></div>
+    <div class="layouts" id="layouts"></div>
+  </section>
+
+  <section aria-labelledby="h-states">
+    <div class="sec-head">
+      <div>
+        <h2 id="h-states">Every state</h2>
+        <p>Switch layout to see how each state lands in it. The grey line under each mock is what a screen reader announces.</p>
+      </div>
+      <div class="seg" role="group" aria-label="Layout for states" id="seg">
+        <button type="button" id="seg-A" aria-pressed="true" data-v="A">A · Docked composer</button>
+        <button type="button" id="seg-B" aria-pressed="false" data-v="B">B · Composer on top</button>
+        <button type="button" id="seg-C" aria-pressed="false" data-v="C">C · List + reader</button>
+      </div>
+    </div>
+    <div class="states" id="states"></div>
+  </section>
+
+  <section aria-labelledby="h-kb">
+    <div class="sec-head"><div>
+      <h2 id="h-kb">Keyboard and focus</h2>
+      <p>Same in every layout. Checked in a headless browser on the prototype branch; not a test suite.</p>
+    </div></div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Action</th><th>Keys</th><th>Focus goes to</th><th>Announced</th></tr></thead>
+      <tbody>
+        <tr><td>Switch Description / Comments</td><td><kbd>←</kbd> <kbd>→</kbd> on the tab</td><td>The other tab</td><td>Tab name, count, "unsaved draft" if any</td></tr>
+        <tr><td>Add comment</td><td><kbd>Enter</kbd> on Add comment</td><td>Composer text box</td><td>—</td></tr>
+        <tr><td>Post</td><td><kbd>Ctrl</kbd>+<kbd>Enter</kbd></td><td>The new comment</td><td>"Posting comment…" then "Comment posted."</td></tr>
+        <tr><td>Post again while saving</td><td><kbd>Ctrl</kbd>+<kbd>Enter</kbd></td><td>Stays put; second press ignored</td><td>—</td></tr>
+        <tr><td>Post fails</td><td>—</td><td>Stays in composer, text kept, button reads Retry</td><td>"Comment not saved. Your text is kept."</td></tr>
+        <tr><td>Cancel composer</td><td><kbd>Esc</kbd></td><td>Add comment (asks first if there is text)</td><td>—</td></tr>
+        <tr><td>Edit a comment</td><td><kbd>Enter</kbd> on Edit</td><td>Its text box</td><td>—</td></tr>
+        <tr><td>Save edit</td><td><kbd>Ctrl</kbd>+<kbd>Enter</kbd></td><td>The saved comment</td><td>"Comment saved."</td></tr>
+        <tr><td>Cancel edit</td><td><kbd>Esc</kbd></td><td>That comment's Edit button (asks first if changed)</td><td>—</td></tr>
+        <tr><td>Delete</td><td><kbd>Enter</kbd> on Delete</td><td>Keep (the safe choice) in the inline confirm</td><td>—</td></tr>
+        <tr><td>Confirm delete</td><td><kbd>Enter</kbd> on Delete</td><td>Next comment, or previous, or Add comment</td><td>"Comment deleted. 5 comments."</td></tr>
+        <tr><td>Load more</td><td><kbd>Enter</kbd></td><td>First newly loaded comment</td><td>"Showing 100 of 120."</td></tr>
+        <tr><td>Leave task with a draft</td><td>Any navigation</td><td>Dialog: Stay / Discard and leave</td><td>Dialog title</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section aria-labelledby="h-dec">
+    <div class="sec-head"><div>
+      <h2 id="h-dec">Decisions</h2>
+      <p>1, 2 and 4 chosen on 20 October. 3, 5 and 6 still need a yes before the ticket is closed.</p>
+    </div></div>
+    <div class="decisions">
+      <div class="dec"><h3>1 · Layout</h3><div class="pick">Chosen: A with reader</div>
+        <p>Full-width thread with docked composer; clicking a comment opens a reader pane and the thread narrows to one-line rows. Shown at the top of this page.</p></div>
+      <div class="dec flag"><h3>2 · Long history (reopens an approved decision)</h3><div class="pick">Chosen: open on the newest page</div>
+        <p>Oldest-first pages of 50 hide the newest 70 of 120 comments, and in A the composer sits below comments you cannot see. Suggest loading the newest page first with "Load older comments" at the top, still reading oldest to newest. This changes the pagination direction in the approved comment API decision.</p></div>
+      <div class="dec"><h3>3 · Delete confirmation</h3><div class="pick">Recommend inline (in the reader)</div>
+        <p>Confirming inside the comment keeps your place in a long history and focus moves to the next comment. B uses the app's modal dialog.</p></div>
+      <div class="dec"><h3>4 · Leaving with a draft</h3><div class="pick">Chosen: ask before discarding</div>
+        <p>The alternative silently keeps the draft in memory, but it is lost on reload anyway, so it promises more than it keeps.</p></div>
+      <div class="dec"><h3>5 · Edit conflict</h3><div class="pick">Recommend as shown</div>
+        <p>Saved version and your edit side by side. Continue editing on the current version, copy your edit, or discard it. Nothing overwrites the saved version without a fresh save.</p></div>
+      <div class="dec"><h3>6 · Tab label</h3><div class="pick">Recommend: Comments (total) •</div>
+        <p>Total count, plus a dot while a comment draft is unsaved. Description gets the same dot for unsaved description edits.</p></div>
+    </div>
+  </section>
+</div>
+
+<script>
+const C = [
+  { when: 'Sep 1, 11:00', snip: 'Started on this. The import path splits on \\r\\n…', html: '<p>Started on this. The import path splits on <code>\\r\\n</code> but Windows exports use <code>\\r</code> alone in a few legacy files.</p>' },
+  { when: 'Sep 1, 18:00', snip: 'Repro steps: 1. Export a project…', html: '<p>Repro steps:</p><ol><li>Export a project from the old tool</li><li>Import into <strong>Backlogger</strong></li><li>Open any note with a table</li></ol><p>Rows collapse into one line.</p>' },
+  { when: 'Sep 2, 01:00', edited: true, snip: 'Checked the parser — it is the line-ending…', html: '<p>Checked the parser. It is the line-ending normalisation, not the table renderer.</p>' },
+  { when: 'Sep 2, 08:00', snip: 'Decision: normalise to \\n at read time…', html: '<p>Decision: normalise to <code>\\n</code> at read time, never rewrite the source file.</p><blockquote>Keeps the Markdown on disk exactly as the user wrote it.</blockquote>' },
+  { when: 'Sep 2, 15:00', snip: 'Wrote a fixture with mixed endings…', html: '<p>Wrote a fixture with mixed endings. Passing locally.</p>' },
+  { when: 'Sep 2, 22:00', snip: 'Remaining: check the search snippet…', html: '<p>Remaining: check the search snippet code path uses the same normaliser.</p>' },
+];
+const DRAFT = 'Found the second call site in `search/snippet.ts`. Same fix applies.';
+
+const acts = (s) => s.writable ? '<span class="acts"><span class="btn ghost">Edit</span><span class="btn ghost red">Delete</span></span>' : '';
+function comment(c, s, i, opts = {}) {
+  const flat = opts.flat ? ' flat' : '';
+  if (s.editIdx === i) {
+    if (s.conflict) return `<article class="cm editing${flat}"><div class="cm-h"><span class="when">${c.when}</span></div>
+      <div class="md" style="display:flex;flex-direction:column;gap:6px">
+        <div class="err">This comment was changed somewhere else after you started editing. Nothing was overwritten. Compare, then choose.</div>
+        <div class="cols"><div><div class="col-h">Current saved version</div><div class="md">${c.html}<p class="muted">(Edited in another tab: added link to fixture.)</p></div></div>
+        <div><div class="col-h">Your edit (not saved)</div><div class="ta">${esc('Decision: normalise to `\\n` at read time…\n\nAlso applies to the export path.')}</div></div></div>
+        <div class="row"><span class="btn ghost">Copy my edit</span><span class="btn ghost">Discard my edit</span><span class="btn pri">Continue editing on current version</span></div>
+      </div></article>`;
+    return `<article class="cm editing${flat}"><div class="cm-h"><span class="when">${c.when}</span></div>
+      <div class="md" style="display:flex;flex-direction:column;gap:6px"><div class="ta focus">${esc('Checked the parser. It is the line-ending normalisation, not the table renderer.\n\nAlso confirmed on the export path.')}</div>
+      <div class="row"><span class="muted">Ctrl+Enter to save · Esc to cancel</span><span class="btn ghost">Cancel</span><span class="btn pri">Save</span></div></div></article>`;
+  }
+  const confirm = s.deleteIdx === i ? '<div class="confirm"><span>Delete this comment? This cannot be undone.</span><span class="btn" style="outline:2px solid var(--focus)">Keep</span><span class="btn dan">Delete</span></div>' : '';
+  const focus = s.focusIdx === i ? ' focus' : '';
+  return `<article class="cm${flat}${focus}"><div class="cm-h"><span class="when">${c.when}</span>${c.edited ? '<span class="edited">edited</span>' : ''}${s.deleteIdx === i ? '' : (s.editIdx != null ? acts(s).replace(/btn ghost/g, 'btn ghost dis') : acts(s))}</div>${confirm}<div class="md">${c.html}</div></article>`;
+}
+function esc(t) { return t.replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+
+function composer(s, v) {
+  const c = s.composer;
+  const draft = c.draft ? `<div class="ta ${c.phase === 'saving' ? 'ro' : 'focus'}">${esc(c.draft)}</div>` : '<div class="ta focus" style="color:var(--fg-muted)">Write a comment… Markdown supported.</div>';
+  const label = c.phase === 'saving' ? 'Posting…' : c.phase === 'failed' ? 'Retry' : 'Post comment';
+  const pri = `<span class="btn pri${c.phase === 'saving' || s.recovery || !c.draft ? ' dis' : ''}">${label}</span>`;
+  const hint = s.recovery ? 'Posting is paused while recovery is pending. Your text is kept.' : 'Ctrl+Enter to post · Esc to cancel';
+  const err = c.phase === 'failed' ? '<div class="err">Could not save the comment: the server did not respond. Your text is kept.</div>'
+    : c.phase === 'conflict' ? '<div class="err">This task was moved or archived somewhere else since you opened it. Your text is kept. <span class="btn">Reload task</span></div>' : '';
+  const restored = c.restored ? '<div class="muted" style="color:var(--accent)">Restored your unsaved comment from when you left this task.</div>' : '';
+  return `<div class="composer">${restored}${draft}<div class="row"><span class="muted">${hint}</span><span class="btn ghost${c.phase === 'saving' ? ' dis' : ''}">Cancel</span>${pri}</div>${err}</div>`;
+}
+
+function notice(s) {
+  if (s.recovery) return '<div class="notice warn"><div><strong>Comment changes on this task are paused.</strong> An earlier comment save was interrupted and needs a review first. History stays readable; your drafts are kept.</div><span class="btn">Review recovery</span></div>';
+  if (s.restriction === 'archived') return '<div class="notice"><div><strong>This task is archived.</strong> You can read its comments. Restore the task to add, edit or delete comments.</div><span class="btn">Restore task</span></div>';
+  if (s.restriction === 'readonly') return '<div class="notice"><div><strong>This project is read-only.</strong> Comments can be read here but not added, edited or deleted.</div></div>';
+  return '';
+}
+function loadMore(s) {
+  return s.long ? '<div class="loadmore"><span class="muted">Showing 50 of 120, oldest first</span><span class="btn">Load 50 newer comments</span></div>' : '';
+}
+function emptyBlock(s) {
+  return `<div class="empty"><p>No comments yet.</p><p class="muted">Use comments to record progress, decisions and findings on this task.</p>${s.writable ? '<span class="btn pri">Add comment</span>' : ''}</div>`;
+}
+function items(s) {
+  const list = s.empty ? [] : C.slice(0, s.show ?? C.length);
+  return list;
+}
+
+function areaA(s) {
+  const list = items(s);
+  const hist = s.empty ? '<p class="muted" style="margin:16px 0">No comments yet. Write the first one below.</p>'
+    : list.map((c, i) => comment(c, s, i)).join('') + (s.show && s.show < C.length && !s.long ? '<div class="gap">…</div>' : '');
+  const dock = s.composer.open ? composer(s) : s.writable ? '<div class="ta ph">Write a comment…</div>' : '';
+  return `<div class="toolbar"><span class="muted">${s.count} comments · oldest first</span>${s.writable ? '<span class="btn">Add comment</span>' : ''}</div>
+    ${notice(s) ? `<div class="notice-wrap">${notice(s)}</div>` : ''}
+    <div class="scroll">${hist}${loadMore(s)}</div>${dock ? `<div class="dock">${dock}</div>` : ''}`;
+}
+function areaB(s) {
+  const list = items(s);
+  let top;
+  if (s.empty && !s.composer.open) return `<div class="scroll">${notice(s)}${emptyBlock(s)}</div>`;
+  top = s.composer.open ? composer(s) : s.writable ? '<div><span class="btn pri">Add comment</span></div>' : '';
+  return `<div class="scroll">${notice(s)}${top ? `<div class="sep">${top}</div>` : ''}
+    <div class="hdr">History <span class="muted">${s.count} · oldest first</span></div>
+    ${list.map((c, i) => comment(c, s, i)).join('')}${s.show && s.show < C.length && !s.long ? '<div class="gap">…</div>' : ''}${loadMore(s)}</div>`;
+}
+function areaC(s) {
+  const list = items(s);
+  const sel = s.composer.open ? 'new' : (s.editIdx ?? s.deleteIdx ?? s.focusIdx ?? list.length - 1);
+  const rows = list.map((c, i) => `<div class="ci${sel === i ? ' on' : ''}"><span class="d">${c.when}${c.edited ? ' · edited' : ''}${s.editIdx === i ? ' · editing' : ''}</span><span class="s">${esc(c.snip)}</span></div>`).join('');
+  const reader = sel === 'new' ? composer(s) : s.empty ? emptyBlock(s) : comment(list[sel], s, sel, { flat: true });
+  return `${notice(s) ? `<div class="notice-wrap">${notice(s)}</div>` : ''}<div class="cgrid" style="${notice(s) ? 'margin-top:10px;border-top:1px solid var(--border)' : ''}">
+    <div class="clist">${s.writable ? `<div class="ci new${sel === 'new' ? ' on' : ''}">+ New comment${s.composer.draft ? ' (draft)' : ''}</div>` : ''}${rows}${s.empty ? '<div class="ci d muted">No comments yet.</div>' : ''}${s.long ? '<div class="loadmore"><span class="btn">Load 50 newer</span></div>' : ''}</div>
+    <div class="reader">${reader}</div></div>`;
+}
+
+function areaR(s) {
+  if (s.reader == null) return areaA(s);
+  const list = items(s);
+  const r = s.reader;
+  const older = s.long ? '<div class="loadmore"><span class="btn">Load 50 older</span></div>' : '';
+  const rows = list.map((c, i) => `<div class="ci${r === i ? ' on' : ''}"><span class="d">${c.when}${c.edited ? ' · edited' : ''}${s.editIdx === i ? ' · editing' : ''}</span><span class="s">${esc(c.snip)}</span></div>`).join('');
+  const body = comment(list[r], s, r, { flat: true }).replace('<div class="cm-h">', '<div class="cm-h"><span class="btn ghost" title="Close reader (Esc)" aria-label="Close reader">✕</span>');
+  return `<div class="toolbar"><span class="muted">${s.count} comments · ${s.long ? 'newest 50 shown' : 'oldest first'}</span>${s.writable ? '<span class="btn">Add comment</span>' : ''}</div>
+    ${notice(s) ? `<div class="notice-wrap">${notice(s)}</div>` : ''}
+    <div class="cgrid" style="${notice(s) ? 'margin-top:10px;border-top:1px solid var(--border)' : ''}"><div class="clist" style="flex-basis:40%;max-width:none;display:flex;flex-direction:column">${older}<div style="flex:1">${rows}</div>${s.writable ? '<div class="dock" style="padding:6px 8px"><div class="ta ph">Write a comment…</div></div>' : ''}</div>
+    <div class="reader">${body}</div></div>`;
+}
+
+function frame(v, s, cls) {
+  const area = v === 'A' ? areaA(s) : v === 'B' ? areaB(s) : v === 'R' ? areaR(s) : areaC(s);
+  const chip = s.restriction === 'archived' ? '<span class="chip">Archived</span>' : '<span class="chip done">In progress</span>';
+  const dot = s.draft ? ' <span class="dot">•</span>' : '';
+  const sr = s.say ? `<div class="sr">Announced: "${s.say}"</div>` : '';
+  return `<div class="scroller"><div class="wb ${cls}"><div class="wb-head"><span class="wb-title">Fix mixed line endings on import</span>${chip}</div>
+    <div class="tabs"><span class="tab">Description</span><span class="tab on">Comments (${s.count})${dot}</span></div>
+    <div class="wb-body"><div class="area">${area}</div><div class="meta"><span class="lbl">Metadata</span><div class="ln"></div><div class="ln" style="width:70%"></div><div class="ln"></div><div class="ln" style="width:50%"></div></div></div>${sr}</div></div>`;
+}
+
+const base = () => ({ writable: true, count: 6, composer: { open: false, draft: '', phase: 'idle' } });
+const STATES = [
+  { name: 'Empty', note: 'First visit to a task with no comments.', s: { ...base(), empty: true, count: 0 } },
+  { name: 'Composing', note: 'Composer open with a draft. Tab shows the draft dot.', s: { ...base(), show: 2, draft: true, composer: { open: true, draft: DRAFT, phase: 'idle' } } },
+  { name: 'Saving', note: 'Text locked, Post disabled and relabelled; a second Ctrl+Enter does nothing.', s: { ...base(), show: 2, draft: true, say: 'Posting comment…', composer: { open: true, draft: DRAFT, phase: 'saving' } } },
+  { name: 'Post failed', note: 'Text kept. Error sits right under the composer. Retry reuses the same request key, so it never double-posts.', s: { ...base(), show: 2, draft: true, say: 'Comment not saved. Your text is kept.', composer: { open: true, draft: DRAFT, phase: 'failed' } } },
+  { name: 'Task changed while posting', note: 'The task was filed or archived elsewhere (REVISION_CONFLICT on location). Text kept; reload the task.', s: { ...base(), show: 2, draft: true, say: 'Task changed elsewhere. Your text is kept.', composer: { open: true, draft: DRAFT, phase: 'conflict' } } },
+  { name: 'Just posted', note: 'Focus lands on the new comment so the reader hears it; composer closes.', s: { ...base(), count: 7, show: 2, focusIdx: 1, say: 'Comment posted.' } },
+  { name: 'Inline edit', note: 'Edit opens in place with Save / Cancel. Other comments’ Edit and Delete are disabled until you finish.', s: { ...base(), show: 3, editIdx: 2, draft: true } },
+  { name: 'Edit conflict', note: 'The comment changed elsewhere. Both versions side by side; nothing overwritten.', s: { ...base(), show: 4, editIdx: 3, conflict: true, draft: true, say: 'This comment changed elsewhere. Your edit is kept; review the current version.' } },
+  { name: 'Delete confirmation', note: 'Inline in A and C; B uses the app’s modal dialog instead. Focus starts on Keep.', s: { ...base(), show: 3, deleteIdx: 2 } },
+  { name: 'Archived task', note: 'History readable; no composer, no Edit/Delete. Restore is offered.', s: { ...base(), writable: false, restriction: 'archived', show: 2 } },
+  { name: 'Read-only project', note: 'Same as archived, but there is no in-place way out.', s: { ...base(), writable: false, restriction: 'readonly', show: 2 } },
+  { name: 'Recovery required', note: 'Task-level notice at the top. Writes paused, drafts kept, history readable.', s: { ...base(), writable: false, recovery: true, show: 2, draft: true, composer: { open: true, draft: DRAFT, phase: 'idle' } } },
+  { name: 'Long history (120)', note: 'Oldest first, 50 per page: the newest 70 are hidden until you load them. See decision 2.', s: { ...base(), count: 120, long: true, show: 3 } },
+  { name: 'Back after leaving (keep-draft option)', note: 'Only if you choose to keep drafts on navigation instead of asking. See decision 4.', s: { ...base(), show: 2, draft: true, composer: { open: true, draft: DRAFT, phase: 'idle', restored: true } } },
+];
+
+const LAYS = [
+  { v: 'A', name: 'Docked composer', rec: true, pts: ['History scrolls; composer docked underneath, always visible', 'Add comment just focuses it', 'Like GitHub'] },
+  { v: 'B', name: 'Composer on top', pts: ['Add comment opens the composer above history', 'History pushed down while writing', 'Like Jira'] },
+  { v: 'C', name: 'List + reader', pts: ['Narrow list of comments, one read at a time', 'Quick to scan dates, slow to read a thread', 'Cramped beside the metadata panel'] },
+];
+document.getElementById('layouts').innerHTML = LAYS.map((l) => `<div class="lay"><div class="lay-h"><strong>${l.v} · ${l.name}</strong>${l.rec ? '<span class="tag rec">Recommended</span>' : ''}</div>
+  ${frame(l.v, { ...base(), composer: l.v === 'C' ? { open: false, draft: '', phase: 'idle' } : { open: false, draft: '', phase: 'idle' } }, 'tall')}
+  <ul>${l.pts.map((p) => `<li>${p}</li>`).join('')}</ul></div>`).join('');
+
+const AGREED = [
+  { name: 'Reader closed', note: 'Exactly layout A: full-width thread, composer docked underneath.', s: { ...base(), show: 3 } },
+  { name: 'Reading a comment', note: 'Thread collapses to one-line rows; the selected comment opens beside it. ↑/↓ in the list changes the reader.', s: { ...base(), reader: 3 } },
+  { name: 'Editing in the reader', note: 'Edit opens in the reader with Save / Cancel. Esc cancels the edit first; a second Esc closes the reader.', s: { ...base(), reader: 2, editIdx: 2, draft: true } },
+  { name: 'Edit conflict in the reader', note: 'Saved version and your edit stacked in the reader. Nothing overwritten.', s: { ...base(), reader: 3, editIdx: 3, conflict: true, draft: true, say: 'This comment changed elsewhere. Your edit is kept; review the current version.' } },
+  { name: 'Delete in the reader', note: 'Inline confirm, focus on Keep. After deleting, the reader shows the next comment.', s: { ...base(), reader: 2, deleteIdx: 2 } },
+  { name: 'Long history, newest first', note: 'Opens on the newest 50 comments, read oldest to newest. "Load older" sits at the top of the list.', s: { ...base(), count: 120, long: true, reader: 2 } },
+];
+document.getElementById('agreed').innerHTML = AGREED.map((st) => `<div class="state"><div class="state-h"><strong>${st.name}</strong></div><p>${st.note}</p>${frame('R', st.s, 'short')}</div>`).join('');
+
+function renderStates(v) {
+  document.getElementById('states').innerHTML = STATES.map((st) => `<div class="state"><div class="state-h"><strong>${st.name}</strong></div><p>${st.note}</p>${frame(v, st.s, 'short')}</div>`).join('');
+  document.querySelectorAll('#seg button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === v)));
+  try { localStorage.setItem('ctr-layout', v); } catch (e) {}
+}
+document.getElementById('seg').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) renderStates(b.dataset.v); });
+let start = 'A';
+try { start = localStorage.getItem('ctr-layout') || 'A'; } catch (e) {}
+renderStates(['A', 'B', 'C'].includes(start) ? start : 'A');
+</script>
