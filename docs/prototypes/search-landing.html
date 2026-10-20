@@ -1,0 +1,623 @@
+<title>Comment Search Landing</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<!-- PROTOTYPE — throwaway, issue #60. Branch prototype/search-landing-60 only. Do not merge.
+     Three variants of how a comment match looks in search and how opening it lands on the comment,
+     switchable with the floating bar (or ?variant=A|B|C when run locally). In-memory only.
+     Assumption: built as a standalone page using Backlogger's theme tokens, because the approved
+     Comments tab (layout A with reader) exists only as a review mock, and the search API has no
+     comment hits yet. The palette and tab here follow CommandPalette.tsx and the #59 decision. -->
+<style>
+/* Layout: a review sheet. Controls on top, one Backlogger window as the stage, notes beneath. Tokens reuse Backlogger's own theme. */
+:root {
+  --bg: #f6f7f9; --bg-elev: #ffffff; --bg-panel: #eef1f5; --border: #d5dbe3;
+  --fg: #1c2330; --fg-muted: #5d6878; --accent: #2f6fd6; --accent-fg: #ffffff;
+  --danger: #c43c3c; --ok: #1f8a5b; --warning: #b86e00; --focus: #2f6fd6;
+  --selected: rgba(47,111,214,.10); --flash: rgba(47,111,214,.22); --mark: rgba(255,199,0,.38);
+  --backdrop: rgba(20,26,36,.35); --page: #fbfbfc; --ink: #141a24; --rec: #1f8a5b; --rec-bg: rgba(31,138,91,.10);
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0e1116; --bg-elev: #161b22; --bg-panel: #1c2129; --border: #2a313c;
+  --fg: #d9dee6; --fg-muted: #8b95a5; --accent: #6aa7ff; --accent-fg: #0e1116;
+  --danger: #ff6b6b; --ok: #5ad19a; --warning: #f59e0b; --focus: #4f8ef7;
+  --selected: rgba(255,255,255,.08); --flash: rgba(106,167,255,.26); --mark: rgba(245,190,40,.35);
+  --backdrop: rgba(0,0,0,.55); --page: #0b0d11; --ink: #eef1f5; --rec: #5ad19a; --rec-bg: rgba(90,209,154,.12); color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #0e1116; --bg-elev: #161b22; --bg-panel: #1c2129; --border: #2a313c;
+  --fg: #d9dee6; --fg-muted: #8b95a5; --accent: #6aa7ff; --accent-fg: #0e1116;
+  --danger: #ff6b6b; --ok: #5ad19a; --warning: #f59e0b; --focus: #4f8ef7;
+  --selected: rgba(255,255,255,.08); --flash: rgba(106,167,255,.26); --mark: rgba(245,190,40,.35);
+  --backdrop: rgba(0,0,0,.55); --page: #0b0d11; --ink: #eef1f5; --rec: #5ad19a; --rec-bg: rgba(90,209,154,.12); color-scheme: dark; }
+
+body { background: var(--page); color: var(--ink); font-family: var(--font); line-height: 1.5; }
+.wrap { max-width: 1240px; margin: 0 auto; padding-block: 28px 120px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; gap: 24px; }
+h1 { font-size: 1.6rem; margin: 0; text-wrap: balance; letter-spacing: -0.01em; }
+h2 { font-size: 1.1rem; margin: 0; text-wrap: balance; }
+.lede { color: var(--fg-muted); max-width: 75ch; margin: 6px 0 0; }
+.eyebrow { font: 600 11px/1 var(--font); text-transform: uppercase; letter-spacing: .08em; color: var(--fg-muted); }
+.controls { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; }
+.controls label { display: flex; gap: 6px; align-items: center; font-size: 13px; color: var(--fg-muted); }
+select, .ctl { font: inherit; font-size: 13px; padding: 5px 8px; border-radius: 5px; border: 1px solid var(--border); background: var(--bg-elev); color: var(--fg); }
+.ctl { cursor: pointer; }
+.readout { font: 12px/1.5 var(--mono); color: var(--fg-muted); background: var(--bg-panel); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; overflow-wrap: anywhere; }
+.readout b { color: var(--fg); font-weight: 600; }
+
+/* Stage: Backlogger window */
+.scroller { overflow-x: auto; border-radius: 8px; }
+.app { position: relative; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; font-size: 13px; min-width: 980px; height: 640px; display: flex; flex-direction: column; }
+.topbar { display: flex; gap: 10px; align-items: center; padding: 6px 12px; border-bottom: 1px solid var(--border); background: var(--bg-elev); }
+.url { flex: 1; font: 12px var(--mono); color: var(--fg-muted); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 3px 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.searchbtn { font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg-panel); color: var(--fg-muted); cursor: pointer; }
+.body { flex: 1; display: flex; min-height: 0; }
+.rail { flex: 0 0 168px; border-right: 1px solid var(--border); background: var(--bg-elev); padding: 10px; display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--fg-muted); }
+.rail .on { color: var(--fg); font-weight: 600; }
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.home { margin: auto; text-align: center; color: var(--fg-muted); display: flex; flex-direction: column; gap: 8px; align-items: center; padding: 24px; }
+.home p { margin: 0; }
+.dochead { display: flex; gap: 8px; align-items: baseline; padding: 8px 14px; border-bottom: 1px solid var(--border); }
+.dochead .t { font-weight: 600; font-size: 14px; }
+.chip { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; padding: 1px 6px; border-radius: 8px; border: 1px solid var(--border); color: var(--fg-muted); white-space: nowrap; }
+.chip.arch { color: var(--warning); border-color: var(--warning); }
+.tabs { display: flex; padding: 0 14px; border-bottom: 1px solid var(--border); background: var(--bg-elev); }
+.tab { font: inherit; padding: 7px 10px 5px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--fg-muted); cursor: pointer; }
+.tab.on { color: var(--fg); border-bottom-color: var(--accent); font-weight: 600; }
+.work { flex: 1; display: flex; min-height: 0; }
+.area { flex: 1; min-width: 0; display: flex; flex-direction: column; border-right: 1px solid var(--border); }
+.meta { flex: 0 0 200px; background: var(--bg-elev); padding: 12px; display: flex; flex-direction: column; gap: 8px; font-size: 12px; }
+.meta .lbl { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--fg-muted); }
+.toolbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 14px; border-bottom: 1px solid var(--border); }
+.muted { color: var(--fg-muted); font-size: 12px; }
+.scroll { flex: 1; overflow: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; min-height: 0; scroll-behavior: smooth; }
+.split { flex: 1; display: flex; min-height: 0; }
+.rows { flex: 0 0 300px; overflow: auto; border-right: 1px solid var(--border); background: var(--bg-elev); }
+.reader { flex: 1; overflow: auto; padding: 12px 14px; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.dock { border-top: 1px solid var(--border); background: var(--bg-elev); padding: 8px 14px; }
+.fake { display: block; width: 100%; text-align: left; font: inherit; color: var(--fg-muted); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; }
+
+.btn { display: inline-flex; align-items: center; gap: 4px; font: inherit; font-size: 12px; line-height: 1; padding: 5px 9px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg-panel); color: var(--fg); white-space: nowrap; cursor: pointer; }
+.btn.ghost { background: none; border-color: transparent; }
+.btn.pri { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.btn.link { background: none; border: 0; color: var(--accent); padding: 2px 0; }
+button:focus-visible, [tabindex]:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+.cm { border: 1px solid var(--border); border-radius: 6px; background: var(--bg-elev); scroll-margin: 40px; transition: box-shadow .2s; }
+.cm.target { box-shadow: inset 3px 0 var(--accent); }
+.cm.flash { animation: flash 3s ease-out 1; }
+@keyframes flash { 0%, 40% { background: var(--flash); } 100% { background: var(--bg-elev); } }
+@media (prefers-reduced-motion: reduce) { .cm.flash { animation: none; background: var(--flash); } .scroll { scroll-behavior: auto; } }
+.cm-h { display: flex; align-items: center; gap: 6px; padding: 4px 10px; background: var(--bg-panel); border-bottom: 1px solid var(--border); border-radius: 6px 6px 0 0; flex-wrap: wrap; }
+.cm-h .when { font-weight: 600; color: var(--fg-muted); font-size: 12px; }
+.cm-h .acts { margin-left: auto; display: flex; gap: 2px; }
+.from { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--accent); border: 1px solid var(--accent); border-radius: 8px; padding: 0 6px; }
+.edited { font-size: 11px; font-style: italic; color: var(--fg-muted); }
+.md { padding: 8px 12px; }
+.md p { margin: 0 0 6px; } .md > :last-child { margin-bottom: 0; }
+code { font-family: var(--mono); font-size: 12px; background: var(--bg-panel); padding: 0 3px; border-radius: 3px; }
+mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1px; }
+.gapbar { display: flex; gap: 10px; justify-content: center; align-items: center; padding: 6px; border: 1px dashed var(--border); border-radius: 6px; color: var(--fg-muted); font-size: 12px; flex-wrap: wrap; }
+.notice { display: flex; gap: 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--border); border-left: 3px solid var(--fg-muted); background: var(--bg-panel); border-radius: 4px; flex-wrap: wrap; }
+.notice.warn { border-left-color: var(--warning); }
+.notice.info { border-left-color: var(--accent); }
+.notice > div { flex: 1; min-width: 200px; }
+.notice-wrap { padding: 10px 14px 0; }
+.row { display: flex; flex-direction: column; gap: 1px; padding: 6px 10px; border: 0; border-bottom: 1px solid var(--border); width: 100%; text-align: left; font: inherit; background: none; color: var(--fg); cursor: pointer; }
+.row.on { background: var(--selected); box-shadow: inset 3px 0 var(--accent); }
+.row .d { font-size: 10px; color: var(--fg-muted); }
+.row .s { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row.pinned { background: var(--bg-panel); }
+.reader h3 { margin: 0; font-size: 13px; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.desc { padding: 14px 18px; max-width: 70ch; display: flex; flex-direction: column; gap: 10px; overflow: auto; }
+.desc p { margin: 0; }
+.desc .hit { box-shadow: inset 3px 0 var(--accent); padding-left: 10px; }
+.unavail { margin: auto; max-width: 46ch; text-align: center; display: flex; flex-direction: column; gap: 10px; align-items: center; padding: 24px; }
+.unavail h2 { font-size: 1rem; }
+.unavail p { margin: 0; color: var(--fg-muted); }
+
+/* Command palette (follows command-palette.css) */
+.pal-back { position: absolute; inset: 0; background: var(--backdrop); display: flex; align-items: flex-start; justify-content: center; padding-top: 56px; z-index: 5; }
+.pal { width: 640px; max-height: 500px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 12px 40px rgba(0,0,0,.25); display: flex; flex-direction: column; overflow: hidden; }
+.pal.wide { width: 900px; }
+.pal-in { border: none; outline: none; background: transparent; color: var(--fg); padding: 14px 18px; font: inherit; font-size: 16px; border-bottom: 1px solid var(--border); }
+.pal-status { padding: 5px 18px; font-size: 12px; color: var(--fg-muted); border-bottom: 1px solid var(--border); }
+.pal-body { display: flex; min-height: 0; flex: 1; }
+.pal-list { list-style: none; margin: 0; padding: 4px 0; overflow-y: auto; flex: 1; min-width: 0; }
+.pal-row { padding: 8px 18px; cursor: pointer; border-left: 3px solid transparent; display: flex; flex-direction: column; gap: 3px; }
+.pal-row.active { background: var(--bg); border-left-color: var(--accent); }
+.pal-row.gone { color: var(--fg-muted); font-style: italic; cursor: default; }
+.pal-title { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; min-width: 0; }
+.pal-doc { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pal-meta { font-size: 11px; color: var(--fg-muted); white-space: nowrap; display: flex; gap: 6px; align-items: center; }
+.pal-snip { font-size: 12px; color: var(--fg-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; gap: 6px; align-items: baseline; }
+.pal-snip .txt { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.lab { flex: none; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--fg); background: var(--bg-elev); border: 1px solid var(--border); border-radius: 3px; padding: 0 5px; }
+.lab.cmt { color: var(--accent); border-color: var(--accent); }
+.kicker { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--fg-muted); }
+.kicker.cmt { color: var(--accent); }
+.clamp2 { font-size: 12px; color: var(--fg-muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.pal-prev { flex: 0 0 330px; border-left: 1px solid var(--border); background: var(--bg-elev); overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.pal-prev .ctx { font-size: 12px; color: var(--fg-muted); border-left: 2px solid var(--border); padding-left: 8px; }
+.pal-foot { padding: 6px 18px; border-top: 1px solid var(--border); font-size: 11px; color: var(--fg-muted); }
+kbd { font: inherit; background: var(--bg); border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* Notes */
+.notes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 1000px) { .notes { grid-template-columns: 1fr; } }
+.note { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 12px 14px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-elev); color: var(--fg); }
+.note.cur { border-color: var(--accent); }
+.note ul { margin: 0; padding-left: 18px; font-size: 13px; color: var(--fg-muted); display: flex; flex-direction: column; gap: 3px; }
+.note h3 { margin: 0; font-size: 14px; }
+.qs { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; max-width: 80ch; color: var(--fg); }
+
+/* Floating variant switcher (prototype chrome, not part of the design) */
+.switcher { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 20; display: flex; gap: 10px; align-items: center; background: var(--ink); color: var(--page); border-radius: 999px; padding: 6px 8px; box-shadow: 0 6px 24px rgba(0,0,0,.3); font-size: 13px; max-width: calc(100vw - 32px); }
+.switcher button { font: inherit; background: none; border: 0; color: inherit; cursor: pointer; padding: 4px 10px; border-radius: 999px; }
+.switcher button:hover { background: rgba(127,127,127,.25); }
+.switcher strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Prototype · throwaway · comments map</div>
+    <h1>How should search results and direct links land on a comment?</h1>
+    <p class="lede">Search for “line ending”, open a result, and watch where you land. Three variants differ in the result row and in the landing. Pick a scenario to see a comment beyond the first page, a deleted comment, a deleted task or an archived task. Nothing here calls the real app.</p>
+  </header>
+
+  <div class="controls">
+    <label for="scenario">Scenario
+      <select id="scenario">
+        <option value="recent">Recent comment (6 comments)</option>
+        <option value="older">Older comment (14th of 120)</option>
+        <option value="cdeleted">Comment was deleted</option>
+        <option value="tdeleted">Task was deleted</option>
+        <option value="archived">Task is archived</option>
+      </select>
+    </label>
+    <button type="button" class="ctl" id="reset">Reset and search again</button>
+    <button type="button" class="ctl" id="direct">Open the direct link instead</button>
+  </div>
+
+  <div class="scroller">
+    <div class="app" id="app"></div>
+  </div>
+  <div class="readout" id="readout" aria-label="Live prototype state"></div>
+  <div class="sr" aria-live="polite" id="live"></div>
+
+  <section aria-labelledby="vh" style="display:flex;flex-direction:column;gap:12px">
+    <h2 id="vh">What each variant proposes</h2>
+    <div class="notes" id="notes"></div>
+  </section>
+
+  <section aria-labelledby="qh" style="display:flex;flex-direction:column;gap:8px">
+    <h2 id="qh">Questions to settle</h2>
+    <ol class="qs">
+      <li>Which result row: label chip before a one-line snippet (A), kicker line with a two-line snippet (B), or one line plus a preview pane in the palette (C)?</li>
+      <li>Which landing: highlight in the thread (A), open the comment in the reader (B), or a focused one-comment view (C)?</li>
+      <li>For an older comment: show it with two neighbours on each side and gap bars (A, C), or show it alone in the reader with “Show it in history” (B)?</li>
+      <li>Highlight: a 3-second tint with a lasting “From search” marker (A), selection only (B), or a banner until dismissed (C)?</li>
+      <li>Should reopening search keep the last query and selected row? Today the palette clears on open; C keeps them.</li>
+      <li>Direct link path: <code>/projects/:project/documents/:task/comments/:comment</code>. Any objection?</li>
+    </ol>
+  </section>
+</div>
+
+<div class="switcher" role="region" aria-label="Prototype variant switcher">
+  <button type="button" id="prev" aria-label="Previous variant">←</button>
+  <strong id="vlabel"></strong>
+  <button type="button" id="next" aria-label="Next variant">→</button>
+</div>
+
+<script>
+(() => {
+'use strict';
+const VARIANTS = [
+  { key: 'A', name: 'Highlight in thread', points: [
+    'Result row: title and project on line one; a “Comment match · date” chip, then a one-line snippet.',
+    'Landing: Comments tab, reader closed. The comment is scrolled to the middle, tinted for 3 seconds and keeps a “From search” marker until you post, open another comment or leave.',
+    'Older comment: shown with two neighbours on each side. “Load older” above and “Show newer · Jump to latest” below.',
+    'Focus: the comment itself. Enter opens it in the reader, as usual.'] },
+  { key: 'B', name: 'Open in reader', points: [
+    'Result row: a kicker line (“Comment · date” or “Description”), then the title, then a two-line snippet.',
+    'Landing: Comments tab with the reader open on the comment. The matching row is selected; no timed highlight.',
+    'Older comment: rows show the newest page; a pinned row at the top says the comment is older, with “Show it in history”.',
+    'Focus: the reader heading. Esc closes the reader and focus goes to the matching row (or Load older).'] },
+  { key: 'C', name: 'Focused comment view', points: [
+    'Result row: one line each for title and snippet. The palette widens and previews the matching comment with one line of context either side.',
+    'Landing: a banner “Showing one comment from search” with “Show all comments” and “Back to search”. Only the comment shows, with expanders for earlier and later neighbours.',
+    'Older comment: same as recent. The focused view does not care about pages.',
+    'Back to search reopens the palette with the same query and row selected.'] },
+];
+
+const SAMPLE = [
+  'Started on this. The import path splits on `\\r\\n` but Windows exports use `\\r` alone in a few legacy files.',
+  'Repro: export a project from the old tool, import into **Backlogger**, open any note with a table. Rows collapse into one line.',
+  'Checked the parser. It is the line-ending normalisation, not the table renderer.',
+  'Decision: normalise line endings to `\\n` at read time and never rewrite the source file. Keeps the Markdown on disk exactly as written.',
+  'Wrote a fixture with mixed endings. Passing locally.',
+  'Remaining: check the search snippet path uses the same normaliser.',
+];
+const START = Date.UTC(2026, 8, 1, 9, 0);
+function makeComments(n, targetIdx, targetBody) {
+  return Array.from({ length: n }, (_, i) => ({
+    id: 'c' + (i + 1),
+    body: i === targetIdx ? targetBody : (n > 6 ? 'Work log entry ' + (i + 1) + '. ' : '') + SAMPLE[i % 6].replace(/line[- ]endings?/gi, 'parsing'),
+    at: START + i * 7 * 3600e3,
+    edited: i === 2,
+  }));
+}
+const T_RECENT = 'Decision: normalise line endings to `\\n` at read time and never rewrite the source file. Keeps the Markdown on disk exactly as written.';
+const T_OLDER = 'Work log entry 14. Found it: the importer treats a lone `\\r` as part of the cell, so line endings from the legacy exporter merge table rows.';
+
+const TASKS = {
+  t1: { title: 'Import collapses table rows', project: 'Backlogger', pslug: 'backlogger', state: 'In progress',
+        desc: ['Importing a project exported from the old tool merges every table row into one line.', 'Expected: tables survive import unchanged.'] },
+  t2: { title: 'Search snippet uses its own normaliser', project: 'Backlogger', pslug: 'backlogger', state: 'To do',
+        desc: ['The snippet builder strips `\\r\\n` before highlighting but leaves lone `\\r` line endings, so snippets for legacy notes show stray breaks.', 'Use the shared normaliser from the importer.'], descHit: 0 },
+  t3: { title: 'Legacy export cleanup', project: 'Backlogger', pslug: 'backlogger', state: 'Done', archived: true,
+        desc: ['Tidy up the notes left by the old exporter.'] },
+  t4: { title: 'Mixed line endings fixture', project: 'Test data', pslug: 'test-data', state: 'To do',
+        desc: ['A fixture file with CRLF, LF and CR-only line endings in one table, used by the import tests.'], descHit: 0 },
+};
+const T3_COMMENTS = [
+  { id: 'c1', body: 'Moved the old notes into `archive/`.', at: Date.UTC(2026, 7, 1, 10), edited: false },
+  { id: 'c2', body: 'Old exporter wrote CR-only line endings. Documented in the migration notes.', at: Date.UTC(2026, 7, 2, 14, 30), edited: false },
+  { id: 'c3', body: 'Closing; nothing else to clean.', at: Date.UTC(2026, 7, 3, 9), edited: false },
+];
+
+const S = {
+  variant: 'A', scenario: 'recent',
+  pal: true, query: 'line ending', active: 0, goneRow: null,
+  view: 'home', taskId: null, tab: 'comments', via: null,
+  // thread
+  win: null, loaded: 50, readerId: null, marker: null, flash: false,
+  notice: null, banner: true, focusExpanded: { before: 0, after: 0 },
+  focusId: null, live: '', lastFocus: '-',
+};
+
+function scenarioData() {
+  const sc = S.scenario;
+  const older = sc === 'older';
+  const n = older ? 120 : 6;
+  const ti = older ? 13 : 3;
+  let comments = makeComments(n, ti, older ? T_OLDER : T_RECENT);
+  if (sc === 'cdeleted') comments = comments.filter((c) => c.id !== 'c4');
+  return { comments, targetId: 'c' + (ti + 1), targetAt: START + ti * 7 * 3600e3, targetBody: older ? T_OLDER : T_RECENT };
+}
+function commentsFor(id) { return id === 't3' ? T3_COMMENTS : scenarioData().comments; }
+function results() {
+  const d = scenarioData();
+  const rows = [
+    { task: 't1', kind: 'comment', commentId: d.targetId, at: d.targetAt, snippet: d.targetBody, more: 2 },
+    { task: 't2', kind: 'description', snippet: TASKS.t2.desc[0] },
+    { task: 't3', kind: 'comment', commentId: 'c2', at: T3_COMMENTS[1].at, snippet: T3_COMMENTS[1].body, more: 0 },
+    { task: 't4', kind: 'description', snippet: TASKS.t4.desc[0] },
+  ];
+  return S.goneRow === 'removed' ? rows.slice(1) : rows;
+}
+const archived = (id) => id === 't3' || (id === 't1' && S.scenario === 'archived');
+
+// ---------- helpers ----------
+const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const fmt = (t) => new Date(t).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+const fmtDay = (t) => new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+function terms() { return S.query.trim().split(/\s+/).filter((w) => w.length >= 2); }
+function hl(html) {
+  const ts = terms(); if (!ts.length) return html;
+  const re = new RegExp('(' + ts.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')', 'gi');
+  return html.replace(/(<[^>]+>)|([^<]+)/g, (m, tag, text) => tag ? tag : text.replace(re, '<mark>$1</mark>'));
+}
+function md(s, mark) {
+  let h = esc(s).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  return mark ? hl(h) : h;
+}
+function linkFor() {
+  if (S.view === 'home') return '/projects/backlogger';
+  if (S.view === 'gone') return '/projects/backlogger/documents/7f3c…/comments/' + scenarioData().targetId;
+  const t = TASKS[S.taskId];
+  const base = '/projects/' + t.pslug + '/documents/' + S.taskId + '-7f3c…';
+  return S.landedComment ? base + '/comments/' + S.landedComment : base;
+}
+function say(msg) { S.live = msg; }
+
+// ---------- landing ----------
+function land(row, via) {
+  S.pal = false; S.via = via; S.notice = null; S.banner = true; S.readerId = null; S.marker = null; S.flash = false;
+  S.focusExpanded = { before: 0, after: 0 };
+  if (row.task === 't1' && S.scenario === 'tdeleted') {
+    if (via === 'search') {
+      // Stale result: show it gone in place, refresh the list, stay in the palette.
+      S.pal = true; S.goneRow = 'gone'; say('This task is no longer available. Results refreshed.');
+      render();
+      setTimeout(() => { S.goneRow = 'removed'; S.active = 0; render(); }, 1400);
+      return;
+    }
+    S.view = 'gone'; S.focusId = 'gone-h'; say('This item is no longer available.'); render(); return;
+  }
+  S.view = 'task'; S.taskId = row.task;
+  if (row.kind === 'description') {
+    S.tab = 'description'; S.landedComment = null; S.focusId = 'desc-hit';
+    say('Opened ' + TASKS[row.task].title + ', Description tab, at the matching text.');
+    render(); return;
+  }
+  S.tab = 'comments'; S.landedComment = row.commentId;
+  const list = commentsFor(row.task);
+  const idx = list.findIndex((c) => c.id === row.commentId);
+  S.loaded = 50;
+  if (idx < 0) {
+    S.win = null;
+    S.notice = 'gone';
+    S.focusId = 'notice-gone';
+    say('This comment is no longer available. Showing the newest comments.');
+    render(); return;
+  }
+  const inNewest = idx >= list.length - 50;
+  S.win = inNewest ? null : { start: Math.max(0, idx - 2), end: Math.min(list.length, idx + 3) };
+  S.marker = row.commentId;
+  const when = fmtDay(list[idx].at);
+  if (S.variant === 'A') { S.flash = true; S.focusId = 'c-' + row.commentId; setTimeout(() => { S.flash = false; render(); }, 3000); }
+  if (S.variant === 'B') { S.readerId = row.commentId; S.focusId = 'reader-h'; }
+  if (S.variant === 'C') { S.focusId = 'c-' + row.commentId; }
+  say('Opened ' + TASKS[row.task].title + ', Comments tab, comment from ' + when + (archived(row.task) ? '. Task is archived.' : '.'));
+  render();
+}
+
+// ---------- renderers ----------
+function renderPalette() {
+  if (!S.pal) return '';
+  const rs = results();
+  const v = S.variant;
+  const status = S.query.trim().length < 2 ? 'Type at least 2 characters to search.' : (S.goneRow === 'gone' ? 'This task is no longer available. Refreshing results…' : rs.length + ' results · grouped by task');
+  const rows = S.query.trim().length < 2 ? '' : rs.map((r, i) => {
+    const t = TASKS[r.task];
+    const act = i === S.active ? ' active' : '';
+    if (S.goneRow === 'gone' && r.task === 't1') return `<li class="pal-row gone${act}" role="option" aria-selected="${i === S.active}" data-i="${i}"><div class="pal-title"><span class="pal-doc">${esc(t.title)}</span></div><div class="pal-snip">This task is no longer available.</div></li>`;
+    const arch = archived(r.task) ? '<span class="chip arch">Archived</span>' : '';
+    const isC = r.kind === 'comment';
+    const label = isC ? 'Comment match · ' + fmtDay(r.at) : 'Description match';
+    const more = isC && r.more ? ` · +${r.more} more comments match` : '';
+    if (v === 'A') return `<li class="pal-row${act}" role="option" aria-selected="${i === S.active}" data-i="${i}">
+      <div class="pal-title"><span class="pal-doc">${esc(t.title)}</span><span class="pal-meta">${arch}${esc(t.project)} · ${esc(t.state)}</span></div>
+      <div class="pal-snip"><span class="lab${isC ? ' cmt' : ''}">${label}</span><span class="txt">${md(r.snippet, true)}</span></div></li>`;
+    if (v === 'B') return `<li class="pal-row${act}" role="option" aria-selected="${i === S.active}" data-i="${i}">
+      <div class="pal-title"><span class="kicker${isC ? ' cmt' : ''}">${isC ? 'Comment · ' + fmtDay(r.at) + more : 'Description'}</span><span class="pal-meta">${arch}${esc(t.project)}</span></div>
+      <div class="pal-doc">${esc(t.title)}</div>
+      <div class="clamp2">${md(r.snippet, true)}</div></li>`;
+    return `<li class="pal-row${act}" role="option" aria-selected="${i === S.active}" data-i="${i}">
+      <div class="pal-title"><span class="pal-doc">${esc(t.title)}</span><span class="pal-meta">${arch}<span class="lab${isC ? ' cmt' : ''}">${isC ? 'Comment · ' + fmtDay(r.at) : 'Description'}</span></span></div>
+      <div class="pal-snip"><span class="txt">${md(r.snippet, true)}</span></div></li>`;
+  }).join('');
+  let prev = '';
+  if (v === 'C' && S.query.trim().length >= 2) {
+    const r = rs[S.active];
+    if (r && !(S.goneRow === 'gone' && r.task === 't1')) {
+      const t = TASKS[r.task];
+      if (r.kind === 'comment') {
+        const list = commentsFor(r.task); const i = list.findIndex((c) => c.id === r.commentId);
+        const b = list[i - 1], a = list[i + 1];
+        prev = `<div class="kicker cmt">Comment · ${fmt(r.at)}</div><strong>${esc(t.title)}</strong>
+          ${b ? `<div class="ctx">${md(b.body.slice(0, 90))}…</div>` : ''}
+          <div class="cm target"><div class="md">${md(r.snippet, true)}</div></div>
+          ${a ? `<div class="ctx">${md(a.body.slice(0, 90))}…</div>` : ''}
+          <div class="muted">${r.more ? r.more + ' other comments in this task also match. Opening shows this one.' : ''}</div>`;
+      } else {
+        prev = `<div class="kicker">Description</div><strong>${esc(t.title)}</strong>${t.desc.map((p, k) => `<p class="${k === t.descHit ? 'cm target' : ''}" style="margin:0;padding:6px 8px">${md(p, true)}</p>`).join('')}`;
+      }
+    }
+  }
+  return `<div class="pal-back" id="pal-back"><div class="pal${v === 'C' ? ' wide' : ''}" role="dialog" aria-modal="true" aria-label="Search">
+    <input id="pal-in" class="pal-in" type="search" value="${esc(S.query)}" placeholder="Search documents and comments…" autocomplete="off" spellcheck="false" aria-label="Search">
+    <div class="pal-status">${status}</div>
+    <div class="pal-body"><ul class="pal-list" role="listbox" aria-label="Results">${rows}</ul>${prev ? `<aside class="pal-prev" aria-label="Preview">${prev}</aside>` : ''}</div>
+    <div class="pal-foot"><kbd>↑</kbd> <kbd>↓</kbd> navigate · <kbd>Enter</kbd> open · <kbd>Esc</kbd> close</div></div></div>`;
+}
+
+function commentBlock(c, opts = {}) {
+  const target = c.id === S.marker;
+  const cls = 'cm' + (target ? ' target' : '') + (target && S.flash ? ' flash' : '');
+  const arch = archived(S.taskId);
+  return `<article class="${cls}" id="c-${c.id}" tabindex="-1" data-cid="${c.id}" aria-label="Comment from ${fmt(c.at)}">
+    <div class="cm-h"><span class="when">${fmt(c.at)}</span>${c.edited ? '<span class="edited">edited</span>' : ''}${target && S.variant === 'A' ? '<span class="from">From search</span>' : ''}
+    ${arch || opts.noActs ? '' : '<span class="acts"><button class="btn ghost" type="button" tabindex="-1">Edit</button><button class="btn ghost" type="button" tabindex="-1">Delete</button></span>'}</div>
+    <div class="md"><p>${md(c.body, target)}</p></div></article>`;
+}
+function notices() {
+  let h = '';
+  if (archived(S.taskId)) h += `<div class="notice warn"><div><strong>This task is archived.</strong> Comments are read-only. Restore the task to add or edit comments.</div><button class="btn" type="button">Restore task</button></div>`;
+  if (S.notice === 'gone' && S.variant !== 'B') h += `<div class="notice info" id="notice-gone" tabindex="-1"><div><strong>This comment is no longer available.</strong> It may have been deleted. Showing the newest comments.</div><button class="btn ghost" type="button" data-act="dismiss">Dismiss</button></div>`;
+  return h ? `<div class="notice-wrap" style="display:flex;flex-direction:column;gap:8px">${h}</div>` : '';
+}
+function dock() {
+  if (archived(S.taskId)) return '';
+  return `<div class="dock"><button class="fake" type="button" tabindex="-1">Write a comment…</button></div>`;
+}
+
+function threadA(list) {
+  // Layout A (reader closed), with an optional window around an older target.
+  let body = '';
+  if (S.win) {
+    const { start, end } = S.win;
+    body += start > 0 ? `<div class="gapbar"><button class="btn" type="button" data-act="older">Load older comments</button><span>${start} earlier</span></div>` : '';
+    body += list.slice(start, end).map((c) => commentBlock(c)).join('');
+    const newer = list.length - end;
+    body += newer > 0 ? `<div class="gapbar"><span>${newer} newer comments</span><button class="btn" type="button" data-act="newer">Show newer comments</button><button class="btn" type="button" data-act="latest">Jump to latest</button></div>` : '';
+  } else {
+    const from = Math.max(0, list.length - S.loaded);
+    body += from > 0 ? `<div class="gapbar"><button class="btn" type="button" data-act="older-page">Load older comments</button><span>Showing ${list.length - from} of ${list.length}</span></div>` : '';
+    body += list.slice(from).map((c) => commentBlock(c)).join('');
+  }
+  return `<div class="toolbar"><span class="muted">${list.length} comments · newest page first, read top to bottom</span>${archived(S.taskId) ? '' : '<button class="btn" type="button" tabindex="-1">Add comment</button>'}</div>
+    ${notices()}<div class="scroll" id="thread" tabindex="-1">${body}</div>${dock()}`;
+}
+
+function threadB(list) {
+  const from = Math.max(0, list.length - S.loaded);
+  const page = list.slice(from);
+  const target = list.find((c) => c.id === S.readerId);
+  const outside = target && list.indexOf(target) < from;
+  const rows = page.map((c) => `<button type="button" class="row${c.id === S.readerId ? ' on' : ''}" id="row-${c.id}" data-row="${c.id}">
+      <span class="d">${fmt(c.at)}${c.edited ? ' · edited' : ''}</span><span class="s">${esc(c.body.replace(/[`*]/g, ''))}</span></button>`).join('');
+  const pinned = outside ? `<div class="row pinned" style="cursor:default"><span class="d">From search · ${fmt(target.at)}</span><span class="s" style="white-space:normal">This comment is older than the loaded history.</span><button class="btn link" type="button" data-act="show-in-history" style="align-self:flex-start">Show it in history</button></div>` : '';
+  const loadOlder = from > 0 ? `<div style="padding:6px 10px;border-bottom:1px solid var(--border)"><button class="btn" type="button" id="b-older" data-act="older-page">Load older comments</button> <span class="muted">${page.length} of ${list.length}</span></div>` : '';
+  let reader;
+  if (S.notice === 'gone') reader = `<div class="unavail" id="notice-gone" tabindex="-1"><h2>This comment is no longer available</h2><p>It may have been deleted. The newest comments are listed on the left.</p></div>`;
+  else if (target) reader = `<h3 id="reader-h" tabindex="-1">Comment <span class="muted">${fmt(target.at)}</span>${outside ? '<span class="chip">Not in loaded history</span>' : ''}<span style="margin-left:auto"><button class="btn ghost" type="button" data-act="close-reader" aria-label="Close reader">✕</button></span></h3>${commentBlock(target, { noActs: false })}`;
+  else return threadA(list);
+  return `<div class="toolbar"><span class="muted">${list.length} comments</span>${archived(S.taskId) ? '' : '<button class="btn" type="button" tabindex="-1">Add comment</button>'}</div>
+    ${notices()}<div class="split"><nav class="rows" aria-label="Comments" id="rows">${loadOlder}${pinned}${rows}</nav><section class="reader" aria-label="Selected comment">${reader}</section></div>${dock()}`;
+}
+
+function threadC(list) {
+  if (!S.banner || !S.marker) return threadA(list);
+  const idx = list.findIndex((c) => c.id === S.marker);
+  const b = S.focusExpanded.before, a = S.focusExpanded.after;
+  const lo = Math.max(0, idx - b), hi = Math.min(list.length, idx + 1 + a);
+  const earlier = lo, later = list.length - hi;
+  const body = (earlier ? `<div class="gapbar"><span>${earlier} earlier</span><button class="btn" type="button" data-act="c-before">Show 2 earlier</button></div>` : '')
+    + list.slice(lo, hi).map((c) => commentBlock(c)).join('')
+    + (later ? `<div class="gapbar"><span>${later} later</span><button class="btn" type="button" data-act="c-after">Show 2 later</button></div>` : '');
+  return `<div class="toolbar"><span class="muted">${list.length} comments</span>${archived(S.taskId) ? '' : '<button class="btn" type="button" tabindex="-1">Add comment</button>'}</div>
+    ${notices()}<div class="notice-wrap"><div class="notice info"><div><strong>Showing one comment ${S.via === 'link' ? 'from a link' : 'from search'}.</strong> ${S.via === 'link' ? '' : `<span class="muted">Matches “${esc(S.query)}”.</span>`}</div>
+      <button class="btn" type="button" data-act="show-all">Show all ${list.length} comments</button>${S.via === 'link' ? '' : '<button class="btn ghost" type="button" data-act="back-search">Back to search</button>'}</div></div>
+    <div class="scroll" id="thread">${body}</div>${dock()}`;
+}
+
+function renderTask() {
+  const t = TASKS[S.taskId];
+  const list = commentsFor(S.taskId);
+  let panel;
+  if (S.tab === 'description') {
+    panel = `<div class="desc">${t.desc.map((p, k) => `<p ${k === t.descHit ? 'class="hit" id="desc-hit" tabindex="-1"' : ''}>${md(p, k === t.descHit)}</p>`).join('')}</div>`;
+  } else if (S.notice === 'gone' && S.variant === 'C') {
+    panel = threadA(list);
+  } else {
+    panel = S.readerId || S.variant === 'B' ? threadB(list) : S.variant === 'A' ? threadA(list) : threadC(list);
+  }
+  return `<div class="dochead"><span class="t">${esc(t.title)}</span><span class="chip">${esc(t.state)}</span>${archived(S.taskId) ? '<span class="chip arch">Archived</span>' : ''}<span class="muted">${esc(t.project)}</span></div>
+    <div class="tabs" role="tablist"><button class="tab${S.tab === 'description' ? ' on' : ''}" role="tab" type="button" aria-selected="${S.tab === 'description'}" data-tab="description">Description</button><button class="tab${S.tab === 'comments' ? ' on' : ''}" role="tab" type="button" aria-selected="${S.tab === 'comments'}" data-tab="comments">Comments (${list.length})</button></div>
+    <div class="work"><div class="area">${panel}</div>
+      <aside class="meta"><div class="lbl">State</div><div>${esc(t.state)}</div><div class="lbl">Project</div><div>${esc(t.project)}</div><div class="lbl">Tags</div><div>import, parser</div></aside></div>`;
+}
+
+function render() {
+  const app = document.getElementById('app');
+  let main;
+  if (S.view === 'home') main = `<div class="home"><p><strong>Backlogger</strong> board</p><p>Press <kbd>Ctrl</kbd> <kbd>K</kbd> or use Search to find a task or comment.</p></div>`;
+  else if (S.view === 'gone') main = `<div class="unavail"><h2 id="gone-h" tabindex="-1">This item is no longer available</h2><p>The task this link points to was deleted. Nothing was recreated.</p><button class="btn pri" type="button" data-act="open-search">Search</button></div>`;
+  else main = renderTask();
+  app.innerHTML = `<div class="topbar"><span class="url" title="Address">${esc(linkFor())}</span><button class="searchbtn" type="button" data-act="open-search">Search… <kbd>Ctrl K</kbd></button></div>
+    <div class="body"><nav class="rail" aria-label="Projects"><span class="eyebrow">Projects</span><span>⌂ Inbox</span><span class="on">Backlogger</span><span>Test data</span></nav><div class="main">${main}</div></div>${renderPalette()}`;
+
+  document.getElementById('live').textContent = S.live;
+  document.getElementById('vlabel').textContent = S.variant + ' — ' + VARIANTS.find((v) => v.key === S.variant).name;
+  document.getElementById('notes').innerHTML = VARIANTS.map((v) => `<div class="note${v.key === S.variant ? ' cur' : ''}"><h3>${v.key} — ${v.name}${v.key === S.variant ? ' <span class="chip">showing</span>' : ''}</h3><ul>${v.points.map((p) => `<li>${esc(p)}</li>`).join('')}</ul></div>`).join('');
+
+  if (S.pal) {
+    const inp = document.getElementById('pal-in');
+    if (document.activeElement !== inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
+    document.querySelector('.pal-row.active')?.scrollIntoView({ block: 'nearest' });
+  } else if (S.focusId) {
+    const el = document.getElementById(S.focusId);
+    if (el) {
+      el.focus({ preventScroll: true });
+      el.scrollIntoView({ block: S.focusId.startsWith('c-') ? 'center' : 'nearest' });
+      if (S.variant === 'B' && S.readerId) document.getElementById('row-' + S.readerId)?.scrollIntoView({ block: 'center' });
+      S.lastFocus = S.focusId;
+    }
+    S.focusId = null;
+  }
+  const list = S.taskId ? commentsFor(S.taskId) : [];
+  const shown = S.view !== 'task' || S.tab !== 'comments' ? '-' : S.win ? `${S.win.start + 1}–${S.win.end} of ${list.length}` : `newest ${Math.min(S.loaded, list.length)} of ${list.length}`;
+  document.getElementById('readout').innerHTML = `variant <b>${S.variant}</b> · scenario <b>${S.scenario}</b> · via <b>${S.via || '-'}</b> · view <b>${S.view}${S.view === 'task' ? '/' + S.tab : ''}</b> · loaded <b>${shown}</b> · reader <b>${S.readerId || '-'}</b> · highlight <b>${S.marker ? (S.flash ? 'tint' : S.variant === 'A' ? 'marker' : S.variant === 'B' ? 'selected' : 'banner') : '-'}</b> · focus <b>${S.lastFocus}</b> · last announcement <b>${esc(S.live || '-')}</b>`;
+}
+
+// ---------- events ----------
+function openSearch(keep) {
+  S.pal = true;
+  if (!keep) { S.query = ''; S.active = 0; }
+  if (S.goneRow === 'gone') S.goneRow = 'removed';
+  render();
+}
+function reset() {
+  Object.assign(S, { pal: true, query: 'line ending', active: 0, goneRow: null, view: 'home', taskId: null, via: null, win: null, readerId: null, marker: null, flash: false, notice: null, banner: true, landedComment: null, live: '', lastFocus: '-' });
+  render();
+}
+function setVariant(k) {
+  S.variant = k;
+  try { const u = new URL(location.href); u.searchParams.set('variant', k); history.replaceState(null, '', u); } catch (e) {}
+  const was = S.view === 'task' && S.landedComment && S.tab === 'comments';
+  if (was && S.via) { land({ task: S.taskId, kind: 'comment', commentId: S.landedComment }, S.via); return; }
+  render();
+}
+function cycle(d) { const i = VARIANTS.findIndex((v) => v.key === S.variant); setVariant(VARIANTS[(i + d + VARIANTS.length) % VARIANTS.length].key); }
+
+const app = document.getElementById('app');
+app.addEventListener('input', (e) => { if (e.target.id === 'pal-in') { S.query = e.target.value; S.active = 0; render(); } });
+app.addEventListener('mousedown', (e) => { if (e.target.id === 'pal-back') { S.pal = false; render(); } });
+app.addEventListener('mousemove', (e) => { const li = e.target.closest('.pal-row'); if (li && +li.dataset.i !== S.active) { S.active = +li.dataset.i; render(); } });
+app.addEventListener('click', (e) => {
+  const li = e.target.closest('.pal-row');
+  if (li && !li.classList.contains('gone')) { land(results()[+li.dataset.i], 'search'); return; }
+  const tab = e.target.closest('[data-tab]');
+  if (tab) { S.tab = tab.dataset.tab; render(); return; }
+  const row = e.target.closest('[data-row]');
+  if (row) { S.readerId = row.dataset.row; S.marker = S.readerId === S.landedComment ? S.marker : null; S.focusId = 'reader-h'; render(); return; }
+  const art = e.target.closest('article.cm');
+  if (art && S.variant === 'A' && !e.target.closest('button')) { S.marker = null; render(); return; }
+  const act = e.target.closest('[data-act]')?.dataset.act;
+  if (!act) return;
+  const list = S.taskId ? commentsFor(S.taskId) : [];
+  switch (act) {
+    case 'open-search': openSearch(false); break;
+    case 'dismiss': S.notice = null; S.focusId = 'thread'; render(); break;
+    case 'older': { const first = S.win.start; S.win.start = Math.max(0, first - 50); S.focusId = 'c-' + list[S.win.start].id; say('Loaded older comments.'); render(); break; }
+    case 'newer': { const at = S.win.end; S.win.end = Math.min(list.length, at + 50); S.focusId = 'c-' + list[at].id; if (S.win.end === list.length && S.win.start <= list.length - 50) S.win = null; say('Loaded newer comments.'); render(); break; }
+    case 'latest': S.win = null; S.loaded = 50; S.focusId = 'c-' + list[list.length - 1].id; say('Showing the newest 50 of ' + list.length + ' comments.'); render(); break;
+    case 'older-page': { const from = Math.max(0, list.length - S.loaded); S.loaded += 50; S.focusId = (S.variant === 'B' && S.readerId ? 'row-' : 'c-') + list[Math.max(0, from - 1)].id; say('Showing ' + Math.min(S.loaded, list.length) + ' of ' + list.length + '.'); render(); break; }
+    case 'show-in-history': { const i = list.findIndex((c) => c.id === S.readerId); S.loaded = list.length - i; S.focusId = 'row-' + S.readerId; say('Showing ' + S.loaded + ' of ' + list.length + '. The comment from search is selected.'); render(); break; }
+    case 'close-reader': { const id = S.readerId; S.readerId = null; const from = Math.max(0, list.length - S.loaded); const i = list.findIndex((c) => c.id === id); S.win = i < from ? { start: Math.max(0, i - 2), end: Math.min(list.length, i + 3) } : null; S.focusId = 'c-' + id; render(); break; }
+    case 'c-before': S.focusExpanded.before += 2; render(); break;
+    case 'c-after': S.focusExpanded.after += 2; render(); break;
+    case 'show-all': { S.banner = false; const i = list.findIndex((c) => c.id === S.marker); S.win = null; S.focusId = i >= list.length - 50 ? 'c-' + S.marker : 'thread'; say('Showing the newest ' + Math.min(50, list.length) + ' of ' + list.length + ' comments.'); render(); break; }
+    case 'back-search': openSearch(true); break;
+  }
+});
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); S.pal ? (S.pal = false, render()) : openSearch(S.variant === 'C'); return; }
+  if (S.pal) {
+    const rs = results();
+    if (e.key === 'Escape') { e.preventDefault(); S.pal = false; render(); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); S.active = Math.min(rs.length - 1, S.active + 1); render(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); S.active = Math.max(0, S.active - 1); render(); }
+    else if (e.key === 'Enter' && rs[S.active] && S.goneRow !== 'gone') { e.preventDefault(); land(rs[S.active], 'search'); }
+    return;
+  }
+  const inField = e.target.matches('input,textarea,select,[contenteditable]');
+  if (S.readerId && e.key === 'Escape') { e.preventDefault(); app.querySelector('[data-act="close-reader"]')?.click(); return; }
+  if (S.variant === 'B' && e.target.closest?.('#rows') && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+    e.preventDefault(); const rows = [...app.querySelectorAll('[data-row]')]; const i = rows.indexOf(e.target.closest('[data-row]'));
+    const n = rows[Math.max(0, Math.min(rows.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)))]; if (n) { S.readerId = n.dataset.row; S.focusId = n.id; render(); } return;
+  }
+  if (e.key === 'Enter' && e.target.matches('article.cm') && (S.variant === 'A' || S.variant === 'C')) {
+    e.preventDefault(); S.readerId = e.target.dataset.cid; S.banner = false; S.focusId = 'reader-h'; render(); return;
+  }
+  if (inField || e.altKey || e.ctrlKey || e.metaKey || e.target.closest?.('[role="tablist"],#rows')) return;
+  if (e.key === 'ArrowLeft') cycle(-1);
+  if (e.key === 'ArrowRight') cycle(1);
+});
+document.getElementById('prev').onclick = () => cycle(-1);
+document.getElementById('next').onclick = () => cycle(1);
+document.getElementById('scenario').onchange = (e) => { S.scenario = e.target.value; reset(); };
+document.getElementById('reset').onclick = reset;
+document.getElementById('direct').onclick = () => {
+  const d = scenarioData();
+  S.goneRow = null;
+  land({ task: 't1', kind: 'comment', commentId: d.targetId }, 'link');
+};
+
+try { const v = new URL(location.href).searchParams.get('variant'); if (VARIANTS.some((x) => x.key === v)) S.variant = v; } catch (e) {}
+render();
+})();
+</script>
