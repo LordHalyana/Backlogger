@@ -5,20 +5,21 @@ project: backlogger-docs
 type: note
 status: active
 created_at: '2026-06-09T00:00:00.000Z'
-updated_at: '2026-06-09T00:00:00.000Z'
+updated_at: '2026-10-18T00:00:00.000Z'
 tags: ["docs"]
 ---
 
 # Documentation Index
 
-Date: 2026-06-09
+Date: 2026-10-18
 
 This is the current docs index for Backlogger. It separates active guidance
 from temporary cleanup artifacts and archived phase plans.
 
 ## Start Here
 
-- [Current roadmap](design/roadmap.md)
+- [Product direction](design/product-direction.md) — the Local Productivity Workspace whitepaper v0.1 we are refactoring toward
+- [Current roadmap](design/roadmap.md) — where each delivery stage stands
 - [Architecture](design/architecture.md)
 - [Data storage and project mounts](operations/data-storage.md)
 - [API reference](api.md)
@@ -26,15 +27,19 @@ from temporary cleanup artifacts and archived phase plans.
 
 ## Design Docs
 
+- [First board spec](design/first-board.md) (mirror of issue #13)
+- [Sidecar metadata](design/sidecar-metadata.md)
 - [Archive invariants](design/archive-invariants.md)
 - [Derived data contract](design/derived-data.md)
 - [Folder invariants](design/folder-invariants.md)
 - [UI conventions](design/ui-conventions.md)
 - [Historical design overview](design/overview.md)
 
-`design/overview.md` is retained for product context, but it reflects the
-original design direction. Use `design/architecture.md` and
-`design/roadmap.md` for current implementation guidance.
+`design/overview.md` is retained for history only. Use
+`design/product-direction.md` for where the product is going,
+`design/architecture.md` for how it works now, and `design/roadmap.md` for
+what is next. Decisions and specs live in GitHub Issues; see
+[agents/issue-tracker.md](agents/issue-tracker.md).
 
 ## Operations
 

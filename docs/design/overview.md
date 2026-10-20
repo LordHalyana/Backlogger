@@ -12,7 +12,8 @@ tags: ["design"]
 # Backlogger — Design Document
 
 > **Historical context.** This document captures the original product design.
-> Some sections are outdated. Use [Architecture](architecture.md),
+> It is superseded by [Product direction](product-direction.md); in particular,
+> Kanban boards and a plugin system are now in scope. Use [Architecture](architecture.md),
 > [Current Roadmap](roadmap.md), and
 > [Data Storage](../operations/data-storage.md) for current implementation
 > guidance.
