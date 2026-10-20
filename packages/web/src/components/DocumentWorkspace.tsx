@@ -1,10 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  useDeleteDocument,
-  useDocument,
-  useDocuments,
-  useMoveDocument,
-} from '../lib/documents.js';
+import { useDeleteDocument, useDocument, useDocuments, useMoveDocument } from '../lib/documents.js';
 import { toastError, useDialog } from '../lib/dialog.js';
 import { FolderPathSchema, folderFromDocumentPath, unarchivePath } from '@backlogger/shared';
 import { useTitles } from '../lib/links.js';
@@ -15,6 +10,7 @@ import { MetadataPanel } from './MetadataPanel.js';
 import { SegmentedControl } from './SegmentedControl.js';
 import { StatusMessage } from './StatusMessage.js';
 import { DOCUMENT_STATUS_LABELS } from '../lib/display.js';
+import { TaskTabsPrototype, type TaskTab } from './prototype-comments/TaskTabsPrototype.js';
 
 const DocumentEditor = lazy(() =>
   import('./DocumentEditor.js').then((m) => ({ default: m.DocumentEditor })),
@@ -71,6 +67,8 @@ export function DocumentWorkspace({
     resetConflictToDocument,
   } = useDocumentBuffer(projectId, doc);
   const [viewMode, setViewMode] = useState<ViewMode>('split');
+  const [taskTab, setTaskTab] = useState<TaskTab>('description');
+  const isTask = doc?.type === 'backlog_item';
 
   // beforeunload guard while dirty.
   useEffect(() => {
@@ -165,10 +163,7 @@ export function DocumentWorkspace({
         <span className="workspace-title" title={doc.path}>
           {buffer.meta.title || 'Untitled'}
         </span>
-        <span
-          className={'doc-status-chip status-' + buffer.meta.status}
-          aria-hidden="true"
-        >
+        <span className={'doc-status-chip status-' + buffer.meta.status} aria-hidden="true">
           {DOCUMENT_STATUS_LABELS[buffer.meta.status]}
         </span>
         <code className="workspace-path">{doc.path}</code>
@@ -179,13 +174,17 @@ export function DocumentWorkspace({
           {isReadOnly ? 'Read-only' : isSaving ? 'Saving...' : dirty ? 'Unsaved changes' : 'Saved'}
         </span>
         {saveError && <span className="error">Save failed: {saveError}</span>}
-        <SegmentedControl
-          className="view-mode-toggle"
-          ariaLabel="View mode"
-          value={viewMode}
-          options={VIEW_MODE_OPTIONS}
-          onChange={setViewMode}
-        />
+        {isTask && taskTab === 'comments' ? (
+          <span className="view-mode-toggle" />
+        ) : (
+          <SegmentedControl
+            className="view-mode-toggle"
+            ariaLabel="View mode"
+            value={viewMode}
+            options={VIEW_MODE_OPTIONS}
+            onChange={setViewMode}
+          />
+        )}
         {dirty || isSaving ? (
           <button
             type="button"
@@ -209,51 +208,105 @@ export function DocumentWorkspace({
       {conflict && (
         <div className="conflict-banner" role="alert">
           <span>
-            This document was modified somewhere else. Reload to see the latest version (your
-            local edits will be discarded).
+            This document was modified somewhere else. Reload to see the latest version (your local
+            edits will be discarded).
           </span>
           <button type="button" onClick={reload}>
             Reload
           </button>
         </div>
       )}
-      <div className={'workspace-grid view-' + viewMode}>
-        {viewMode !== 'preview' && (
-          <Suspense fallback={<div className="editor-host editor-loading">Loading editor…</div>}>
-            <DocumentEditor
-              documentKey={doc.id}
-              value={buffer.body}
-              onChange={handleBodyChange}
-              theme={theme}
+      {isTask ? (
+        // PROTOTYPE (#59): backlog items get Description / Comments tabs. Branch-only.
+        <TaskTabsPrototype
+          tab={taskTab}
+          onTab={setTaskTab}
+          descriptionDirty={dirty}
+          archived={buffer.meta.status === 'archived'}
+          readOnly={isReadOnly}
+          description={
+            <div className={'workspace-grid pc-desc-grid view-' + viewMode}>
+              {viewMode !== 'preview' && (
+                <Suspense
+                  fallback={<div className="editor-host editor-loading">Loading editor…</div>}
+                >
+                  <DocumentEditor
+                    documentKey={doc.id}
+                    value={buffer.body}
+                    onChange={handleBodyChange}
+                    theme={theme}
+                    readOnly={isReadOnly}
+                    wikiTitles={wikiTitles}
+                  />
+                </Suspense>
+              )}
+              {viewMode !== 'edit' && (
+                <DocumentPreview
+                  body={buffer.body}
+                  projectId={projectId}
+                  currentPath={doc.path}
+                  docs={docsQuery.data}
+                  onOpenDocument={onOpenDocument}
+                />
+              )}
+            </div>
+          }
+          metadata={
+            <MetadataPanel
+              value={buffer.meta}
+              onChange={handleMetaChange}
+              documentPath={doc.path}
+              documentId={doc.id}
+              updatedAt={doc.updated_at}
+              onDelete={handleDelete}
+              deleting={del.isPending}
               readOnly={isReadOnly}
-              wikiTitles={wikiTitles}
+              currentFolder={folderFromDocumentPath(projectId, unarchivePath(doc.path))}
+              onMove={isReadOnly ? undefined : handleMove}
+              moving={moveDoc.isPending}
+              onOpenDocument={onOpenDocument}
             />
-          </Suspense>
-        )}
-        {viewMode !== 'edit' && (
-          <DocumentPreview
-            body={buffer.body}
-            projectId={projectId}
-            currentPath={doc.path}
-            docs={docsQuery.data}
+          }
+        />
+      ) : (
+        <div className={'workspace-grid view-' + viewMode}>
+          {viewMode !== 'preview' && (
+            <Suspense fallback={<div className="editor-host editor-loading">Loading editor…</div>}>
+              <DocumentEditor
+                documentKey={doc.id}
+                value={buffer.body}
+                onChange={handleBodyChange}
+                theme={theme}
+                readOnly={isReadOnly}
+                wikiTitles={wikiTitles}
+              />
+            </Suspense>
+          )}
+          {viewMode !== 'edit' && (
+            <DocumentPreview
+              body={buffer.body}
+              projectId={projectId}
+              currentPath={doc.path}
+              docs={docsQuery.data}
+              onOpenDocument={onOpenDocument}
+            />
+          )}
+          <MetadataPanel
+            value={buffer.meta}
+            onChange={handleMetaChange}
+            documentPath={doc.path}
+            documentId={doc.id}
+            updatedAt={doc.updated_at}
+            onDelete={handleDelete}
+            deleting={del.isPending}
+            readOnly={isReadOnly}
+            currentFolder={folderFromDocumentPath(projectId, unarchivePath(doc.path))}
+            onMove={isReadOnly ? undefined : handleMove}
+            moving={moveDoc.isPending}
             onOpenDocument={onOpenDocument}
           />
-        )}
-        <MetadataPanel
-          value={buffer.meta}
-          onChange={handleMetaChange}
-          documentPath={doc.path}
-          documentId={doc.id}
-          updatedAt={doc.updated_at}
-          onDelete={handleDelete}
-          deleting={del.isPending}
-          readOnly={isReadOnly}
-          currentFolder={folderFromDocumentPath(projectId, unarchivePath(doc.path))}
-          onMove={isReadOnly ? undefined : handleMove}
-          moving={moveDoc.isPending}
-          onOpenDocument={onOpenDocument}
-        />
-      </div>
+        </div>
+      )}
     </div>
   );
 }
