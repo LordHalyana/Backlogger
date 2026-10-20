@@ -25,6 +25,13 @@ The API binds to `0.0.0.0` by default so the app is reachable on a local network
 
 This is convenient for LAN use but should be changed or protected on untrusted networks.
 
+**Target (product direction).** The [Local Productivity Workspace](../design/product-direction.md)
+direction requires binding to loopback by default, with LAN access as a separate
+opt-in mode that needs an authentication and transport-security decision. It
+also requires cross-site protection for state-changing requests and explicit
+sanitization of rendered Markdown. None of these are implemented yet; see the
+[roadmap](../design/roadmap.md).
+
 Recommended options:
 
 - Bind to `127.0.0.1`.

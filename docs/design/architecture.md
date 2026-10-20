@@ -17,7 +17,7 @@ Date: 2026-06-04
 
 Backlogger is a single-user, self-hosted Markdown workspace. It stores real Markdown files on disk and uses SQLite for metadata, search, links, tags, and other derived data.
 
-The design goal is a simple documentation workspace, not a project execution platform.
+It is evolving into a local productivity workspace: projects, Kanban tickets, progress notes, documentation and personal planning, with Markdown as the durable record. See [Product direction](product-direction.md) for the target and [Current roadmap](roadmap.md) for progress. This document describes the system as it is now.
 
 ## System Shape
 

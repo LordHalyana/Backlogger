@@ -1,10 +1,12 @@
 # Backlogger
 
-Self-hosted Markdown workspace for ideas, design documents, implementation plans, and backlogs.
+Local, single-user productivity workspace: projects, Kanban tickets, progress notes, documentation and planning, with readable Markdown files as the durable record.
 
-> Status: mounted-docs and maintainability cleanup in progress. See [docs/README.md](docs/README.md) for current documentation and [docs/design/roadmap.md](docs/design/roadmap.md) for current priorities.
+> Status: refactoring toward the [Local Productivity Workspace](docs/design/product-direction.md) direction (whitepaper v0.1). The durable core and the first Kanban board are shipped. Daily use (inbox capture, Today, progress notes) is in planning. See [docs/design/roadmap.md](docs/design/roadmap.md) for progress and [docs/README.md](docs/README.md) for all docs.
 
 ## Features
+
+**Kanban Board** - Switch a project from **Documents** to **Board** to see its backlog items in To do / In progress / Done columns. Drag cards or use Alt+←/→ to change task state; archive Done cards with Undo. A stale save snaps the card back with a conflict banner rather than overwriting newer content.
 
 **Full-text Search** - Press `Ctrl/Cmd+K` to open the command palette. Type any word or phrase to search across all documents in real time. Results show ranked snippets; pressing Enter or clicking opens the document.
 
@@ -35,7 +37,8 @@ Both the API and the Vite dev server bind `0.0.0.0` by default, so the app
 is reachable from another device on your LAN at
 `http://<your-lan-ip>:5173`. CORS defaults to reflect-any-origin
 (`BACKLOGGER_ALLOWED_ORIGINS=*`) so cross-device access works out of the
-box. On untrusted networks, bind to localhost or set
+box. This differs from the product direction, which wants loopback by default
+(see [docs/operations/security.md](docs/operations/security.md)). On untrusted networks, bind to localhost or set
 `BACKLOGGER_ALLOWED_ORIGINS` to a comma-separated allow-list before exposing
 the app.
 
