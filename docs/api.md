@@ -708,20 +708,39 @@ Optional query:
 - `projectId` — restrict results to one project.
 - `limit` — integer 1–200 (default 50).
 
-Returns ranked search hits:
+Returns one hit per document, ranked by its strongest matching record. A
+record is the document itself (title, tags and body) or one comment on a
+backlog item; every query term (prefix-matched) must occur within the same
+record. Grouping happens before `limit`, so many matching comments on one task
+take one slot. Archived documents are included (`status: "archived"`);
+comments of deleted tasks, invalid or orphaned comment files and recovery
+payloads never appear.
 
 ```json
 [
   {
     "id": "5f8c5b7b-7d9e-4b4d-a017-d3ab3e1d9d31",
     "project_id": "home-system",
-    "title": "Design Notes",
-    "type": "design_doc",
-    "snippet": "matched <b>text</b> ...",
+    "title": "Investigate the flaky test",
+    "type": "backlog_item",
+    "status": "active",
+    "task_state": "in_progress",
+    "match": {
+      "kind": "comment",
+      "comment_id": "0b5e1c2a-3f4d-4e6a-9b7c-8d9e0f1a2b3c",
+      "created_at": "2026-10-19T16:00:00.000Z"
+    },
+    "snippet": "Found it: the fixture leaks a socket…",
+    "highlights": [[14, 21]],
     "rank": -1.23
   }
 ]
 ```
+
+- `id` is the document; for a comment match it is the parent task.
+- `match` is `{ "kind": "description" }` or `{ "kind": "comment", "comment_id", "created_at" }`.
+- `snippet` is plain text; `highlights` are `[start, end)` offsets of the matched terms in it.
+- `task_state` is the frontmatter value verbatim, `null` when absent.
 
 ## Tags
 
