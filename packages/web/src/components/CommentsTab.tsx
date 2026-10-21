@@ -13,6 +13,7 @@ import {
 } from '../lib/comments.js';
 import { useDialog } from '../lib/dialog.js';
 import { useBlockLeave } from '../lib/leave-guard.js';
+import { Icon } from './Icon.js';
 import { StatusMessage } from './StatusMessage.js';
 
 /** Whether the task's comments can change: archived and read-only tasks are readable only. */
@@ -184,7 +185,12 @@ export function CommentsTab({
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [announcement, setAnnouncement] = useState('');
+  // Each message renders as a new node, so a repeated message is announced again.
+  const [announcement, setAnnouncementState] = useState({ text: '', seq: 0 });
+  const setAnnouncement = useCallback(
+    (text: string) => setAnnouncementState((cur) => ({ text, seq: cur.seq + 1 })),
+    [],
+  );
   // Refs guard against a second submit landing before React re-renders.
   const postingRef = useRef(false);
   const savingRef = useRef(false);
@@ -253,7 +259,7 @@ export function CommentsTab({
       focusSoon({ kind: 'comment', id: next.id });
     } else if (readerId && e.key === 'Escape') {
       e.preventDefault();
-      closeReader();
+      escapeInReader();
     }
   };
 
@@ -501,19 +507,28 @@ export function CommentsTab({
     }
   };
 
+  /** Esc steps back one layer: the delete confirmation, then the edit, then the reader. */
+  function escapeInReader(): void {
+    if (confirmDeleteId) keepComment();
+    else if (edit && edit.commentId === readerId) cancelEdit();
+    else closeReader();
+  }
+
   const onReaderKeyDown = (e: KeyboardEvent): void => {
     if (e.key !== 'Escape') return;
     e.preventDefault();
     e.stopPropagation();
-    if (confirmDeleteId) keepComment();
-    else if (edit && edit.commentId === readerId) cancelEdit();
-    else closeReader();
+    escapeInReader();
   };
 
   // ---- Load older ----------------------------------------------------------
 
   const loadOlder = async (): Promise<void> => {
     const res = await history.fetchNextPage();
+    if (res.isError) {
+      setAnnouncement('Older comments could not be loaded.');
+      return;
+    }
     const next = flattenHistory(res.data);
     setAnnouncement(`Showing ${next.comments.length} of ${next.total}`);
     const first = next.comments[0];
@@ -535,297 +550,304 @@ export function CommentsTab({
       : 'Post comment';
 
   return (
-    <div
-      ref={rootRef}
-      className="comments-tab"
-      role="tabpanel"
-      id={panelId}
-      aria-labelledby={labelledBy}
-      hidden={hidden}
-    >
-      <div className="comments-toolbar">
-        <span className="comments-count">{plural(total)}</span>
-        {writable && (
-          <button
-            type="button"
-            className="btn btn--sm"
-            data-focus="add"
-            onClick={() => focusSoon({ kind: 'composer' })}
-          >
-            Add comment
-          </button>
-        )}
-      </div>
-
-      {writability === 'archived' && (
-        <div className="comments-notice" role="note">
-          <p>
-            This task is archived. Its comments can be read, but not changed until you restore it.
-          </p>
-          <button type="button" className="btn btn--sm" onClick={onRestoreTask}>
-            Restore task
-          </button>
-        </div>
-      )}
-      {writability === 'read-only' && (
-        <div className="comments-notice" role="note">
-          <p>This project is read-only. Its comments can be read, but not changed.</p>
-        </div>
-      )}
-
-      <div className={'comments-body' + (narrow ? ' has-reader' : '')}>
-        <div
-          className={'comments-thread' + (narrow ? ' is-narrow' : '')}
-          data-testid="comments-thread"
-        >
-          {history.isLoading ? (
-            <StatusMessage kind="loading">Loading comments…</StatusMessage>
-          ) : history.isError ? (
-            <StatusMessage kind="error">
-              Failed to load comments: {errorMessage(history.error)}
-            </StatusMessage>
-          ) : comments.length === 0 ? (
-            <div className="comments-empty">
-              <p>No comments yet.</p>
-              <p className="comments-hint">
-                Record findings, decisions, attempts and progress on this task.
-              </p>
-            </div>
-          ) : (
-            <>
-              {history.hasNextPage && (
-                <button
-                  type="button"
-                  className="btn btn--sm btn--ghost comments-load-older"
-                  disabled={history.isFetchingNextPage}
-                  onClick={() => void loadOlder()}
-                >
-                  {history.isFetchingNextPage ? 'Loading…' : 'Load older comments'}
-                </button>
-              )}
-              {comments.map((c, i) => (
-                <article
-                  key={c.id}
-                  data-testid="comment"
-                  data-comment-id={c.id}
-                  tabIndex={0}
-                  aria-current={c.id === readerId ? 'true' : undefined}
-                  className={'comment-block' + (c.id === readerId ? ' is-selected' : '')}
-                  onClick={(e) => onThreadClick(e, c.id)}
-                  onKeyDown={(e) => onThreadKeyDown(e, i)}
-                >
-                  <header className="comment-meta">
-                    <CommentMeta comment={c} />
-                    {writable && !narrow && (
-                      <button
-                        type="button"
-                        className="btn btn--sm btn--ghost comment-edit-inline"
-                        disabled={otherEditOpen(c.id)}
-                        onClick={() => startEdit(c)}
-                      >
-                        Edit
-                      </button>
-                    )}
-                  </header>
-                  {narrow ? (
-                    <span className="comment-row-text">{firstLine(c.body)}</span>
-                  ) : (
-                    <MarkdownBody body={c.body} />
-                  )}
-                </article>
-              ))}
-            </>
-          )}
-        </div>
-
-        {readerId && (
-          <section
-            className="comment-reader"
-            role="region"
-            aria-label="Comment reader"
-            onKeyDown={onReaderKeyDown}
-          >
-            <header className="comment-meta">
-              {reader && <CommentMeta comment={reader} />}
-              <button
-                type="button"
-                className="btn btn--sm btn--ghost comment-reader-close"
-                aria-label="Close reader"
-                onClick={closeReader}
-              >
-                ✕
-              </button>
-            </header>
-            {!reader ? (
-              <p className="comments-hint">This comment is no longer available.</p>
-            ) : edit && edit.commentId === reader.id && edit.conflict ? (
-              <div className="comment-conflict">
-                <p className="error">
-                  This comment changed since you started editing. Nothing was overwritten.
-                </p>
-                <h4>Saved version</h4>
-                <MarkdownBody body={edit.conflict.body} className="comment-conflict-current" />
-                <h4>Your edit</h4>
-                <pre className="comment-conflict-mine">{edit.text}</pre>
-                <div className="comment-actions">
-                  <button
-                    type="button"
-                    className="btn btn--sm comment-submit"
-                    onClick={continueOnCurrent}
-                  >
-                    Continue editing on current version
-                  </button>
-                  <button type="button" className="btn btn--sm" onClick={copyMyEdit}>
-                    Copy my edit
-                  </button>
-                  <button type="button" className="btn btn--sm btn--ghost" onClick={discardMyEdit}>
-                    Discard my edit
-                  </button>
-                </div>
-              </div>
-            ) : edit && edit.commentId === reader.id ? (
-              <form
-                className="comment-edit"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void saveEdit();
-                }}
-              >
-                <textarea
-                  aria-label="Edit comment"
-                  data-focus="editor"
-                  value={edit.text}
-                  readOnly={edit.saving}
-                  onChange={(e) => setEdit({ ...edit, text: e.target.value, error: null })}
-                  onKeyDown={onEditorKeyDown}
-                />
-                {edit.error && <p className="error">{edit.error}</p>}
-                <div className="comment-actions">
-                  <button
-                    type="submit"
-                    className="btn btn--sm comment-submit"
-                    disabled={edit.saving}
-                  >
-                    {edit.saving
-                      ? 'Saving…'
-                      : edit.error && edit.attempt?.body === edit.text
-                        ? 'Retry'
-                        : 'Save changes'}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn--sm btn--ghost"
-                    disabled={edit.saving}
-                    onClick={cancelEdit}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </form>
-            ) : (
-              <>
-                <MarkdownBody
-                  key={reader.id}
-                  body={reader.body}
-                  data-testid="reader-comment"
-                  tabIndex={-1}
-                />
-                {deleteError && <p className="error">{deleteError}</p>}
-                {writable &&
-                  (confirmDeleteId === reader.id ? (
-                    <div
-                      className="comment-delete-confirm"
-                      role="group"
-                      aria-label="Confirm delete"
-                    >
-                      <span>Delete this comment? This cannot be undone.</span>
-                      <button
-                        type="button"
-                        className="btn btn--sm"
-                        data-focus="keep"
-                        onClick={keepComment}
-                      >
-                        Keep
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn--sm btn--danger"
-                        disabled={deleting}
-                        onClick={() => void confirmDelete(reader)}
-                      >
-                        {deleting ? 'Deleting…' : 'Delete comment'}
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="comment-actions">
-                      <button
-                        type="button"
-                        className="btn btn--sm"
-                        data-focus="edit"
-                        disabled={otherEditOpen(reader.id)}
-                        onClick={() => startEdit(reader)}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn--sm btn--ghost"
-                        data-focus="delete"
-                        disabled={otherEditOpen(reader.id)}
-                        onClick={() => requestDelete(reader.id)}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  ))}
-              </>
-            )}
-          </section>
-        )}
-      </div>
-
-      {writable && (
-        <form
-          className="comments-composer"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void post();
-          }}
-        >
-          <textarea
-            aria-label="New comment"
-            data-focus="composer"
-            placeholder="Add a comment (Markdown). Ctrl+Enter posts."
-            value={composerText}
-            readOnly={posting}
-            onChange={(e) => setComposerText(e.target.value)}
-            onKeyDown={onComposerKeyDown}
-          />
-          {composerError && (
-            <div className="comments-composer-error">
-              <span className="error">{composerError.message}</span>
-              {composerError.kind === 'task-changed' && (
-                <button type="button" className="btn btn--sm" onClick={reloadTask}>
-                  Reload task
-                </button>
-              )}
-            </div>
-          )}
-          <div className="comment-actions">
+    <>
+      <div
+        ref={rootRef}
+        className="comments-tab"
+        role="tabpanel"
+        id={panelId}
+        aria-labelledby={labelledBy}
+        hidden={hidden}
+      >
+        <div className="comments-toolbar">
+          <span className="comments-count">{plural(total)}</span>
+          {writable && (
             <button
-              type="submit"
-              className="btn btn--sm comment-submit"
-              disabled={posting || composerText.trim() === ''}
+              type="button"
+              className="btn btn--sm"
+              data-focus="add"
+              onClick={() => focusSoon({ kind: 'composer' })}
             >
-              {postLabel}
+              Add comment
+            </button>
+          )}
+        </div>
+
+        {writability === 'archived' && (
+          <div className="comments-notice" role="note">
+            <p>
+              This task is archived. Its comments can be read, but not changed until you restore it.
+            </p>
+            <button type="button" className="btn btn--sm" onClick={onRestoreTask}>
+              Restore task
             </button>
           </div>
-        </form>
-      )}
+        )}
+        {writability === 'read-only' && (
+          <div className="comments-notice" role="note">
+            <p>This project is read-only. Its comments can be read, but not changed.</p>
+          </div>
+        )}
 
-      <div className="visually-hidden" aria-live="polite" data-testid="comments-live">
-        {announcement}
+        <div className={'comments-body' + (narrow ? ' has-reader' : '')}>
+          <div
+            className={'comments-thread' + (narrow ? ' is-narrow' : '')}
+            data-testid="comments-thread"
+          >
+            {history.isLoading ? (
+              <StatusMessage kind="loading">Loading comments…</StatusMessage>
+            ) : history.isError ? (
+              <StatusMessage kind="error">
+                Failed to load comments: {errorMessage(history.error)}
+              </StatusMessage>
+            ) : comments.length === 0 ? (
+              <div className="comments-empty">
+                <p>No comments yet.</p>
+                <p className="comments-hint">
+                  Record findings, decisions, attempts and progress on this task.
+                </p>
+              </div>
+            ) : (
+              <>
+                {history.hasNextPage && (
+                  <button
+                    type="button"
+                    className="btn btn--sm btn--ghost comments-load-older"
+                    disabled={history.isFetchingNextPage}
+                    onClick={() => void loadOlder()}
+                  >
+                    {history.isFetchingNextPage ? 'Loading…' : 'Load older comments'}
+                  </button>
+                )}
+                {comments.map((c, i) => (
+                  <article
+                    key={c.id}
+                    data-testid="comment"
+                    data-comment-id={c.id}
+                    tabIndex={0}
+                    aria-current={c.id === readerId ? 'true' : undefined}
+                    className={'comment-block' + (c.id === readerId ? ' is-selected' : '')}
+                    onClick={(e) => onThreadClick(e, c.id)}
+                    onKeyDown={(e) => onThreadKeyDown(e, i)}
+                  >
+                    <header className="comment-meta">
+                      <CommentMeta comment={c} />
+                      {writable && !narrow && (
+                        <button
+                          type="button"
+                          className="btn btn--sm btn--ghost comment-edit-inline"
+                          disabled={otherEditOpen(c.id)}
+                          onClick={() => startEdit(c)}
+                        >
+                          Edit
+                        </button>
+                      )}
+                    </header>
+                    {narrow ? (
+                      <span className="comment-row-text">{firstLine(c.body)}</span>
+                    ) : (
+                      <MarkdownBody body={c.body} />
+                    )}
+                  </article>
+                ))}
+              </>
+            )}
+          </div>
+
+          {readerId && (
+            <section
+              className="comment-reader"
+              role="region"
+              aria-label="Comment reader"
+              onKeyDown={onReaderKeyDown}
+            >
+              <header className="comment-meta">
+                {reader && <CommentMeta comment={reader} />}
+                <button
+                  type="button"
+                  className="btn btn--sm btn--ghost comment-reader-close"
+                  aria-label="Close reader"
+                  title="Close reader"
+                  onClick={closeReader}
+                >
+                  <Icon name="close" />
+                </button>
+              </header>
+              {!reader ? (
+                <p className="comments-hint">This comment is no longer available.</p>
+              ) : edit && edit.commentId === reader.id && edit.conflict ? (
+                <div className="comment-conflict">
+                  <p className="error">
+                    This comment changed since you started editing. Nothing was overwritten.
+                  </p>
+                  <h4>Saved version</h4>
+                  <MarkdownBody body={edit.conflict.body} className="comment-conflict-current" />
+                  <h4>Your edit</h4>
+                  <pre className="comment-conflict-mine">{edit.text}</pre>
+                  <div className="comment-actions">
+                    <button
+                      type="button"
+                      className="btn btn--sm comment-submit"
+                      onClick={continueOnCurrent}
+                    >
+                      Continue editing on current version
+                    </button>
+                    <button type="button" className="btn btn--sm" onClick={copyMyEdit}>
+                      Copy my edit
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--sm btn--ghost"
+                      onClick={discardMyEdit}
+                    >
+                      Discard my edit
+                    </button>
+                  </div>
+                </div>
+              ) : edit && edit.commentId === reader.id ? (
+                <form
+                  className="comment-edit"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void saveEdit();
+                  }}
+                >
+                  <textarea
+                    aria-label="Edit comment"
+                    data-focus="editor"
+                    value={edit.text}
+                    readOnly={edit.saving}
+                    onChange={(e) => setEdit({ ...edit, text: e.target.value, error: null })}
+                    onKeyDown={onEditorKeyDown}
+                  />
+                  {edit.error && <p className="error">{edit.error}</p>}
+                  <div className="comment-actions">
+                    <button
+                      type="submit"
+                      className="btn btn--sm comment-submit"
+                      disabled={edit.saving}
+                    >
+                      {edit.saving
+                        ? 'Saving…'
+                        : edit.error && edit.attempt?.body === edit.text
+                          ? 'Retry'
+                          : 'Save changes'}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--sm btn--ghost"
+                      disabled={edit.saving}
+                      onClick={cancelEdit}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <>
+                  <MarkdownBody
+                    key={reader.id}
+                    body={reader.body}
+                    data-testid="reader-comment"
+                    tabIndex={-1}
+                  />
+                  {deleteError && <p className="error">{deleteError}</p>}
+                  {writable &&
+                    (confirmDeleteId === reader.id ? (
+                      <div
+                        className="comment-delete-confirm"
+                        role="group"
+                        aria-label="Confirm delete"
+                      >
+                        <span>Delete this comment? This cannot be undone.</span>
+                        <button
+                          type="button"
+                          className="btn btn--sm"
+                          data-focus="keep"
+                          onClick={keepComment}
+                        >
+                          Keep
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn--sm btn--danger"
+                          disabled={deleting}
+                          onClick={() => void confirmDelete(reader)}
+                        >
+                          {deleting ? 'Deleting…' : 'Delete'}
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="comment-actions">
+                        <button
+                          type="button"
+                          className="btn btn--sm"
+                          data-focus="edit"
+                          disabled={otherEditOpen(reader.id)}
+                          onClick={() => startEdit(reader)}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn--sm btn--ghost"
+                          data-focus="delete"
+                          disabled={otherEditOpen(reader.id)}
+                          onClick={() => requestDelete(reader.id)}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    ))}
+                </>
+              )}
+            </section>
+          )}
+        </div>
+
+        {writable && (
+          <form
+            className="comments-composer"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void post();
+            }}
+          >
+            <textarea
+              aria-label="New comment"
+              data-focus="composer"
+              placeholder="Add a comment (Markdown). Ctrl+Enter posts."
+              value={composerText}
+              readOnly={posting}
+              onChange={(e) => setComposerText(e.target.value)}
+              onKeyDown={onComposerKeyDown}
+            />
+            {composerError && (
+              <div className="comments-composer-error">
+                <span className="error">{composerError.message}</span>
+                {composerError.kind === 'task-changed' && (
+                  <button type="button" className="btn btn--sm" onClick={reloadTask}>
+                    Reload task
+                  </button>
+                )}
+              </div>
+            )}
+            <div className="comment-actions">
+              <button
+                type="submit"
+                className="btn btn--sm comment-submit"
+                disabled={posting || composerText.trim() === ''}
+              >
+                {postLabel}
+              </button>
+            </div>
+          </form>
+        )}
       </div>
-    </div>
+      {/* Outside the tab panel, so results still announce after switching to Description. */}
+      <div className="visually-hidden" aria-live="polite" data-testid="comments-live">
+        <span key={announcement.seq}>{announcement.text}</span>
+      </div>
+    </>
   );
 }

@@ -549,6 +549,19 @@ describe('Comments tab: reader', () => {
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Edit' }));
   });
 
+  it('Esc on a thread row cancels an open edit before closing the reader', async () => {
+    fakeServer(task, [makeComment(1), makeComment(2)]);
+    const user = userEvent.setup();
+    renderTask();
+    await openComments(user);
+    await user.click(await screen.findByText('Comment number 1'));
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    screen.getAllByTestId('comment')[0]!.focus();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('textbox', { name: 'Edit comment' })).toBeNull();
+    expect(screen.getByRole('region', { name: 'Comment reader' })).toBeTruthy();
+  });
+
   it('disables Edit and Delete on other comments while one edit is open', async () => {
     fakeServer(task, [makeComment(1), makeComment(2)]);
     const user = userEvent.setup();
@@ -623,7 +636,7 @@ describe('Comments tab: reader', () => {
     expect(server.mutations('DELETE')).toHaveLength(0);
 
     await user.click(screen.getByRole('button', { name: 'Delete' }));
-    await user.click(screen.getByRole('button', { name: 'Delete comment' }));
+    await user.click(screen.getByRole('button', { name: 'Delete' }));
     await waitFor(() => expect(liveRegion().textContent).toBe('Comment deleted. 2 comments.'));
     const [del] = server.mutations('DELETE');
     expect(del!.headers['If-Match']).toBe('rev-2-1');
@@ -642,7 +655,7 @@ describe('Comments tab: reader', () => {
     await openComments(user);
     await user.click(await screen.findByText('Comment number 1'));
     await user.click(screen.getByRole('button', { name: 'Delete' }));
-    await user.click(screen.getByRole('button', { name: 'Delete comment' }));
+    await user.click(screen.getByRole('button', { name: 'Delete' }));
     await waitFor(() => expect(liveRegion().textContent).toBe('Comment deleted. 0 comments.'));
     await waitFor(() =>
       expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add comment' })),
@@ -677,6 +690,20 @@ describe('Comments tab: composer keyboard and leaving', () => {
     await user.click(screen.getByRole('button', { name: 'Go elsewhere' }));
     await user.click(await screen.findByRole('button', { name: 'Discard and leave' }));
     expect(leave).toHaveBeenCalledTimes(1);
+  });
+
+  it('an unsaved edit also asks before leaving', async () => {
+    fakeServer(task, [makeComment(1)]);
+    const user = userEvent.setup();
+    renderTask();
+    await openComments(user);
+    await user.click(await screen.findByText('Comment number 1'));
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    await user.type(screen.getByRole('textbox', { name: 'Edit comment' }), '!');
+
+    await user.click(screen.getByRole('button', { name: 'Go elsewhere' }));
+    await user.click(await screen.findByRole('button', { name: 'Stay' }));
+    expect(leave).not.toHaveBeenCalled();
   });
 
   it('asks once when one action navigates in several steps', async () => {

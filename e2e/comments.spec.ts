@@ -92,7 +92,7 @@ test('add a large comment, edit it, delete one', async ({ page }) => {
   await reader.getByRole('button', { name: 'Delete' }).click();
   await expect(reader.getByText('Delete this comment? This cannot be undone.')).toBeVisible();
   await expect(reader.getByRole('button', { name: 'Keep' })).toBeFocused();
-  await reader.getByRole('button', { name: 'Delete comment' }).click();
+  await reader.getByRole('button', { name: 'Delete' }).click();
   await expect(page.getByTestId('comments-live')).toHaveText('Comment deleted. 1 comment.');
   await expect(page.getByRole('tab', { name: 'Comments (1)' })).toBeVisible();
   await expect(page.getByText('Disposable note')).toHaveCount(0);
