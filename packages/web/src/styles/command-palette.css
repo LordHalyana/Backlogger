@@ -71,18 +71,46 @@
 }
 
 .command-palette-row-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
   font-size: 11px;
   color: var(--fg-muted);
   white-space: nowrap;
 }
 
+.command-palette-row-match {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 2px;
+  min-width: 0;
+}
+
+.command-palette-chip {
+  flex: none;
+  font-size: 10px;
+  padding: 0 6px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+
 .command-palette-row-snippet {
+  flex: 1;
+  min-width: 0;
   font-size: 12px;
   color: var(--fg-muted);
-  margin-top: 2px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.command-palette-row-snippet mark {
+  background: none;
+  color: var(--fg);
+  font-weight: 600;
 }
 
 .command-palette-footer {

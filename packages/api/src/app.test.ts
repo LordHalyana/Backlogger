@@ -732,7 +732,7 @@ describe('Search API', () => {
 
   it('reindex rebuilds FTS row count equal to documents row count', async () => {
     const before = (
-      h.db.prepare('SELECT COUNT(*) AS c FROM documents_fts').get() as { c: number }
+      h.db.prepare(`SELECT COUNT(*) AS c FROM search_fts WHERE kind = 'document'`).get() as { c: number }
     ).c;
     const reindex = await request(h.app).post('/api/admin/reindex');
     expect(reindex.status).toBe(200);
@@ -740,7 +740,7 @@ describe('Search API', () => {
       h.db.prepare('SELECT COUNT(*) AS c FROM documents').get() as { c: number }
     ).c;
     const fts = (
-      h.db.prepare('SELECT COUNT(*) AS c FROM documents_fts').get() as { c: number }
+      h.db.prepare(`SELECT COUNT(*) AS c FROM search_fts WHERE kind = 'document'`).get() as { c: number }
     ).c;
     expect(fts).toBe(docs);
     expect(fts).toBe(before);

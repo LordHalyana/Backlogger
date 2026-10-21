@@ -1,13 +1,36 @@
 import { z } from 'zod';
-import { DocumentTypeSchema } from './documents.js';
+import { DocumentStatusSchema, DocumentTypeSchema } from './documents.js';
 import { ProjectIdSchema } from './projects.js';
 
+/**
+ * Which record of a result's document matched (spec #58): the document
+ * itself (title, tags, body) or one comment on it. A task with several
+ * matching records is one result labelled with the strongest of them.
+ */
+export const SearchMatchSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('description') }),
+  z.object({
+    kind: z.literal('comment'),
+    comment_id: z.string().uuid(),
+    created_at: z.string(),
+  }),
+]);
+export type SearchMatch = z.infer<typeof SearchMatchSchema>;
+
 export const SearchHitSchema = z.object({
+  /** The document (for a comment match, its parent task). */
   id: z.string().uuid(),
   project_id: ProjectIdSchema,
   title: z.string(),
   type: DocumentTypeSchema,
+  status: DocumentStatusSchema,
+  /** Frontmatter `task_state`, verbatim; `null` when absent. */
+  task_state: z.string().nullable(),
+  match: SearchMatchSchema,
+  /** One excerpt of the matching record, without markup. */
   snippet: z.string(),
+  /** `[start, end)` offsets into `snippet` of the matched terms, in order. */
+  highlights: z.array(z.tuple([z.number().int(), z.number().int()])),
   rank: z.number(),
 });
 export type SearchHit = z.infer<typeof SearchHitSchema>;

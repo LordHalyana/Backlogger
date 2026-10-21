@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { SearchHit } from '@backlogger/shared';
 import { apiFetch } from './api.js';
+import { queryKeys } from './query-keys.js';
 
 export interface UseSearchOptions {
   projectId?: string;
@@ -35,7 +36,7 @@ export function useSearch(query: string, opts: UseSearchOptions = {}): UseSearch
   const enabled = trimmed.length >= 2;
 
   const result = useQuery<SearchHit[], Error>({
-    queryKey: ['search', trimmed, projectId ?? null, limit ?? null],
+    queryKey: [...queryKeys.search(), trimmed, projectId ?? null, limit ?? null],
     queryFn: () => {
       const params = new URLSearchParams({ q: trimmed });
       if (projectId) params.set('projectId', projectId);

@@ -41,8 +41,10 @@ SQLite and memory-derived data include:
   `read_only` flag derived during indexing, the `revision` fingerprint of the
   persisted content (the `If-Match` token), and the frontmatter `task_state`
   verbatim (the board reads it; `NULL` when absent).
-- `documents_fts`: full-text search index maintained from document rows by SQL
-  triggers (see `migrations/0003_search.sql`).
+- `search_fts`: shared full-text projection with one row per document and per
+  indexed comment, so search ranks both kinds with the same bm25 statistics
+  and groups results by document. Maintained from `documents` and `comments`
+  rows by SQL triggers (see `migrations/0013_search_records.sql`).
 - `links`: outgoing wiki links and resolved targets.
 - `tags` / `document_tags`: normalized tag rows and per-document tag membership.
 - `GraphService` cache: per-project graph payload.
@@ -185,6 +187,10 @@ Central caches currently include:
 - `['comments', taskId]` (a backlog item's comment history, newest page first;
   refetched after every comment create, edit or delete on that task, and for
   every task after a project reload or full reindex)
+- `['search', query, projectId, limit]` (grouped document/comment results;
+  every search query is invalidated by `invalidateSearch`, which the
+  document-derived, project-list and comment helpers call, so saves, filing,
+  comment writes, deletion, Reload and Reindex all clear it)
 
 When document body/frontmatter changes, invalidate or update:
 
@@ -198,7 +204,7 @@ When document body/frontmatter changes, invalidate or update:
 Query keys and invalidation are centralized in
 `packages/web/src/lib/query-keys.ts`. The `queryKeys` factory defines the keys
 above, and helpers — `invalidateDocumentDerived`, `invalidateProjectList`,
-`invalidateProjectFolders`, `invalidateProjectStructure`, `invalidateComments`, `setDocumentCache`,
+`invalidateProjectFolders`, `invalidateProjectStructure`, `invalidateComments`, `invalidateSearch`, `setDocumentCache`,
 `removeDocumentCache`, `invalidateProjectReload`, `invalidateGlobalReindex`, and
 `clearDocumentBuffers` — keep mutation paths from missing invalidations. New
 mutations should reuse these helpers instead of hand-writing query keys.

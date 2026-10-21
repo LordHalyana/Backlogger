@@ -116,9 +116,9 @@ Repositories are the only modules that should talk directly to persistence:
 - `ProjectsRepo`: `projects` table.
 - `OperationsRepo`: the protected operational tables (`operations`, `operation_payloads`, `operation_manifest_entries`, `operation_guards`). Only `WriteCoordinator` uses it, and the coordinator owns every SQLite transaction a command commits.
 - `DocumentsRepo`: `documents` table reads/writes, including the `body_indexed`
-  column. The `documents_fts` full-text index is maintained by SQL triggers
-  (`documents_ai` / `documents_ad` / `documents_au`) defined in
-  `migrations/0003_search.sql`, not by application code.
+  column. The `search_fts` full-text projection (one row per document and per
+  comment) is maintained by SQL triggers on `documents` and `comments`
+  defined in `migrations/0013_search_records.sql`, not by application code.
 
 `PathResolver` validates project ids, filenames, folder paths, project-relative paths, path containment, and symlink policy.
 
