@@ -19,6 +19,7 @@ import {
 } from '@backlogger/shared';
 import { BadRequestError, ConflictError, NotFoundError } from '../errors.js';
 import {
+  DocumentNotFoundError,
   sidecarRevision,
   type FsRepository,
   type RawDocument,
@@ -489,20 +490,28 @@ export class DocumentService {
 
     let viaSidecar = false;
     if (!summary.readOnly) {
-      const existing = await this.fs.read(summary.path);
-      viaSidecar = project.metadataMode === 'sidecar' && !hasOwnFrontmatter(summary, existing);
-      if (!viaSidecar) assertEditableBackloggerDocument(summary, existing);
+      // A missing file means an earlier delete was interrupted after removing
+      // it; finish the job (including any sidecar entry) instead of failing.
+      const existing = await this.fs.read(summary.path).catch(ignoreMissing);
+      viaSidecar =
+        project.metadataMode === 'sidecar' &&
+        !(existing && hasOwnFrontmatter(summary, existing));
+      if (existing && !viaSidecar) assertEditableBackloggerDocument(summary, existing);
     }
 
+    // Files (Markdown, then sidecar entry) go before the index row: if either
+    // removal fails, the error surfaces and the document stays indexed, so a
+    // retry finishes the job and a reindex never resurrects it.
+    await this.fs.delete(summary.path).catch(ignoreMissing);
+    if (viaSidecar) {
+      await this.sidecarStore.delete(
+        summary.project_id,
+        sidecarKeyOf(summary.project_id, summary.path),
+      );
+    }
     this.documentsRepo.delete(id);
     this.linkService.onDocumentDeleted(id);
     this.graphService.invalidate(summary.project_id);
-    if (viaSidecar) {
-      await this.sidecarStore
-        .delete(summary.project_id, sidecarKeyOf(summary.project_id, summary.path))
-        .catch(() => undefined);
-    }
-    await this.fs.delete(summary.path).catch(() => undefined);
   }
 
   /**
@@ -876,6 +885,12 @@ function sidecarEntryFromFrontmatter(fm: Frontmatter): SidecarEntry {
     created_at: fm.created_at,
     updated_at: fm.updated_at,
   };
+}
+
+/** Treat an already-missing file as removed; rethrow any other error. */
+function ignoreMissing(err: unknown): null {
+  if (err instanceof DocumentNotFoundError) return null;
+  throw err;
 }
 
 /** True when the on-disk file carries this document's own Backlogger frontmatter. */

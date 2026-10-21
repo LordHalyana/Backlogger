@@ -3,11 +3,13 @@ import type { FsRepository } from '../fs/index.js';
 import type { ProjectRecord, ProjectsRepo } from '../db/projects-repo.js';
 import type { InboxService } from './inbox-service.js';
 import { ConflictError, NotFoundError } from '../errors.js';
+import type { ProjectQueue } from './project-queue.js';
 
 export interface ProjectServiceDeps {
   projectsRepo: ProjectsRepo;
   fs: FsRepository;
   inbox: InboxService;
+  queue: ProjectQueue;
   /** Override for tests. */
   now?: () => string;
 }
@@ -16,12 +18,14 @@ export class ProjectService {
   private readonly projectsRepo: ProjectsRepo;
   private readonly fs: FsRepository;
   private readonly inbox: InboxService;
+  private readonly queue: ProjectQueue;
   private readonly now: () => string;
 
   constructor(deps: ProjectServiceDeps) {
     this.projectsRepo = deps.projectsRepo;
     this.fs = deps.fs;
     this.inbox = deps.inbox;
+    this.queue = deps.queue;
     this.now = deps.now ?? (() => new Date().toISOString());
   }
 
@@ -83,24 +87,27 @@ export class ProjectService {
   }
 
   /**
-   * Delete the metadata row first, then the folder. If the disk step
-   * fails the caller still gets a 204; a future reindex reconciles any
-   * orphaned folder.
+   * Delete the folder first, then the metadata row, inside the project's
+   * queue so no document operation interleaves. If the folder cannot be
+   * (fully) removed the error surfaces and the project stays indexed; a retry
+   * finishes the job, and a reindex never resurrects a deleted project.
    */
   async delete(id: string): Promise<void> {
-    const project = this.projectsRepo.find(id);
-    if (!project) {
-      throw new NotFoundError('PROJECT_NOT_FOUND', `Project not found: ${id}`);
-    }
-    if (this.inbox.isInbox(id)) throw inboxProtected('The Inbox cannot be deleted.');
-    if (project.readOnly) {
-      throw new ConflictError(
-        'PROJECT_READ_ONLY',
-        'This project is read-only. Disable read-only mode before deleting it.',
-      );
-    }
-    this.projectsRepo.delete(id);
-    await this.fs.removeProject(id).catch(() => undefined);
+    return this.queue.run(id, async () => {
+      const project = this.projectsRepo.find(id);
+      if (!project) {
+        throw new NotFoundError('PROJECT_NOT_FOUND', `Project not found: ${id}`);
+      }
+      if (this.inbox.isInbox(id)) throw inboxProtected('The Inbox cannot be deleted.');
+      if (project.readOnly) {
+        throw new ConflictError(
+          'PROJECT_READ_ONLY',
+          'This project is read-only. Disable read-only mode before deleting it.',
+        );
+      }
+      await this.fs.removeProject(id);
+      this.projectsRepo.delete(id);
+    });
   }
 
   private view(project: ProjectRecord): Project {
