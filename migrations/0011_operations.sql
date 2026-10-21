@@ -35,7 +35,9 @@ CREATE TABLE operation_manifest_entries (
 );
 
 -- What a pending operation blocks until it completes or is resolved: a whole
--- project, one task (and its comments) or one project-relative path. Every
+-- project, one task (and its comments) or one path. Path keys are relative
+-- to <dataDir>/projects/ and so start with the project id, like
+-- documents.path; they are unique across projects. Every
 -- guard names the project it lives in, so "anything pending in this project"
 -- is one lookup.
 CREATE TABLE operation_guards (

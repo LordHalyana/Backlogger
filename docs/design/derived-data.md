@@ -50,6 +50,8 @@ SQLite and memory-derived data include:
 
 ## Mutation Paths
 
+Every document mutation below runs as a `WriteCoordinator` command: its project queue is held, durable guards are checked, index writes commit in one SQLite transaction, and the coordinator invalidates the graph cache of every project the command held.
+
 ### Create Document
 
 Path:
@@ -77,7 +79,7 @@ DocumentService.update
 
 Required updates:
 
-- Inside the project mutation queue, compare `If-Match` (when provided) with the revision of the file on disk; 409 on mismatch.
+- Inside the write coordinator (project queue held, durable guards checked), compare `If-Match` (when provided) with the revision of the file on disk; 409 on mismatch.
 - Write the updated Markdown file.
 - Move file if archive status changes.
 - Upsert `documents`.

@@ -79,6 +79,7 @@ API and services:
 
 - `packages/api/src/app.test.ts`
 - `packages/api/src/task-board.test.ts` (board, task state and write-safety; on-disk Markdown asserted byte for byte)
+- `packages/api/src/coordinated-writes.test.ts` (write coordinator over HTTP: guards, lock order, gate, protected operational tables)
 - `packages/api/src/test-support.ts` (shared `setup()`/`teardown()` harness)
 - `packages/api/src/fs/*.test.ts`
 - `packages/api/src/services/*.test.ts`

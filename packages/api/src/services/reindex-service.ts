@@ -231,6 +231,8 @@ export class ReindexService {
 
     // Documents/links/tags for this project changed → drop its graph cache so
     // GET /:id/graph rebuilds instead of serving a stale (TTL-cached) payload.
+    // (The coordinator does this after a Reload too; startup calls this
+    // outside any command.)
     this.graphService.invalidate(projectId);
 
     report.durationMs = Date.now() - started;

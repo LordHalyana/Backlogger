@@ -17,9 +17,11 @@ export async function fsyncDir(dir: string): Promise<void> {
     handle = await fs.open(dir, 'r');
     await handle.sync();
   } catch (err) {
-    // Some platforms (Windows) cannot open or sync a directory handle.
+    // Windows cannot open or sync a directory handle; everywhere else a
+    // failed directory fsync is a durability failure and must surface.
     const code = (err as NodeJS.ErrnoException).code;
-    if (code !== 'EISDIR' && code !== 'EPERM' && code !== 'EINVAL') throw err;
+    const unsupported = code === 'EISDIR' || code === 'EPERM' || code === 'EINVAL';
+    if (!(process.platform === 'win32' && unsupported)) throw err;
   } finally {
     await handle?.close().catch(() => undefined);
   }
@@ -42,19 +44,16 @@ async function writeTemp(target: string, content: string): Promise<string> {
     path.dirname(target),
     `${path.basename(target)}.tmp.${process.pid}.${randomBytes(6).toString('hex')}`,
   );
-  let handle: fs.FileHandle | undefined;
+  const handle = await fs.open(tmp, 'wx');
   try {
-    handle = await fs.open(tmp, 'wx');
     await handle.writeFile(content, 'utf8');
     await handle.sync();
   } catch (err) {
-    await handle?.close().catch(() => undefined);
-    handle = undefined;
+    await handle.close().catch(() => undefined);
     await fs.rm(tmp, { force: true }).catch(() => undefined);
     throw err;
-  } finally {
-    await handle?.close().catch(() => undefined);
   }
+  await handle.close();
   return tmp;
 }
 

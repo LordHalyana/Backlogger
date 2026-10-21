@@ -1,13 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { setup, teardown, type Harness } from '../test-support.js';
-import { operationFingerprint, type OperationIdentity } from './write-coordinator.js';
+import {
+  operationFingerprint,
+  type CommandScope,
+  type OperationIdentity,
+} from './write-coordinator.js';
 
 /**
  * Receipt lookup and claim at the coordinator's interface: no HTTP command
  * carries an operation ID yet (comments, filing and deletion adopt them in
  * later slices), so these drive the coordinator directly over a real database.
  */
+
+/** A retry-safe command with nothing to write: record the intent, then complete. */
+function complete<A>(scope: CommandScope, outcome: A): A {
+  scope.intent({ guards: [] });
+  return scope.complete(outcome);
+}
 
 const ID = '33333333-3333-4333-8333-333333333333';
 
@@ -34,7 +44,8 @@ describe('WriteCoordinator receipts', () => {
     const plan = (label: string) => ({
       operation: identity(),
       locate: () => ({ projects: ['inbox'] }),
-      run: async (_l: unknown, scope: { complete<A>(o: A, w?: () => void): A }) => {
+      run: async (_l: unknown, scope: CommandScope) => {
+        scope.intent({ guards: [] });
         writes.push(label);
         return scope.complete({ outcome: 'done', by: label });
       },
@@ -54,13 +65,13 @@ describe('WriteCoordinator receipts', () => {
     await h.ctx.coordinator.command({
       operation: identity(['x']),
       locate: () => ({ projects: ['inbox'] }),
-      run: async (_l, scope) => scope.complete({ outcome: 'done' }),
+      run: async (_l, scope) => complete(scope, { outcome: 'done' }),
     });
     await expect(
       h.ctx.coordinator.command({
         operation: identity(['y']),
         locate: () => ({ projects: ['inbox'] }),
-        run: async (_l, scope) => scope.complete({ outcome: 'other' }),
+        run: async (_l, scope) => complete(scope, { outcome: 'other' }),
       }),
     ).rejects.toMatchObject({ status: 409, code: 'OPERATION_ID_CONFLICT' });
   });
@@ -118,7 +129,7 @@ describe('WriteCoordinator receipts', () => {
       h.ctx.coordinator.command({
         operation: identity(),
         locate: () => ({ projects: ['work'] }),
-        run: async (_l, scope) => scope.complete({ outcome: 'never' }),
+        run: async (_l, scope) => complete(scope, { outcome: 'never' }),
       }),
     ).rejects.toMatchObject({ code: 'OPERATION_IN_PROGRESS' });
 
@@ -143,7 +154,7 @@ describe('WriteCoordinator receipts', () => {
       h.ctx.coordinator.command({
         operation: identity(),
         locate: () => ({ projects: ['inbox'] }),
-        run: async (_l, scope) => scope.complete({ outcome: 'retried' }),
+        run: async (_l, scope) => complete(scope, { outcome: 'retried' }),
       }),
     ).rejects.toMatchObject({
       code: 'RECOVERY_REQUIRED',

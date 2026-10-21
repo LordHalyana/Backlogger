@@ -55,7 +55,11 @@ export interface CommandPlan<L extends Located, T> {
   moved?: (now: L) => Error;
   /** Tasks and paths this command touches; guards on the held projects are always checked. */
   guards?: (located: L) => GuardTargets;
-  /** Steps 7–11, with the locks held and the guards checked. */
+  /**
+   * Steps 7–11, with the locks held and the guards checked. A receipt found
+   * by the intent claim unwinds `run` with a thrown non-Error value; a
+   * `catch` in here that rolls back must rethrow whatever it caught.
+   */
   run: (located: L, scope: CommandScope) => Promise<T>;
 }
 
@@ -71,13 +75,18 @@ export interface CommandScope {
   readonly projects: readonly string[];
   /** Refuse with RECOVERY_REQUIRED while anything is pending in `projectId`. */
   assertNothingPendingIn(projectId: string): void;
-  /** Step 8: record the pending operation and install its guards, atomically. */
+  /**
+   * Step 8: record the pending operation and install its guards, atomically.
+   * A retry-safe command calls it before writing any file, so a duplicate
+   * key is caught here, before a second write.
+   */
   intent(record: IntentRecord): void;
   /** Step 11 for a plain command: one synchronous transaction of index writes. */
   commit<R>(write: () => R): R;
   /**
-   * Step 11 for a retry-safe command: index writes, the receipt, payload
-   * removal and guard release in one transaction. Returns the acknowledgement.
+   * Step 11 for a retry-safe command, after `intent`: index writes, the
+   * receipt, payload removal and guard release in one transaction. Returns
+   * the acknowledgement.
    */
   complete<A>(outcome: A, write?: () => void): A;
 }
@@ -262,8 +271,9 @@ export class WriteCoordinator {
         if (guard) throw recoveryRequired(guard.operation_id);
       },
       intent: (record) => {
-        const { id, command, fingerprint } = requireOp();
-        this.claim(op!, () => {
+        const claimed = requireOp();
+        const { id, command, fingerprint } = claimed;
+        this.claim(claimed, () => {
           this.operations.insert({
             operation_id: id,
             command,
@@ -280,30 +290,14 @@ export class WriteCoordinator {
       },
       commit: (write) => this.transaction(write),
       complete: (outcome, write) => {
-        const { id, command, fingerprint } = requireOp();
-        const at = this.now();
-        if (intended) {
-          this.db.transaction(() => {
-            write?.();
-            this.operations.markCompleted(id, outcome, at);
-            this.operations.removePayload(id);
-            this.operations.releaseGuards(id);
-          })();
-        } else {
-          // Nothing to recover (no intent was needed): claim and complete at once.
-          this.claim(op!, () => {
-            write?.();
-            this.operations.insert({
-              operation_id: id,
-              command,
-              fingerprint,
-              state: 'completed',
-              outcome,
-              created_at: at,
-              completed_at: at,
-            });
-          });
-        }
+        const { id } = requireOp();
+        if (!intended) throw new Error('complete() needs a recorded intent.');
+        this.transaction(() => {
+          write?.();
+          this.operations.markCompleted(id, outcome, this.now());
+          this.operations.removePayload(id);
+          this.operations.releaseGuards(id);
+        });
         return outcome;
       },
     };
