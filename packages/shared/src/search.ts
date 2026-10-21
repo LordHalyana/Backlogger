@@ -4,8 +4,9 @@ import { ProjectIdSchema } from './projects.js';
 
 /**
  * Which record of a result's document matched (spec #58): the document
- * itself (title, tags, body) or one comment on it. A task with several
- * matching records is one result labelled with the strongest of them.
+ * itself (title, tags, body), shown as a Description match, or one comment
+ * on it, shown as a Comment match. A task with several matching records is
+ * one result labelled with the strongest of them.
  */
 export const SearchMatchSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('description') }),

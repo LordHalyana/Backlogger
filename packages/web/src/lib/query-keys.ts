@@ -63,6 +63,7 @@ export function invalidateProjectList(qc: QueryClient): void {
 /**
  * Refetch comment histories: one task's after a comment write, or every
  * task's (no `taskId`) after a reload or reindex re-reads them from disk.
+ * Search results match comment text, so they are cleared too.
  */
 export function invalidateComments(qc: QueryClient, taskId?: string): Promise<void> {
   invalidateSearch(qc);

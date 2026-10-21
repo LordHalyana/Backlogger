@@ -81,6 +81,7 @@ API and services:
 - `packages/api/src/task-board.test.ts` (board, task state and write-safety; on-disk Markdown asserted byte for byte)
 - `packages/api/src/coordinated-writes.test.ts` (write coordinator over HTTP: guards, lock order, gate, protected operational tables)
 - `packages/api/src/comment-recovery.test.ts` (crash injected at each persisted phase of comment create, edit and delete, then `restart()`; task-scoped guards; the recovery API)
+- `packages/api/src/search.test.ts` (grouped document/comment search: one result per task, strongest snippet, all terms within one record, archived and orphaned comments, pending payloads through Reload and Reindex)
 - `packages/api/src/test-support.ts` (shared `setup()`/`teardown()` harness)
 - `packages/api/src/fs/*.test.ts`
 - `packages/api/src/services/*.test.ts`

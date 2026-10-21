@@ -16,6 +16,7 @@ interface SearchRow {
   status: string;
   task_state: string | null;
   record_id: string;
+  /** `search_fts.kind`: which record matched. */
   kind: 'document' | 'comment';
   comment_created_at: string | null;
   snippet: string;
@@ -28,8 +29,8 @@ export interface SearchOptions {
 }
 
 /** Control characters FTS5 wraps matched terms in; they never occur in Markdown we index. */
-const OPEN = '\u0001';
-const CLOSE = '\u0002';
+const SNIPPET_MARK_OPEN = '\u0001';
+const SNIPPET_MARK_CLOSE = '\u0002';
 
 /**
  * FTS5-backed full-text search across documents and comments on backlog
@@ -45,10 +46,14 @@ const CLOSE = '\u0002';
  * bm25 ranks are comparable across kinds. Each document is ranked by its
  * strongest record, and grouping happens before the limit.
  *
+ * The snippet comes from whichever column matched best, so a title-only
+ * match shows the title with its terms marked.
+ *
  * Comments count only while their parent is an indexed backlog item, so
  * comments left behind by a deleted task never surface. Invalid and orphaned
  * comment files are never indexed, and recovery payloads live outside the
- * index altogether.
+ * index altogether. Items pending deletion are not excluded here yet: that
+ * state arrives with resumable deletion (#73), which must filter them out.
  */
 export class SearchService {
   constructor(private readonly db: Db) {}
@@ -71,7 +76,7 @@ export class SearchService {
               search_fts.record_id AS record_id,
               search_fts.kind      AS kind,
               comments.created_at  AS comment_created_at,
-              snippet(search_fts, 5, '${OPEN}', '${CLOSE}', '…', 12) AS snippet,
+              snippet(search_fts, -1, '${SNIPPET_MARK_OPEN}', '${SNIPPET_MARK_CLOSE}', '…', 12) AS snippet,
               search_fts.rank      AS rank
        FROM search_fts
        JOIN documents ON documents.id = search_fts.document_id
@@ -112,9 +117,11 @@ export class SearchService {
       type: row.type as DocumentType,
       status: row.status as DocumentStatus,
       task_state: row.task_state,
+      // A document record is presented as a description match (spec #58).
       match:
         row.kind === 'comment'
-          ? { kind: 'comment', comment_id: row.record_id, created_at: row.comment_created_at ?? '' }
+          ? // The comments join is required for comment records, so the date is present.
+            { kind: 'comment', comment_id: row.record_id, created_at: row.comment_created_at! }
           : { kind: 'description' },
       ...parseSnippet(row.snippet),
       rank: row.rank,
@@ -150,8 +157,8 @@ export function parseSnippet(marked: string): Pick<SearchHit, 'snippet' | 'highl
   const highlights: Array<[number, number]> = [];
   let start = -1;
   for (const ch of marked) {
-    if (ch === OPEN) start = snippet.length;
-    else if (ch === CLOSE) {
+    if (ch === SNIPPET_MARK_OPEN) start = snippet.length;
+    else if (ch === SNIPPET_MARK_CLOSE) {
       if (start >= 0) highlights.push([start, snippet.length]);
       start = -1;
     } else snippet += ch;

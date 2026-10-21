@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import request from 'supertest';
@@ -252,5 +252,47 @@ describe('GET /api/search over tasks and their comments', () => {
     await comment(h, task.id, uuid(1), 'A heron sighting.\n');
     expect(await search(h, 'heron', { projectId: 'other' })).toEqual([]);
     expect(await search(h, 'heron', { projectId: 'work' })).toHaveLength(1);
+  });
+
+  it('labels a title-only match as a description match with the title highlighted', async () => {
+    const hits = await search(h, 'flaky');
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.match).toEqual({ kind: 'description' });
+    expect(highlighted(hits[0]!)).toEqual(['flaky']);
+  });
+
+  describe.each([
+    ['before', 'only in the recovery payload'],
+    ['after', 'also written to the comment file'],
+  ] as const)('with an edit interrupted %s its file write', (phase, where) => {
+    beforeEach(async () => {
+      await comment(h, task.id, uuid(1), 'Original kiwi note.\n');
+      const current = (await request(h.app).get(`/api/comments/${uuid(1)}`)).body;
+      const original = h.ctx.fs.writeRaw.bind(h.ctx.fs);
+      vi.spyOn(h.ctx.fs, 'writeRaw').mockImplementationOnce(async (...args) => {
+        if (phase === 'after') await original(...args);
+        throw new Error(`injected crash ${phase} writeRaw`);
+      });
+      const failed = await request(h.app)
+        .put(`/api/comments/${uuid(1)}`)
+        .set('Idempotency-Key', uuid(3000))
+        .set('If-Match', current.revision)
+        .send({ body: 'Pending zebracorn text.\n' });
+      expect(failed.status).toBe(500);
+      vi.restoreAllMocks();
+    });
+
+    it(`search matches what the comment list shows (pending text ${where}), through Reload and Reindex`, async () => {
+      for (const step of ['none', 'reload', 'reindex'] as const) {
+        if (step === 'reload') await request(h.app).post('/api/projects/work/reload');
+        if (step === 'reindex') await request(h.app).post('/api/admin/reindex');
+        const listed = JSON.stringify(
+          (await request(h.app).get(`/api/documents/${task.id}/comments`)).body,
+        );
+        const found = (await search(h, 'zebracorn')).length > 0;
+        expect({ step, found }).toEqual({ step, found: listed.includes('zebracorn') });
+        if (phase === 'before') expect({ step, found }).toEqual({ step, found: false });
+      }
+    });
   });
 });
