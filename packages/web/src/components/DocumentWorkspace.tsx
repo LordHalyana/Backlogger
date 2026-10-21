@@ -1,12 +1,13 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  useDeleteDocument,
-  useDocument,
-  useDocuments,
-  useMoveDocument,
-} from '../lib/documents.js';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { KeyboardEvent } from 'react';
+import { useDeleteDocument, useDocument, useDocuments, useMoveDocument } from '../lib/documents.js';
 import { toastError, useDialog } from '../lib/dialog.js';
-import { FolderPathSchema, folderFromDocumentPath, unarchivePath } from '@backlogger/shared';
+import {
+  FolderPathSchema,
+  folderFromDocumentPath,
+  unarchivePath,
+  type DocumentStatus,
+} from '@backlogger/shared';
 import { useTitles } from '../lib/links.js';
 import type { Theme } from '../lib/theme.js';
 import { useDocumentBuffer } from '../hooks/useDocumentBuffer.js';
@@ -15,12 +16,17 @@ import { MetadataPanel } from './MetadataPanel.js';
 import { SegmentedControl } from './SegmentedControl.js';
 import { StatusMessage } from './StatusMessage.js';
 import { DOCUMENT_STATUS_LABELS } from '../lib/display.js';
+import { flattenHistory, useCommentHistory } from '../lib/comments.js';
+import { CommentsTab, type CommentWritability, type TabPanelIds } from './CommentsTab.js';
 
 const DocumentEditor = lazy(() =>
   import('./DocumentEditor.js').then((m) => ({ default: m.DocumentEditor })),
 );
 
 type ViewMode = 'edit' | 'split' | 'preview';
+
+/** Backlog items have a Description and a Comments tab; other documents only the former. */
+type WorkspaceTab = 'description' | 'comments';
 
 const VIEW_MODE_OPTIONS = [
   { value: 'edit', label: 'Edit' },
@@ -71,6 +77,36 @@ export function DocumentWorkspace({
     resetConflictToDocument,
   } = useDocumentBuffer(projectId, doc);
   const [viewMode, setViewMode] = useState<ViewMode>('split');
+
+  const isBacklogItem = doc?.type === 'backlog_item';
+  // The tab belongs to the document it was chosen on: opening another one starts on Description.
+  const [tabChoice, setTabChoice] = useState<{ documentId: string; tab: WorkspaceTab }>({
+    documentId,
+    tab: 'description',
+  });
+  const tab: WorkspaceTab =
+    isBacklogItem && tabChoice.documentId === documentId ? tabChoice.tab : 'description';
+  const selectTab = useCallback(
+    (next: WorkspaceTab) => setTabChoice({ documentId, tab: next }),
+    [documentId],
+  );
+  const commentHistory = useCommentHistory(documentId, isBacklogItem);
+  const commentTotal = flattenHistory(commentHistory.data).total;
+  const [commentDraft, setCommentDraft] = useState(false);
+  const tabRefs = useRef<Record<WorkspaceTab, HTMLButtonElement | null>>({
+    description: null,
+    comments: null,
+  });
+  const onTabKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      e.preventDefault();
+      const next: WorkspaceTab = tab === 'description' ? 'comments' : 'description';
+      selectTab(next);
+      tabRefs.current[next]?.focus();
+    },
+    [selectTab, tab],
+  );
 
   // beforeunload guard while dirty.
   useEffect(() => {
@@ -165,78 +201,133 @@ export function DocumentWorkspace({
         <span className="workspace-title" title={doc.path}>
           {buffer.meta.title || 'Untitled'}
         </span>
-        <span
-          className={'doc-status-chip status-' + buffer.meta.status}
-          aria-hidden="true"
-        >
+        <span className={'doc-status-chip status-' + buffer.meta.status} aria-hidden="true">
           {DOCUMENT_STATUS_LABELS[buffer.meta.status]}
         </span>
         <code className="workspace-path">{doc.path}</code>
       </div>
-      <div className="workspace-status">
-        <span className={'dirty-dot ' + (dirty ? 'dirty' : 'clean')} aria-hidden="true" />
-        <span className="status-label">
-          {isReadOnly ? 'Read-only' : isSaving ? 'Saving...' : dirty ? 'Unsaved changes' : 'Saved'}
-        </span>
-        {saveError && <span className="error">Save failed: {saveError}</span>}
-        <SegmentedControl
-          className="view-mode-toggle"
-          ariaLabel="View mode"
-          value={viewMode}
-          options={VIEW_MODE_OPTIONS}
-          onChange={setViewMode}
-        />
-        {dirty || isSaving ? (
-          <button
-            type="button"
-            className="btn btn--sm"
-            disabled
-            title="Save unsaved changes before downloading"
-          >
-            Download
-          </button>
-        ) : (
-          <a
-            className="btn btn--sm"
-            href={`/api/documents/${doc.id}/raw`}
-            download
-            title="Download as Markdown"
-          >
-            Download
-          </a>
-        )}
-      </div>
-      {conflict && (
+      {isBacklogItem && (
+        <div className="workspace-tabs" role="tablist" aria-label="Task views">
+          {(['description', 'comments'] as const).map((t) => (
+            <button
+              key={t}
+              ref={(el) => {
+                tabRefs.current[t] = el;
+              }}
+              type="button"
+              role="tab"
+              id={tabPanelIds(doc.id, t).labelledBy}
+              aria-selected={tab === t}
+              aria-controls={tabPanelIds(doc.id, t).id}
+              tabIndex={tab === t ? 0 : -1}
+              className={'workspace-tab' + (tab === t ? ' active' : '')}
+              onClick={() => selectTab(t)}
+              onKeyDown={onTabKeyDown}
+            >
+              {t === 'description'
+                ? 'Description' + (dirty ? ' •' : '')
+                : `Comments (${commentTotal})` + (commentDraft ? ' •' : '')}
+            </button>
+          ))}
+        </div>
+      )}
+      {tab === 'description' && (
+        <div className="workspace-status">
+          <span className={'dirty-dot ' + (dirty ? 'dirty' : 'clean')} aria-hidden="true" />
+          <span className="status-label">
+            {isReadOnly
+              ? 'Read-only'
+              : isSaving
+                ? 'Saving...'
+                : dirty
+                  ? 'Unsaved changes'
+                  : 'Saved'}
+          </span>
+          {saveError && <span className="error">Save failed: {saveError}</span>}
+          <SegmentedControl
+            className="view-mode-toggle"
+            ariaLabel="View mode"
+            value={viewMode}
+            options={VIEW_MODE_OPTIONS}
+            onChange={setViewMode}
+          />
+          {dirty || isSaving ? (
+            <button
+              type="button"
+              className="btn btn--sm"
+              disabled
+              title="Save unsaved changes before downloading"
+            >
+              Download
+            </button>
+          ) : (
+            <a
+              className="btn btn--sm"
+              href={`/api/documents/${doc.id}/raw`}
+              download
+              title="Download as Markdown"
+            >
+              Download
+            </a>
+          )}
+        </div>
+      )}
+      {tab === 'description' && conflict && (
         <div className="conflict-banner" role="alert">
           <span>
-            This document was modified somewhere else. Reload to see the latest version (your
-            local edits will be discarded).
+            This document was modified somewhere else. Reload to see the latest version (your local
+            edits will be discarded).
           </span>
           <button type="button" onClick={reload}>
             Reload
           </button>
         </div>
       )}
-      <div className={'workspace-grid view-' + viewMode}>
-        {viewMode !== 'preview' && (
-          <Suspense fallback={<div className="editor-host editor-loading">Loading editor…</div>}>
-            <DocumentEditor
-              documentKey={doc.id}
-              value={buffer.body}
-              onChange={handleBodyChange}
-              theme={theme}
-              readOnly={isReadOnly}
-              wikiTitles={wikiTitles}
-            />
-          </Suspense>
+      <div className={'workspace-grid view-' + (tab === 'comments' ? 'comments' : viewMode)}>
+        {tab === 'description' && (
+          <div
+            className="workspace-description"
+            role={isBacklogItem ? 'tabpanel' : undefined}
+            id={isBacklogItem ? tabPanelIds(doc.id, 'description').id : undefined}
+            aria-labelledby={
+              isBacklogItem ? tabPanelIds(doc.id, 'description').labelledBy : undefined
+            }
+          >
+            {viewMode !== 'preview' && (
+              <Suspense
+                fallback={<div className="editor-host editor-loading">Loading editor…</div>}
+              >
+                <DocumentEditor
+                  documentKey={doc.id}
+                  value={buffer.body}
+                  onChange={handleBodyChange}
+                  theme={theme}
+                  readOnly={isReadOnly}
+                  wikiTitles={wikiTitles}
+                />
+              </Suspense>
+            )}
+            {viewMode !== 'edit' && (
+              <DocumentPreview
+                body={buffer.body}
+                projectId={projectId}
+                currentPath={doc.path}
+                docs={docsQuery.data}
+                onOpenDocument={onOpenDocument}
+              />
+            )}
+          </div>
         )}
-        {viewMode !== 'edit' && (
-          <DocumentPreview
-            body={buffer.body}
-            projectId={projectId}
-            currentPath={doc.path}
-            docs={docsQuery.data}
-            onOpenDocument={onOpenDocument}
+        {isBacklogItem && (
+          <CommentsTab
+            key={doc.id}
+            taskId={doc.id}
+            writability={commentWritability(doc.readOnly, doc.status)}
+            hidden={tab !== 'comments'}
+            panel={tabPanelIds(doc.id, 'comments')}
+            onRestoreTask={() => handleMetaChange({ ...buffer.meta, status: 'active' })}
+            onReloadTask={reload}
+            onDraftChange={setCommentDraft}
           />
         )}
         <MetadataPanel
@@ -256,4 +347,14 @@ export function DocumentWorkspace({
       </div>
     </div>
   );
+}
+
+/** The ids tying a document's tab to its panel. */
+function tabPanelIds(documentId: string, tab: WorkspaceTab): TabPanelIds {
+  return { id: `${documentId}-panel-${tab}`, labelledBy: `${documentId}-tab-${tab}` };
+}
+
+function commentWritability(readOnly: boolean, status: DocumentStatus): CommentWritability {
+  if (readOnly) return 'read-only';
+  return status === 'archived' ? 'archived' : 'writable';
 }

@@ -85,6 +85,7 @@ packages/web/src/styles/app.css
 packages/web/src/styles/project-tree.css
 packages/web/src/styles/project-switcher.css
 packages/web/src/styles/document-workspace.css
+packages/web/src/styles/comments.css
 packages/web/src/styles/markdown.css
 packages/web/src/styles/links.css
 packages/web/src/styles/command-palette.css
@@ -101,7 +102,9 @@ packages/web/src/styles/daily-work.css
 Keep `theme.css` as the token source. `project-tree.css` owns the project
 sidebar document tree and folder controls. `project-switcher.css` owns the
 topbar project selector and read-only toggle. `document-workspace.css` owns the
-editor/preview/metadata workspace surface. `markdown.css` owns shared rendered
+editor/preview/metadata workspace surface and a backlog item's Description |
+Comments tabs. `comments.css` owns the Comments tab: thread, reader pane and
+docked composer. `markdown.css` owns shared rendered
 Markdown body rules for document preview and help. `links.css` owns wiki-link
 and backlinks styling. `command-palette.css` owns the search command overlay
 and result rows. `import.css` owns import dialog file-list and result-summary

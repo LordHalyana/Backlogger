@@ -182,6 +182,9 @@ Central caches currently include:
 - `['board', projectId]` (backlog items by task state; invalidated with the
   document-derived caches and with the project list, since cards carry the
   project's read-only flag)
+- `['comments', taskId]` (a backlog item's comment history, newest page first;
+  refetched after every comment create, edit or delete on that task, and for
+  every task after a project reload or full reindex)
 
 When document body/frontmatter changes, invalidate or update:
 
@@ -195,7 +198,7 @@ When document body/frontmatter changes, invalidate or update:
 Query keys and invalidation are centralized in
 `packages/web/src/lib/query-keys.ts`. The `queryKeys` factory defines the keys
 above, and helpers — `invalidateDocumentDerived`, `invalidateProjectList`,
-`invalidateProjectFolders`, `invalidateProjectStructure`, `setDocumentCache`,
+`invalidateProjectFolders`, `invalidateProjectStructure`, `invalidateComments`, `setDocumentCache`,
 `removeDocumentCache`, `invalidateProjectReload`, `invalidateGlobalReindex`, and
 `clearDocumentBuffers` — keep mutation paths from missing invalidations. New
 mutations should reuse these helpers instead of hand-writing query keys.
