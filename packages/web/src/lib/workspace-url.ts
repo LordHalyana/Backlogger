@@ -76,5 +76,30 @@ export function syncWorkspaceUrl(
   if (window.location.pathname === target) return;
   const u = new URL(window.location.href);
   u.pathname = target;
-  window.history.pushState(window.history.state, '', u.toString());
+  window.history.pushState(withHistoryIndex(historyIndex() + 1), '', u.toString());
+}
+
+/** Key in `history.state` holding the entry's position in this tab's history. */
+const HISTORY_INDEX_KEY = 'backloggerIndex';
+
+/**
+ * The current history entry's position, as stamped by `syncWorkspaceUrl`.
+ * Entries the app never stamped (the first one) count as 0. Back/forward use it
+ * to tell how far the browser moved, so a cancelled move can be undone with
+ * `history.go` instead of pushing a new entry.
+ */
+export function historyIndex(): number {
+  if (typeof window === 'undefined') return 0;
+  const state: unknown = window.history.state;
+  if (state && typeof state === 'object' && HISTORY_INDEX_KEY in state) {
+    const index = (state as Record<string, unknown>)[HISTORY_INDEX_KEY];
+    if (typeof index === 'number') return index;
+  }
+  return 0;
+}
+
+function withHistoryIndex(index: number): Record<string, unknown> {
+  const state: unknown = window.history.state;
+  const base = state && typeof state === 'object' ? (state as Record<string, unknown>) : {};
+  return { ...base, [HISTORY_INDEX_KEY]: index };
 }

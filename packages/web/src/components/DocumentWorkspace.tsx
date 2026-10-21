@@ -2,7 +2,12 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import type { KeyboardEvent } from 'react';
 import { useDeleteDocument, useDocument, useDocuments, useMoveDocument } from '../lib/documents.js';
 import { toastError, useDialog } from '../lib/dialog.js';
-import { FolderPathSchema, folderFromDocumentPath, unarchivePath } from '@backlogger/shared';
+import {
+  FolderPathSchema,
+  folderFromDocumentPath,
+  unarchivePath,
+  type DocumentStatus,
+} from '@backlogger/shared';
 import { useTitles } from '../lib/links.js';
 import type { Theme } from '../lib/theme.js';
 import { useDocumentBuffer } from '../hooks/useDocumentBuffer.js';
@@ -12,7 +17,7 @@ import { SegmentedControl } from './SegmentedControl.js';
 import { StatusMessage } from './StatusMessage.js';
 import { DOCUMENT_STATUS_LABELS } from '../lib/display.js';
 import { flattenHistory, useCommentHistory } from '../lib/comments.js';
-import { CommentsTab, type CommentWritability } from './CommentsTab.js';
+import { CommentsTab, type CommentWritability, type TabPanelIds } from './CommentsTab.js';
 
 const DocumentEditor = lazy(() =>
   import('./DocumentEditor.js').then((m) => ({ default: m.DocumentEditor })),
@@ -211,9 +216,9 @@ export function DocumentWorkspace({
               }}
               type="button"
               role="tab"
-              id={`${doc.id}-tab-${t}`}
+              id={tabPanelIds(doc.id, t).labelledBy}
               aria-selected={tab === t}
-              aria-controls={`${doc.id}-panel-${t}`}
+              aria-controls={tabPanelIds(doc.id, t).id}
               tabIndex={tab === t ? 0 : -1}
               className={'workspace-tab' + (tab === t ? ' active' : '')}
               onClick={() => selectTab(t)}
@@ -283,8 +288,10 @@ export function DocumentWorkspace({
           <div
             className="workspace-description"
             role={isBacklogItem ? 'tabpanel' : undefined}
-            id={isBacklogItem ? `${doc.id}-panel-description` : undefined}
-            aria-labelledby={isBacklogItem ? `${doc.id}-tab-description` : undefined}
+            id={isBacklogItem ? tabPanelIds(doc.id, 'description').id : undefined}
+            aria-labelledby={
+              isBacklogItem ? tabPanelIds(doc.id, 'description').labelledBy : undefined
+            }
           >
             {viewMode !== 'preview' && (
               <Suspense
@@ -317,8 +324,7 @@ export function DocumentWorkspace({
             taskId={doc.id}
             writability={commentWritability(doc.readOnly, doc.status)}
             hidden={tab !== 'comments'}
-            panelId={`${doc.id}-panel-comments`}
-            labelledBy={`${doc.id}-tab-comments`}
+            panel={tabPanelIds(doc.id, 'comments')}
             onRestoreTask={() => handleMetaChange({ ...buffer.meta, status: 'active' })}
             onReloadTask={reload}
             onDraftChange={setCommentDraft}
@@ -343,7 +349,12 @@ export function DocumentWorkspace({
   );
 }
 
-function commentWritability(readOnly: boolean, status: string): CommentWritability {
+/** The ids tying a document's tab to its panel. */
+function tabPanelIds(documentId: string, tab: WorkspaceTab): TabPanelIds {
+  return { id: `${documentId}-panel-${tab}`, labelledBy: `${documentId}-tab-${tab}` };
+}
+
+function commentWritability(readOnly: boolean, status: DocumentStatus): CommentWritability {
   if (readOnly) return 'read-only';
   return status === 'archived' ? 'archived' : 'writable';
 }

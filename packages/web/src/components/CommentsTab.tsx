@@ -1,64 +1,46 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent, MouseEvent } from 'react';
-import { renderMarkdown, type Comment } from '@backlogger/shared';
+import { useQueryClient, type InfiniteData } from '@tanstack/react-query';
+import type { Comment, CommentPage } from '@backlogger/shared';
 import { ApiError } from '../lib/api.js';
 import {
-  createComment,
-  deleteComment,
-  editComment,
   fetchComment,
   flattenHistory,
   newUuid,
   useCommentHistory,
+  useCreateComment,
+  useDeleteComment,
+  useEditComment,
+  type CreateCommentArgs,
 } from '../lib/comments.js';
-import { useDialog } from '../lib/dialog.js';
+import { useDialog, type DialogApi } from '../lib/dialog.js';
 import { useBlockLeave } from '../lib/leave-guard.js';
-import { Icon } from './Icon.js';
+import { queryKeys } from '../lib/query-keys.js';
+import { CommentMarkdown, CommentMeta, firstLine } from './CommentBody.js';
+import { CommentComposer, type ComposerError } from './CommentComposer.js';
+import { CommentReader, isEditDirty, type EditDraft } from './CommentReader.js';
 import { StatusMessage } from './StatusMessage.js';
 
 /** Whether the task's comments can change: archived and read-only tasks are readable only. */
 export type CommentWritability = 'writable' | 'archived' | 'read-only';
 
+/** ARIA wiring between a tab and the panel it controls. */
+export interface TabPanelIds {
+  id: string;
+  labelledBy: string;
+}
+
 interface CommentsTabProps {
   taskId: string;
   writability: CommentWritability;
   hidden: boolean;
-  /** ARIA tab-panel wiring. */
-  panelId: string;
-  labelledBy: string;
+  panel: TabPanelIds;
   /** Unarchive the task (Archived state). */
   onRestoreTask: () => void;
   /** Refetch the task after it changed while a comment was posting. */
   onReloadTask: () => void;
   /** Reports whether a comment draft or edit is unsaved, for the tab's • marker. */
   onDraftChange: (hasDraft: boolean) => void;
-}
-
-/** One post attempt. Retry resends it unchanged, so the server can recognise it. */
-interface PostAttempt {
-  operationId: string;
-  commentId: string;
-  body: string;
-}
-
-interface ComposerError {
-  /** `task-changed`: the task moved, was archived or went away while posting. */
-  kind: 'failed' | 'task-changed';
-  message: string;
-}
-
-interface EditDraft {
-  commentId: string;
-  text: string;
-  /** The version being edited: If-Match, and what "unchanged" means. */
-  baseRevision: string;
-  baseBody: string;
-  /** The last save attempt; Retry reuses its key while text and base are unchanged. */
-  attempt: { operationId: string; body: string; revision: string } | null;
-  saving: boolean;
-  error: string | null;
-  /** The current saved version after a REVISION_CONFLICT. */
-  conflict: Comment | null;
 }
 
 type FocusTarget =
@@ -80,80 +62,29 @@ function focusSelector(target: FocusTarget): string {
   }
 }
 
-function isSubmitKey(e: KeyboardEvent): boolean {
-  return e.key === 'Enter' && (e.ctrlKey || e.metaKey);
-}
-
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+function hasCode(err: unknown, ...codes: string[]): boolean {
+  return err instanceof ApiError && codes.includes(err.code ?? '');
+}
+
 /** The task moved, stopped being writable or disappeared while the post was in flight. */
 function isTaskChanged(err: unknown): boolean {
-  if (!(err instanceof ApiError)) return false;
-  return (
-    err.code === 'REVISION_CONFLICT' ||
-    err.code === 'COMMENT_NOT_WRITABLE' ||
-    err.code === 'PARENT_NOT_FOUND'
-  );
+  return hasCode(err, 'REVISION_CONFLICT', 'COMMENT_NOT_WRITABLE', 'PARENT_NOT_FOUND');
 }
 
 function plural(n: number): string {
   return `${n} ${n === 1 ? 'comment' : 'comments'}`;
 }
 
-function formatWhen(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
-}
-
-function firstLine(body: string): string {
-  return (
-    body
-      .split('\n')
-      .find((l) => l.trim() !== '')
-      ?.trim() ?? ''
-  );
-}
-
-function isEdited(c: Comment): boolean {
-  return c.updated_at !== c.created_at;
-}
-
-function CommentMeta({ comment }: { comment: Comment }): JSX.Element {
-  return (
-    <>
-      <time dateTime={comment.created_at} title={comment.created_at}>
-        {formatWhen(comment.created_at)}
-      </time>
-      {isEdited(comment) && (
-        <span className="comment-edited" title={`Edited ${formatWhen(comment.updated_at)}`}>
-          edited
-        </span>
-      )}
-    </>
-  );
-}
-
-function MarkdownBody({
-  body,
-  className = '',
-  ...rest
-}: {
-  body: string;
-  className?: string;
-  'data-testid'?: string;
-  tabIndex?: number;
-}): JSX.Element {
-  const html = useMemo(() => renderMarkdown(body), [body]);
-  return (
-    <div
-      className={'markdown-body comment-body ' + className}
-      dangerouslySetInnerHTML={{ __html: html }}
-      {...rest}
-    />
-  );
+/** Ask before throwing away unsaved text; resolves true to discard. */
+function confirmDiscard(
+  dialog: DialogApi,
+  what: { title: string; message: string; cancelLabel: string },
+): Promise<boolean> {
+  return dialog.confirm({ ...what, confirmLabel: 'Discard', danger: true });
 }
 
 /**
@@ -165,25 +96,27 @@ export function CommentsTab({
   taskId,
   writability,
   hidden,
-  panelId,
-  labelledBy,
+  panel,
   onRestoreTask,
   onReloadTask,
   onDraftChange,
 }: CommentsTabProps): JSX.Element {
   const dialog = useDialog();
+  const qc = useQueryClient();
   const history = useCommentHistory(taskId);
+  const createComment = useCreateComment(taskId);
+  const editComment = useEditComment(taskId);
+  const deleteComment = useDeleteComment(taskId);
   const { comments, total } = flattenHistory(history.data);
   const writable = writability === 'writable';
 
   const [readerId, setReaderId] = useState<string | null>(null);
   const [composerText, setComposerText] = useState('');
-  const [postAttempt, setPostAttempt] = useState<PostAttempt | null>(null);
-  const [posting, setPosting] = useState(false);
+  /** The last post attempt. Retry resends it unchanged, so the server can recognise it. */
+  const [postAttempt, setPostAttempt] = useState<CreateCommentArgs | null>(null);
   const [composerError, setComposerError] = useState<ComposerError | null>(null);
   const [edit, setEdit] = useState<EditDraft | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   // Each message renders as a new node, so a repeated message is announced again.
   const [announcement, setAnnouncementState] = useState({ text: '', seq: 0 });
@@ -196,9 +129,7 @@ export function CommentsTab({
   const savingRef = useRef(false);
   const deletingRef = useRef(false);
 
-  const hasDraft =
-    composerText !== '' ||
-    (edit !== null && (edit.text !== edit.baseBody || edit.conflict !== null));
+  const hasDraft = composerText !== '' || (edit !== null && isEditDirty(edit));
   useBlockLeave(hasDraft);
   useEffect(() => onDraftChange(hasDraft), [hasDraft, onDraftChange]);
 
@@ -220,10 +151,10 @@ export function CommentsTab({
     }
   });
 
-  const refetchHistory = useCallback(async () => {
-    const res = await history.refetch();
-    return flattenHistory(res.data);
-  }, [history]);
+  /** The open edit when it belongs to comment `id`. */
+  const editOf = (id: string): EditDraft | null => (edit?.commentId === id ? edit : null);
+  /** Another comment is being edited, so `id` cannot be edited or deleted yet. */
+  const lockedBy = (id: string): boolean => edit !== null && edit.commentId !== id;
 
   // ---- Reader --------------------------------------------------------------
 
@@ -274,15 +205,13 @@ export function CommentsTab({
         ? postAttempt
         : { operationId: newUuid(), commentId: newUuid(), body };
     postingRef.current = true;
-    setPosting(true);
     setPostAttempt(attempt);
     setComposerError(null);
     setAnnouncement('Posting comment…');
     try {
-      await createComment(taskId, attempt);
+      await createComment.mutateAsync(attempt);
       setComposerText('');
       setPostAttempt(null);
-      await refetchHistory();
       setAnnouncement('Comment posted.');
       focusSoon({ kind: 'comment', id: attempt.commentId });
     } catch (err) {
@@ -298,44 +227,31 @@ export function CommentsTab({
       setAnnouncement('Comment not saved. Your text is kept.');
     } finally {
       postingRef.current = false;
-      setPosting(false);
     }
   };
 
-  const onComposerKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
-    if (isSubmitKey(e)) {
-      e.preventDefault();
-      void post();
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      e.stopPropagation();
-      if (posting) return;
-      if (composerText === '') {
-        focusSoon({ kind: 'add' });
-        return;
-      }
-      void dialog
-        .confirm({
-          title: 'Discard comment?',
-          message: 'Your unsaved comment will be lost.',
-          confirmLabel: 'Discard',
-          cancelLabel: 'Keep writing',
-          danger: true,
-        })
-        .then((ok) => {
-          if (!ok) return;
-          setComposerText('');
-          setPostAttempt(null);
-          setComposerError(null);
-          focusSoon({ kind: 'add' });
-        });
+  const leaveComposer = (): void => {
+    if (composerText === '') {
+      focusSoon({ kind: 'add' });
+      return;
     }
+    void confirmDiscard(dialog, {
+      title: 'Discard comment?',
+      message: 'Your unsaved comment will be lost.',
+      cancelLabel: 'Keep writing',
+    }).then((ok) => {
+      if (!ok) return;
+      setComposerText('');
+      setPostAttempt(null);
+      setComposerError(null);
+      focusSoon({ kind: 'add' });
+    });
   };
 
   const reloadTask = (): void => {
     setComposerError(null);
     onReloadTask();
-    void refetchHistory();
+    void history.refetch();
   };
 
   // ---- Edit ----------------------------------------------------------------
@@ -361,19 +277,15 @@ export function CommentsTab({
       setEdit(null);
       focusSoon({ kind: 'edit' });
     };
-    if (edit.text === edit.baseBody && !edit.conflict) {
+    if (!isEditDirty(edit)) {
       close();
       return;
     }
-    void dialog
-      .confirm({
-        title: 'Discard your edit?',
-        message: 'Your changes to this comment will be lost.',
-        confirmLabel: 'Discard',
-        cancelLabel: 'Keep editing',
-        danger: true,
-      })
-      .then((ok) => ok && close());
+    void confirmDiscard(dialog, {
+      title: 'Discard your edit?',
+      message: 'Your changes to this comment will be lost.',
+      cancelLabel: 'Keep editing',
+    }).then((ok) => ok && close());
   };
 
   const saveEdit = async (): Promise<void> => {
@@ -390,47 +302,32 @@ export function CommentsTab({
     savingRef.current = true;
     setEdit(draft);
     try {
-      await editComment({
-        operationId: attempt.operationId,
-        commentId: draft.commentId,
-        revision: attempt.revision,
-        body: attempt.body,
-      });
+      await editComment.mutateAsync({ ...attempt, commentId: draft.commentId });
       setEdit(null);
-      await refetchHistory();
       setAnnouncement('Comment saved.');
       focusSoon({ kind: 'reader' });
     } catch (err) {
       let failure = err;
-      if (err instanceof ApiError && err.code === 'REVISION_CONFLICT') {
+      if (hasCode(err, 'REVISION_CONFLICT')) {
         try {
           const current = await fetchComment(draft.commentId);
           setEdit({ ...draft, saving: false, attempt: null, conflict: current });
           setAnnouncement('This comment changed since you started editing. Your edit is kept.');
-          void refetchHistory();
           return;
         } catch (readErr) {
           failure = readErr;
         }
       }
-      const gone = failure instanceof ApiError && failure.code === 'COMMENT_NOT_FOUND';
       setEdit({
         ...draft,
         saving: false,
-        error: gone
+        error: hasCode(failure, 'COMMENT_NOT_FOUND')
           ? 'This comment was deleted. Copy your text before discarding it.'
           : `Comment not saved: ${errorMessage(failure)}`,
       });
       setAnnouncement('Comment not saved. Your text is kept.');
     } finally {
       savingRef.current = false;
-    }
-  };
-
-  const onEditorKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
-    if (isSubmitKey(e)) {
-      e.preventDefault();
-      void saveEdit();
     }
   };
 
@@ -456,7 +353,7 @@ export function CommentsTab({
 
   const discardMyEdit = (): void => {
     setEdit(null);
-    void refetchHistory();
+    void history.refetch();
     focusSoon({ kind: 'reader' });
   };
 
@@ -478,12 +375,18 @@ export function CommentsTab({
     const index = comments.findIndex((x) => x.id === c.id);
     const neighbour = comments[index + 1] ?? comments[index - 1] ?? null;
     deletingRef.current = true;
-    setDeleting(true);
     setDeleteError(null);
     try {
-      await deleteComment({ operationId: newUuid(), commentId: c.id, revision: c.revision });
+      await deleteComment.mutateAsync({
+        operationId: newUuid(),
+        commentId: c.id,
+        revision: c.revision,
+      });
       setConfirmDeleteId(null);
-      const after = await refetchHistory();
+      // The mutation resolves once the history has refetched.
+      const after = flattenHistory(
+        qc.getQueryData<InfiniteData<CommentPage, string | null>>(queryKeys.comments(taskId)),
+      );
       setAnnouncement(`Comment deleted. ${plural(after.total)}.`);
       if (neighbour) {
         setReaderId(neighbour.id);
@@ -495,22 +398,20 @@ export function CommentsTab({
     } catch (err) {
       setConfirmDeleteId(null);
       setDeleteError(
-        err instanceof ApiError && err.code === 'REVISION_CONFLICT'
+        hasCode(err, 'REVISION_CONFLICT')
           ? 'This comment changed since you opened it. Review it before deleting.'
           : `Comment not deleted: ${errorMessage(err)}`,
       );
       setAnnouncement('Comment not deleted.');
-      void refetchHistory();
     } finally {
       deletingRef.current = false;
-      setDeleting(false);
     }
   };
 
   /** Esc steps back one layer: the delete confirmation, then the edit, then the reader. */
   function escapeInReader(): void {
     if (confirmDeleteId) keepComment();
-    else if (edit && edit.commentId === readerId) cancelEdit();
+    else if (readerId && editOf(readerId)) cancelEdit();
     else closeReader();
   }
 
@@ -540,14 +441,7 @@ export function CommentsTab({
   // ---- Render --------------------------------------------------------------
 
   const reader = readerId ? (comments.find((c) => c.id === readerId) ?? null) : null;
-  const narrow = readerId !== null;
-  const otherEditOpen = (id: string): boolean => edit !== null && edit.commentId !== id;
-
-  const postLabel = posting
-    ? 'Posting…'
-    : composerError?.kind === 'failed' && postAttempt?.body === composerText
-      ? 'Retry'
-      : 'Post comment';
+  const readerOpen = readerId !== null;
 
   return (
     <>
@@ -555,8 +449,8 @@ export function CommentsTab({
         ref={rootRef}
         className="comments-tab"
         role="tabpanel"
-        id={panelId}
-        aria-labelledby={labelledBy}
+        id={panel.id}
+        aria-labelledby={panel.labelledBy}
         hidden={hidden}
       >
         <div className="comments-toolbar">
@@ -589,9 +483,9 @@ export function CommentsTab({
           </div>
         )}
 
-        <div className={'comments-body' + (narrow ? ' has-reader' : '')}>
+        <div className="comments-body">
           <div
-            className={'comments-thread' + (narrow ? ' is-narrow' : '')}
+            className={'comments-thread' + (readerOpen ? ' is-narrow' : '')}
             data-testid="comments-thread"
           >
             {history.isLoading ? (
@@ -632,21 +526,21 @@ export function CommentsTab({
                   >
                     <header className="comment-meta">
                       <CommentMeta comment={c} />
-                      {writable && !narrow && (
+                      {writable && !readerOpen && (
                         <button
                           type="button"
                           className="btn btn--sm btn--ghost comment-edit-inline"
-                          disabled={otherEditOpen(c.id)}
+                          disabled={lockedBy(c.id)}
                           onClick={() => startEdit(c)}
                         >
                           Edit
                         </button>
                       )}
                     </header>
-                    {narrow ? (
+                    {readerOpen ? (
                       <span className="comment-row-text">{firstLine(c.body)}</span>
                     ) : (
-                      <MarkdownBody body={c.body} />
+                      <CommentMarkdown body={c.body} />
                     )}
                   </article>
                 ))}
@@ -655,193 +549,41 @@ export function CommentsTab({
           </div>
 
           {readerId && (
-            <section
-              className="comment-reader"
-              role="region"
-              aria-label="Comment reader"
+            <CommentReader
+              comment={reader}
+              edit={editOf(readerId)}
+              writable={writable}
+              locked={lockedBy(readerId)}
+              confirmingDelete={confirmDeleteId === readerId}
+              deleting={deleteComment.isPending}
+              deleteError={deleteError}
               onKeyDown={onReaderKeyDown}
-            >
-              <header className="comment-meta">
-                {reader && <CommentMeta comment={reader} />}
-                <button
-                  type="button"
-                  className="btn btn--sm btn--ghost comment-reader-close"
-                  aria-label="Close reader"
-                  title="Close reader"
-                  onClick={closeReader}
-                >
-                  <Icon name="close" />
-                </button>
-              </header>
-              {!reader ? (
-                <p className="comments-hint">This comment is no longer available.</p>
-              ) : edit && edit.commentId === reader.id && edit.conflict ? (
-                <div className="comment-conflict">
-                  <p className="error">
-                    This comment changed since you started editing. Nothing was overwritten.
-                  </p>
-                  <h4>Saved version</h4>
-                  <MarkdownBody body={edit.conflict.body} className="comment-conflict-current" />
-                  <h4>Your edit</h4>
-                  <pre className="comment-conflict-mine">{edit.text}</pre>
-                  <div className="comment-actions">
-                    <button
-                      type="button"
-                      className="btn btn--sm comment-submit"
-                      onClick={continueOnCurrent}
-                    >
-                      Continue editing on current version
-                    </button>
-                    <button type="button" className="btn btn--sm" onClick={copyMyEdit}>
-                      Copy my edit
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn--sm btn--ghost"
-                      onClick={discardMyEdit}
-                    >
-                      Discard my edit
-                    </button>
-                  </div>
-                </div>
-              ) : edit && edit.commentId === reader.id ? (
-                <form
-                  className="comment-edit"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    void saveEdit();
-                  }}
-                >
-                  <textarea
-                    aria-label="Edit comment"
-                    data-focus="editor"
-                    value={edit.text}
-                    readOnly={edit.saving}
-                    onChange={(e) => setEdit({ ...edit, text: e.target.value, error: null })}
-                    onKeyDown={onEditorKeyDown}
-                  />
-                  {edit.error && <p className="error">{edit.error}</p>}
-                  <div className="comment-actions">
-                    <button
-                      type="submit"
-                      className="btn btn--sm comment-submit"
-                      disabled={edit.saving}
-                    >
-                      {edit.saving
-                        ? 'Saving…'
-                        : edit.error && edit.attempt?.body === edit.text
-                          ? 'Retry'
-                          : 'Save changes'}
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn--sm btn--ghost"
-                      disabled={edit.saving}
-                      onClick={cancelEdit}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </form>
-              ) : (
-                <>
-                  <MarkdownBody
-                    key={reader.id}
-                    body={reader.body}
-                    data-testid="reader-comment"
-                    tabIndex={-1}
-                  />
-                  {deleteError && <p className="error">{deleteError}</p>}
-                  {writable &&
-                    (confirmDeleteId === reader.id ? (
-                      <div
-                        className="comment-delete-confirm"
-                        role="group"
-                        aria-label="Confirm delete"
-                      >
-                        <span>Delete this comment? This cannot be undone.</span>
-                        <button
-                          type="button"
-                          className="btn btn--sm"
-                          data-focus="keep"
-                          onClick={keepComment}
-                        >
-                          Keep
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn--sm btn--danger"
-                          disabled={deleting}
-                          onClick={() => void confirmDelete(reader)}
-                        >
-                          {deleting ? 'Deleting…' : 'Delete'}
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="comment-actions">
-                        <button
-                          type="button"
-                          className="btn btn--sm"
-                          data-focus="edit"
-                          disabled={otherEditOpen(reader.id)}
-                          onClick={() => startEdit(reader)}
-                        >
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn--sm btn--ghost"
-                          data-focus="delete"
-                          disabled={otherEditOpen(reader.id)}
-                          onClick={() => requestDelete(reader.id)}
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    ))}
-                </>
-              )}
-            </section>
+              onClose={closeReader}
+              onStartEdit={() => reader && startEdit(reader)}
+              onEditText={(text) => edit && setEdit({ ...edit, text, error: null })}
+              onSaveEdit={() => void saveEdit()}
+              onCancelEdit={cancelEdit}
+              onContinueOnCurrent={continueOnCurrent}
+              onCopyMyEdit={copyMyEdit}
+              onDiscardMyEdit={discardMyEdit}
+              onRequestDelete={() => requestDelete(readerId)}
+              onKeep={keepComment}
+              onConfirmDelete={() => reader && void confirmDelete(reader)}
+            />
           )}
         </div>
 
         {writable && (
-          <form
-            className="comments-composer"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void post();
-            }}
-          >
-            <textarea
-              aria-label="New comment"
-              data-focus="composer"
-              placeholder="Add a comment (Markdown). Ctrl+Enter posts."
-              value={composerText}
-              readOnly={posting}
-              onChange={(e) => setComposerText(e.target.value)}
-              onKeyDown={onComposerKeyDown}
-            />
-            {composerError && (
-              <div className="comments-composer-error">
-                <span className="error">{composerError.message}</span>
-                {composerError.kind === 'task-changed' && (
-                  <button type="button" className="btn btn--sm" onClick={reloadTask}>
-                    Reload task
-                  </button>
-                )}
-              </div>
-            )}
-            <div className="comment-actions">
-              <button
-                type="submit"
-                className="btn btn--sm comment-submit"
-                disabled={posting || composerText.trim() === ''}
-              >
-                {postLabel}
-              </button>
-            </div>
-          </form>
+          <CommentComposer
+            text={composerText}
+            posting={createComment.isPending}
+            error={composerError}
+            canRetry={composerError?.kind === 'failed' && postAttempt?.body === composerText}
+            onText={setComposerText}
+            onPost={() => void post()}
+            onEscape={leaveComposer}
+            onReloadTask={reloadTask}
+          />
         )}
       </div>
       {/* Outside the tab panel, so results still announce after switching to Description. */}

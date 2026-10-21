@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   readTriageFromUrl,
+  historyIndex,
   readWorkspaceFromUrl,
   syncWorkspaceUrl,
   type WorkspaceView,
@@ -51,6 +52,14 @@ export interface WorkspaceSelection {
   clearDocumentIfRemoved: (removedIds: string[]) => void;
 }
 
+/** What the workspace shows; every navigation moves from one of these to the next. */
+interface Selection {
+  projectId: string | null;
+  documentId: string | null;
+  view: WorkspaceView;
+  triage: boolean;
+}
+
 /**
  * Owns the cohesive "what is the user looking at" state for the workspace:
  * the selected project, the open document, and the active tag filters, plus the
@@ -67,134 +76,134 @@ export function useWorkspaceSelection(): WorkspaceSelection {
   const [view, setView] = useState<WorkspaceView>(initial.view);
   const [tags, setTags] = useState<string[]>([]);
   const [triage, setTriage] = useState<boolean>(() => readTriageFromUrl());
-  // Mirror of projectId so the stable callbacks can compare against the current
-  // value without depending on it (and being recreated every selection).
-  const projectIdRef = useRef<string | null>(initial.projectId);
-  // Mirrors of the open document and view, for the leave guard and for
-  // putting the URL back when the user stays.
-  const documentIdRef = useRef<string | null>(initial.documentId);
-  documentIdRef.current = documentId;
-  const viewRef = useRef<WorkspaceView>(initial.view);
-  viewRef.current = view;
-  const triageRef = useRef(triage);
-  triageRef.current = triage;
+  // Mirrors of the selection so the stable callbacks can build the next one
+  // without depending on (and being recreated by) every change.
+  const current = useRef<Selection>({ ...initial, triage });
+  current.current = { projectId, documentId, view, triage };
   const confirmLeave = useConfirmLeave();
-  /** Run `go` now, or after Stay / Discard and leave when it would close a task with a comment draft. */
-  const leaveTo = useCallback(
-    (nextDocumentId: string | null, go: () => void, stay?: () => void): void => {
-      if (nextDocumentId === documentIdRef.current) go();
-      else confirmLeave(go, stay);
+
+  /**
+   * The one way the selection changes. Moving off the open document runs
+   * through the leave guard (Stay / Discard and leave while a comment is
+   * unsaved); `stay` runs when the user stays.
+   */
+  const navigate = useCallback(
+    (next: Selection, options: { clearTags?: boolean; stay?: () => void } = {}): void => {
+      const go = (): void => {
+        const prev = current.current;
+        current.current = next;
+        setProjectId(next.projectId);
+        setDocumentId(next.documentId);
+        setView(next.view);
+        setTriage(next.triage);
+        if (options.clearTags || next.projectId !== prev.projectId) setTags([]);
+      };
+      if (next.documentId === current.current.documentId) go();
+      else confirmLeave(go, options.stay);
     },
     [confirmLeave],
   );
+
+  // The history entry the workspace is showing, to undo a back/forward the
+  // user cancels at the leave prompt.
+  const shownIndex = useRef(historyIndex());
 
   // Reflect project/view/document selection into the URL path (preserving any
   // `?help=` query / hash). Tags stay local state. Skipped when the path
   // already matches (initial load, popstate).
   useEffect(() => {
     syncWorkspaceUrl(projectId, documentId, view, triage);
+    shownIndex.current = historyIndex();
   }, [projectId, documentId, view, triage]);
 
   // Back/forward navigation maps to workspace navigation: re-read the URL and
   // apply it. The sync effect above then sees a matching path and does not push.
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
+    // Set while `history.go` is returning to the shown entry after Stay.
+    let returning = false;
     const onPopState = (): void => {
-      const next = readWorkspaceFromUrl();
-      const stayProjectId = projectIdRef.current;
-      leaveTo(
-        next.documentId,
-        () => {
-          projectIdRef.current = next.projectId;
-          setProjectId(next.projectId);
-          setDocumentId(next.documentId);
-          setView(next.view);
-          setTags([]);
-          setTriage(readTriageFromUrl());
+      const index = historyIndex();
+      if (returning && index === shownIndex.current) {
+        returning = false;
+        return;
+      }
+      const {
+        projectId: nextProjectId,
+        documentId: nextDocumentId,
+        view: nextView,
+      } = readWorkspaceFromUrl();
+      navigate(
+        {
+          projectId: nextProjectId,
+          documentId: nextDocumentId,
+          view: nextView,
+          triage: readTriageFromUrl(),
         },
-        // The browser already moved the URL; put it back on the task.
-        () =>
-          syncWorkspaceUrl(
-            stayProjectId,
-            documentIdRef.current,
-            viewRef.current,
-            triageRef.current,
-          ),
+        {
+          clearTags: true,
+          // The browser already moved; step back to the task's entry, which
+          // keeps the history on both sides of it.
+          stay: () => {
+            const delta = shownIndex.current - index;
+            if (delta === 0) return;
+            returning = true;
+            window.history.go(delta);
+          },
+        },
       );
     };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
-  }, [leaveTo]);
+  }, [navigate]);
 
   const openTriage = useCallback((): void => {
-    leaveTo(null, () => {
-      projectIdRef.current = null;
-      setProjectId(null);
-      setDocumentId(null);
-      setView('documents');
-      setTags([]);
-      setTriage(true);
-    });
-  }, [leaveTo]);
+    navigate(
+      { projectId: null, documentId: null, view: 'documents', triage: true },
+      { clearTags: true },
+    );
+  }, [navigate]);
 
   const selectProject = useCallback(
     (id: string | null): void => {
-      if (projectIdRef.current === id) {
-        setTriage(false);
-        return;
-      }
-      leaveTo(null, () => {
-        setTriage(false);
-        projectIdRef.current = id;
-        setProjectId(id);
-        setDocumentId(null);
-        setView('documents');
-        setTags([]);
-      });
+      const now = current.current;
+      if (now.projectId === id) navigate({ ...now, triage: false });
+      else navigate({ projectId: id, documentId: null, view: 'documents', triage: false });
     },
-    [leaveTo],
+    [navigate],
   );
 
   const selectView = useCallback(
     (next: WorkspaceView): void => {
-      leaveTo(null, () => {
-        setView(next);
-        setDocumentId(null);
-      });
+      navigate({ ...current.current, view: next, documentId: null });
     },
-    [leaveTo],
+    [navigate],
   );
 
   const selectDocument = useCallback(
     (id: string | null): void => {
-      leaveTo(id, () => setDocumentId(id));
+      navigate({ ...current.current, documentId: id });
     },
-    [leaveTo],
+    [navigate],
   );
 
   const selectTreeDocument = useCallback(
     (id: string): void => {
-      leaveTo(id, () => {
-        setView('documents');
-        setDocumentId(id);
-      });
+      navigate({ ...current.current, view: 'documents', documentId: id });
     },
-    [leaveTo],
+    [navigate],
   );
 
   const openDocument = useCallback(
     (nextProjectId: string, nextDocumentId: string): void => {
-      leaveTo(nextDocumentId, () => {
-        setTriage(false);
-        if (projectIdRef.current !== nextProjectId) {
-          projectIdRef.current = nextProjectId;
-          setProjectId(nextProjectId);
-          setTags([]);
-        }
-        setDocumentId(nextDocumentId);
+      navigate({
+        ...current.current,
+        projectId: nextProjectId,
+        documentId: nextDocumentId,
+        triage: false,
       });
     },
-    [leaveTo],
+    [navigate],
   );
 
   const toggleTag = useCallback((tag: string): void => {

@@ -1,11 +1,14 @@
 import {
   useInfiniteQuery,
+  useMutation,
+  useQueryClient,
   type InfiniteData,
   type UseInfiniteQueryResult,
+  type UseMutationResult,
 } from '@tanstack/react-query';
 import type { Comment, CommentAck, CommentPage } from '@backlogger/shared';
 import { apiFetch } from './api.js';
-import { queryKeys } from './query-keys.js';
+import { invalidateComments, queryKeys } from './query-keys.js';
 
 /**
  * A task's comment history. The first page is the newest one; each further
@@ -64,37 +67,72 @@ export function fetchComment(commentId: string): Promise<Comment> {
   return apiFetch<Comment>(`/api/comments/${commentId}`);
 }
 
-export function createComment(
-  taskId: string,
-  input: { operationId: string; commentId: string; body: string },
-): Promise<CommentAck> {
-  return apiFetch<CommentAck>(`/api/documents/${taskId}/comments`, {
-    method: 'POST',
-    headers: { 'Idempotency-Key': input.operationId },
-    body: JSON.stringify({ id: input.commentId, body: input.body }),
-  });
-}
-
-export function editComment(input: {
+export interface CreateCommentArgs {
+  /** The Idempotency-Key; Retry resends the same one with the same comment ID. */
   operationId: string;
   commentId: string;
+  body: string;
+}
+
+export interface EditCommentArgs {
+  operationId: string;
+  commentId: string;
+  /** The revision being edited (If-Match). */
   revision: string;
   body: string;
-}): Promise<CommentAck> {
-  return apiFetch<CommentAck>(`/api/comments/${input.commentId}`, {
-    method: 'PUT',
-    headers: { 'Idempotency-Key': input.operationId, 'If-Match': input.revision },
-    body: JSON.stringify({ body: input.body }),
-  });
 }
 
-export function deleteComment(input: {
+export interface DeleteCommentArgs {
   operationId: string;
   commentId: string;
   revision: string;
-}): Promise<CommentAck> {
-  return apiFetch<CommentAck>(`/api/comments/${input.commentId}`, {
-    method: 'DELETE',
-    headers: { 'Idempotency-Key': input.operationId, 'If-Match': input.revision },
+}
+
+/*
+ * Comment writes. Each refetches the task's history once it settles, success
+ * or not, and resolves only after that refetch, so callers see the new history.
+ */
+
+export function useCreateComment(
+  taskId: string,
+): UseMutationResult<CommentAck, Error, CreateCommentArgs> {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ operationId, commentId, body }) =>
+      apiFetch<CommentAck>(`/api/documents/${taskId}/comments`, {
+        method: 'POST',
+        headers: { 'Idempotency-Key': operationId },
+        body: JSON.stringify({ id: commentId, body }),
+      }),
+    onSettled: () => invalidateComments(qc, taskId),
+  });
+}
+
+export function useEditComment(
+  taskId: string,
+): UseMutationResult<CommentAck, Error, EditCommentArgs> {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ operationId, commentId, revision, body }) =>
+      apiFetch<CommentAck>(`/api/comments/${commentId}`, {
+        method: 'PUT',
+        headers: { 'Idempotency-Key': operationId, 'If-Match': revision },
+        body: JSON.stringify({ body }),
+      }),
+    onSettled: () => invalidateComments(qc, taskId),
+  });
+}
+
+export function useDeleteComment(
+  taskId: string,
+): UseMutationResult<CommentAck, Error, DeleteCommentArgs> {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ operationId, commentId, revision }) =>
+      apiFetch<CommentAck>(`/api/comments/${commentId}`, {
+        method: 'DELETE',
+        headers: { 'Idempotency-Key': operationId, 'If-Match': revision },
+      }),
+    onSettled: () => invalidateComments(qc, taskId),
   });
 }

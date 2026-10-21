@@ -322,3 +322,41 @@
   width: 100%;
   color: var(--fg-muted);
 }
+
+/* Description / Comments tabs of a backlog item. */
+.workspace-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.workspace-tab {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--fg-muted);
+  padding: 6px 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.workspace-tab:hover {
+  color: var(--fg);
+}
+
+.workspace-tab.active {
+  color: var(--fg);
+  border-bottom-color: var(--accent);
+}
+
+.workspace-tab:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.workspace-description {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}

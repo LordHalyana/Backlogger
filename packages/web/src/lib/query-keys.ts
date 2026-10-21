@@ -46,6 +46,14 @@ export function invalidateProjectList(qc: QueryClient): void {
   void qc.invalidateQueries({ queryKey: queryKeys.currentWork() });
 }
 
+/**
+ * Refetch comment histories: one task's after a comment write, or every
+ * task's (no `taskId`) after a reload or reindex re-reads them from disk.
+ */
+export function invalidateComments(qc: QueryClient, taskId?: string): Promise<void> {
+  return qc.invalidateQueries({ queryKey: taskId ? queryKeys.comments(taskId) : ['comments'] });
+}
+
 export function invalidateProjectFolders(qc: QueryClient, projectId: string): void {
   void qc.invalidateQueries({ queryKey: queryKeys.folders(projectId) });
 }
@@ -70,7 +78,7 @@ export function invalidateProjectReload(
 ): void {
   invalidateDocumentDerived(qc, projectId);
   invalidateProjectFolders(qc, projectId);
-  void qc.invalidateQueries({ queryKey: ['comments'] });
+  void invalidateComments(qc);
   clearDocumentBuffers(qc);
   for (const id of removedIds) removeDocumentCache(qc, id);
 }
@@ -84,7 +92,7 @@ export function invalidateGlobalReindex(qc: QueryClient): void {
   void qc.invalidateQueries({ queryKey: ['graph'] });
   void qc.invalidateQueries({ queryKey: ['folders'] });
   void qc.invalidateQueries({ queryKey: ['board'] });
-  void qc.invalidateQueries({ queryKey: ['comments'] });
+  void invalidateComments(qc);
   clearDocumentBuffers(qc);
 }
 
