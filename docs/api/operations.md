@@ -83,8 +83,9 @@ Returns `201`.
 
 Returns `409 PROJECT_READ_ONLY` while the project is in read-only mode.
 
-Returns `409 RECOVERY_REQUIRED` while an unfinished operation guards a path
-on, under or above the folder, or the project has a pending deletion.
+Returns `409 RECOVERY_REQUIRED` while an unfinished operation guards the
+folder or a folder above it, or the project has a pending deletion. Guarded
+files inside the folder do not block creating it.
 
 ### `DELETE /api/projects/:id/folders/*`
 
@@ -98,7 +99,8 @@ Returns `409 FOLDER_NOT_EMPTY` when files or subfolders remain.
 
 Returns `409 PROJECT_READ_ONLY` while the project is in read-only mode.
 
-Returns `409 RECOVERY_REQUIRED` under the same conditions as creating a folder.
+Returns `409 RECOVERY_REQUIRED` under the same conditions as creating a
+folder, and also while a guarded path lies inside the folder.
 
 ## Graph
 

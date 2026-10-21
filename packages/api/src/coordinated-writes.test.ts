@@ -248,7 +248,7 @@ describe('Durable guards on imports, folders, create and capture', () => {
     expect(await listDir('work/plans')).toEqual([]);
   });
 
-  it('a folder over a guarded comment path is refused; unrelated folders and projects are not', async () => {
+  it('a folder holding a guarded comment path can still be created', async () => {
     const item = await createItem(h, 'work', 'Has a pending comment');
     seedPendingOperation(h, OP.a, [
       { project_id: 'work', scope: 'task', key: item.id },
@@ -256,9 +256,8 @@ describe('Durable guards on imports, folders, create and capture', () => {
     ]);
     for (const folder of [`tickets/${item.id}`, 'tickets']) {
       const res = await request(h.app).post('/api/projects/work/folders').send({ folder });
-      expectRecoveryRequired(res, OP.a);
+      expect(res.status).toBe(201);
     }
-    expect(await listDir(`work/tickets`)).toEqual([]);
 
     const sibling = await request(h.app)
       .post('/api/projects/work/folders')

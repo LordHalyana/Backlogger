@@ -50,7 +50,13 @@ export interface Located {
 
 export interface GuardTargets {
   tasks?: readonly string[];
+  /** Paths written, moved or removed: any overlapping path guard refuses them. */
   paths?: readonly string[];
+  /**
+   * Folders created: refused by a guard on the folder or a folder above it,
+   * never by guarded files inside it, since creating it writes none of them.
+   */
+  newFolders?: readonly string[];
 }
 
 export interface CommandPlan<L extends Located, T> {
@@ -379,7 +385,8 @@ export class WriteCoordinator {
   private findTargetGuard(targets: GuardTargets): GuardRow | undefined {
     return (
       this.operations.findGuard('task', targets.tasks ?? []) ??
-      this.operations.findPathGuard(targets.paths ?? [])
+      this.operations.findPathGuard(targets.paths ?? []) ??
+      this.operations.findPathGuard(targets.newFolders ?? [], { contents: false })
     );
   }
 

@@ -169,15 +169,19 @@ export class OperationsRepo {
 
   /**
    * The first path guard overlapping any of `paths`: the same path, a path
-   * under it (a guarded folder) or a path it lies under (a folder holding a
-   * guarded file). Paths are project-relative with the project ID first.
+   * under it (a guarded folder) or, unless `contents` is false, a path it
+   * lies under (a folder holding a guarded file). Paths are project-relative
+   * with the project ID first.
    */
-  findPathGuard(paths: readonly string[]): GuardRow | undefined {
+  findPathGuard(
+    paths: readonly string[],
+    { contents = true }: { contents?: boolean } = {},
+  ): GuardRow | undefined {
     const overlaps = this.db.prepare<[{ p: string }], GuardRow>(
       `SELECT * FROM operation_guards WHERE scope = 'path' AND (
          key = @p
-         OR substr(key, 1, length(@p) + 1) = @p || '/'
          OR substr(@p, 1, length(key) + 1) = key || '/'
+         ${contents ? `OR substr(key, 1, length(@p) + 1) = @p || '/'` : ''}
        ) ORDER BY operation_id LIMIT 1`,
     );
     for (const p of paths) {
