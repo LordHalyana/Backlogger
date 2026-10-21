@@ -18,6 +18,7 @@ export const queryKeys = {
   folders: (projectId: string) => ['folders', projectId] as const,
   board: (projectId: string) => ['board', projectId] as const,
   currentWork: () => ['current-work'] as const,
+  comments: (taskId: string) => ['comments', taskId] as const,
 } as const;
 
 /**
@@ -69,6 +70,7 @@ export function invalidateProjectReload(
 ): void {
   invalidateDocumentDerived(qc, projectId);
   invalidateProjectFolders(qc, projectId);
+  void qc.invalidateQueries({ queryKey: ['comments'] });
   clearDocumentBuffers(qc);
   for (const id of removedIds) removeDocumentCache(qc, id);
 }
@@ -82,6 +84,7 @@ export function invalidateGlobalReindex(qc: QueryClient): void {
   void qc.invalidateQueries({ queryKey: ['graph'] });
   void qc.invalidateQueries({ queryKey: ['folders'] });
   void qc.invalidateQueries({ queryKey: ['board'] });
+  void qc.invalidateQueries({ queryKey: ['comments'] });
   clearDocumentBuffers(qc);
 }
 

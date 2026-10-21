@@ -5,6 +5,7 @@ import {
   syncWorkspaceUrl,
   type WorkspaceView,
 } from '../lib/workspace-url.js';
+import { useConfirmLeave } from '../lib/leave-guard.js';
 
 export interface WorkspaceSelection {
   /** Currently selected project, or `null` when none is chosen. */
@@ -69,6 +70,23 @@ export function useWorkspaceSelection(): WorkspaceSelection {
   // Mirror of projectId so the stable callbacks can compare against the current
   // value without depending on it (and being recreated every selection).
   const projectIdRef = useRef<string | null>(initial.projectId);
+  // Mirrors of the open document and view, for the leave guard and for
+  // putting the URL back when the user stays.
+  const documentIdRef = useRef<string | null>(initial.documentId);
+  documentIdRef.current = documentId;
+  const viewRef = useRef<WorkspaceView>(initial.view);
+  viewRef.current = view;
+  const triageRef = useRef(triage);
+  triageRef.current = triage;
+  const confirmLeave = useConfirmLeave();
+  /** Run `go` now, or after Stay / Discard and leave when it would close a task with a comment draft. */
+  const leaveTo = useCallback(
+    (nextDocumentId: string | null, go: () => void, stay?: () => void): void => {
+      if (nextDocumentId === documentIdRef.current) go();
+      else confirmLeave(go, stay);
+    },
+    [confirmLeave],
+  );
 
   // Reflect project/view/document selection into the URL path (preserving any
   // `?help=` query / hash). Tags stay local state. Skipped when the path
@@ -83,59 +101,101 @@ export function useWorkspaceSelection(): WorkspaceSelection {
     if (typeof window === 'undefined') return undefined;
     const onPopState = (): void => {
       const next = readWorkspaceFromUrl();
-      projectIdRef.current = next.projectId;
-      setProjectId(next.projectId);
-      setDocumentId(next.documentId);
-      setView(next.view);
-      setTags([]);
-      setTriage(readTriageFromUrl());
+      const stayProjectId = projectIdRef.current;
+      leaveTo(
+        next.documentId,
+        () => {
+          projectIdRef.current = next.projectId;
+          setProjectId(next.projectId);
+          setDocumentId(next.documentId);
+          setView(next.view);
+          setTags([]);
+          setTriage(readTriageFromUrl());
+        },
+        // The browser already moved the URL; put it back on the task.
+        () =>
+          syncWorkspaceUrl(
+            stayProjectId,
+            documentIdRef.current,
+            viewRef.current,
+            triageRef.current,
+          ),
+      );
     };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
-  }, []);
+  }, [leaveTo]);
 
   const openTriage = useCallback((): void => {
-    projectIdRef.current = null;
-    setProjectId(null);
-    setDocumentId(null);
-    setView('documents');
-    setTags([]);
-    setTriage(true);
-  }, []);
-
-  const selectProject = useCallback((id: string | null): void => {
-    setTriage(false);
-    if (projectIdRef.current === id) return;
-    projectIdRef.current = id;
-    setProjectId(id);
-    setDocumentId(null);
-    setView('documents');
-    setTags([]);
-  }, []);
-
-  const selectView = useCallback((next: WorkspaceView): void => {
-    setView(next);
-    setDocumentId(null);
-  }, []);
-
-  const selectDocument = useCallback((id: string | null): void => {
-    setDocumentId(id);
-  }, []);
-
-  const selectTreeDocument = useCallback((id: string): void => {
-    setView('documents');
-    setDocumentId(id);
-  }, []);
-
-  const openDocument = useCallback((nextProjectId: string, nextDocumentId: string): void => {
-    setTriage(false);
-    if (projectIdRef.current !== nextProjectId) {
-      projectIdRef.current = nextProjectId;
-      setProjectId(nextProjectId);
+    leaveTo(null, () => {
+      projectIdRef.current = null;
+      setProjectId(null);
+      setDocumentId(null);
+      setView('documents');
       setTags([]);
-    }
-    setDocumentId(nextDocumentId);
-  }, []);
+      setTriage(true);
+    });
+  }, [leaveTo]);
+
+  const selectProject = useCallback(
+    (id: string | null): void => {
+      if (projectIdRef.current === id) {
+        setTriage(false);
+        return;
+      }
+      leaveTo(null, () => {
+        setTriage(false);
+        projectIdRef.current = id;
+        setProjectId(id);
+        setDocumentId(null);
+        setView('documents');
+        setTags([]);
+      });
+    },
+    [leaveTo],
+  );
+
+  const selectView = useCallback(
+    (next: WorkspaceView): void => {
+      leaveTo(null, () => {
+        setView(next);
+        setDocumentId(null);
+      });
+    },
+    [leaveTo],
+  );
+
+  const selectDocument = useCallback(
+    (id: string | null): void => {
+      leaveTo(id, () => setDocumentId(id));
+    },
+    [leaveTo],
+  );
+
+  const selectTreeDocument = useCallback(
+    (id: string): void => {
+      leaveTo(id, () => {
+        setView('documents');
+        setDocumentId(id);
+      });
+    },
+    [leaveTo],
+  );
+
+  const openDocument = useCallback(
+    (nextProjectId: string, nextDocumentId: string): void => {
+      leaveTo(nextDocumentId, () => {
+        setTriage(false);
+        if (projectIdRef.current !== nextProjectId) {
+          projectIdRef.current = nextProjectId;
+          setProjectId(nextProjectId);
+          setTags([]);
+        }
+        setDocumentId(nextDocumentId);
+      });
+    },
+    [leaveTo],
+  );
 
   const toggleTag = useCallback((tag: string): void => {
     setTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]));
