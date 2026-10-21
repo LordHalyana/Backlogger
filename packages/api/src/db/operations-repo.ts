@@ -152,8 +152,11 @@ export class OperationsRepo {
       .map((row) => row.project_id);
   }
 
-  /** The first guard of `scope` on any of `keys`, or undefined. */
-  findGuard(scope: GuardScope, keys: readonly string[]): GuardRow | undefined {
+  /**
+   * The first guard of `scope` on any of `keys`, or undefined. Keys match
+   * exactly; path guards go through `findPathGuard`.
+   */
+  findGuard(scope: Exclude<GuardScope, 'path'>, keys: readonly string[]): GuardRow | undefined {
     if (keys.length === 0) return undefined;
     const marks = keys.map(() => '?').join(', ');
     return this.db

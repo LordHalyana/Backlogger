@@ -188,6 +188,10 @@ export function recoveryRequired(operationId: string): ConflictError {
   );
 }
 
+function throwIfGuarded(guard: GuardRow | undefined): void {
+  if (guard) throw recoveryRequired(guard.operation_id);
+}
+
 /** Thrown inside a command when a re-lookup finds the original acknowledgement. */
 class ReceiptFound {
   constructor(readonly outcome: unknown) {}
@@ -362,10 +366,10 @@ export class WriteCoordinator {
 
     // Step 6: durable guards.
     if (!plan.recoveryAction) {
-      const guard =
+      throwIfGuarded(
         this.operations.findGuard('project', held) ??
-        this.findTargetGuard(plan.guards?.(located) ?? {});
-      if (guard) throw recoveryRequired(guard.operation_id);
+          this.findTargetGuard(plan.guards?.(located) ?? {}),
+      );
     }
 
     return plan.run(located, this.scope(held, op));
@@ -387,14 +391,9 @@ export class WriteCoordinator {
     };
     return {
       projects: held,
-      assertNothingPendingIn: (projectId) => {
-        const guard = this.operations.findGuardInProject(projectId);
-        if (guard) throw recoveryRequired(guard.operation_id);
-      },
-      assertUnguarded: (targets) => {
-        const guard = this.findTargetGuard(targets);
-        if (guard) throw recoveryRequired(guard.operation_id);
-      },
+      assertNothingPendingIn: (projectId) =>
+        throwIfGuarded(this.operations.findGuardInProject(projectId)),
+      assertUnguarded: (targets) => throwIfGuarded(this.findTargetGuard(targets)),
       intent: (record) => {
         const claimed = requireOp();
         const { id, command, fingerprint } = claimed;

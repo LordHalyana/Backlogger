@@ -10,10 +10,13 @@ import {
 import type { DocumentsRepo } from '../db/documents-repo.js';
 import type { DocumentService } from './document-service.js';
 import { ConflictError, HttpError, NotFoundError } from '../errors.js';
+import type { OperationsRepo } from '../db/operations-repo.js';
+import { recoveryRequired } from './write-coordinator.js';
 
 export interface ImportServiceDeps {
   documentsRepo: DocumentsRepo;
   documentService: DocumentService;
+  operations: OperationsRepo;
 }
 
 /**
@@ -39,6 +42,12 @@ export class ImportService {
     files: ImportFile[],
     placement: ImportPlacement,
   ): Promise<ImportResult> {
+    // A pending project deletion refuses the whole request, like read-only
+    // mode. Task and path guards refuse single files, below; the coordinator
+    // checks every guard again under the locks.
+    const deletion = this.deps.operations.findGuard('project', [projectId]);
+    if (deletion) throw recoveryRequired(deletion.operation_id);
+
     const result: ImportResult = { imported: [], skipped: [], errors: [] };
 
     for (const file of files) {

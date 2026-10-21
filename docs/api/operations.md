@@ -56,11 +56,14 @@ Status:
 
 Returns `409 PROJECT_READ_ONLY` while the project is in read-only mode.
 
-A file blocked by an unfinished operation is not written. It gets a per-file
-error with code `RECOVERY_REQUIRED`, and the message names the operation to
-review at `/api/recovery/:operationId`. This happens when the project has a
-pending deletion, when `replace` targets a guarded task, or when the file
-would land on a guarded path. Other files and projects are unaffected.
+Returns `409 RECOVERY_REQUIRED` while a project deletion is pending, and
+writes nothing.
+
+A single file blocked by an unfinished operation is not written. This happens
+when `replace` targets a guarded task, or when the file would land on a
+guarded path. The file gets a per-file error with code `RECOVERY_REQUIRED`,
+and its message names the operation to review at
+`/api/recovery/:operationId`. Other files and projects are unaffected.
 
 ## Folders
 
