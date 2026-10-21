@@ -480,6 +480,49 @@ describe('Filing: POST /api/documents/:id/file', () => {
     expect(await listFiles(h, 'inbox')).toEqual([]);
   });
 
+  it('an update, move or delete queued behind a filing returns 409 REVISION_CONFLICT and changes nothing', async () => {
+    // Hold the Inbox queue so the filing and then the mutations line up behind it.
+    let release!: () => void;
+    const held = h.ctx.queue.run('inbox', () => new Promise<void>((r) => (release = r)));
+    const settle = () => new Promise((r) => setTimeout(r, 50));
+
+    const filing = file(h, UUID.a, { target_project_id: 'work', revision: item.revision }).then(
+      (res) => res,
+    );
+    await settle();
+    const update = request(h.app)
+      .put(`/api/documents/${UUID.a}`)
+      .send({ body: 'Late edit' })
+      .then((res) => res);
+    const move = request(h.app)
+      .post(`/api/documents/${UUID.a}/move`)
+      .send({ folder: 'notes' })
+      .then((res) => res);
+    const del = request(h.app)
+      .delete(`/api/documents/${UUID.a}`)
+      .then((res) => res);
+    await settle();
+    release();
+    await held;
+
+    const filed = await filing;
+    expect(filed.status).toBe(200);
+    for (const res of [await update, await move, await del]) {
+      expect(res.status).toBe(409);
+      expect(res.body.error).toMatchObject({
+        code: 'REVISION_CONFLICT',
+        details: { currentRevision: filed.body.revision, currentProjectId: 'work' },
+      });
+    }
+    const now = await request(h.app).get(`/api/documents/${UUID.a}`);
+    expect(now.body).toMatchObject({
+      project_id: 'work',
+      path: filed.body.path,
+      revision: filed.body.revision,
+    });
+    expect(await listFiles(h, 'work')).toEqual([filed.body.path]);
+  });
+
   it('keeps an archived item archived in the same project-relative folder', async () => {
     const archived = await request(h.app)
       .put(`/api/documents/${UUID.a}`)

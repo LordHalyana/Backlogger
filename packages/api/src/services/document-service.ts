@@ -723,14 +723,25 @@ export class DocumentService {
    * Run a mutation of one document inside its project's queue. The summary is
    * re-read once the operation holds the queue, so it reflects every mutation
    * that committed before it (a deleted document is a 404, a moved or archived
-   * one has its new path).
+   * one has its new path). A document filed into another project while the
+   * operation waited is a 409: the queue held is no longer its project's.
    */
   private async inDocumentQueue<T>(
     id: string,
     operation: (summary: DocumentSummary) => Promise<T>,
   ): Promise<T> {
-    const before = this.findOrThrow(id);
-    return this.queue.run(before.project_id, () => operation(this.findOrThrow(id)));
+    const queuedProjectId = this.findOrThrow(id).project_id;
+    return this.queue.run(queuedProjectId, () => {
+      const summary = this.findOrThrow(id);
+      if (summary.project_id !== queuedProjectId) {
+        throw new ConflictError(
+          'REVISION_CONFLICT',
+          `Document was filed into project ${summary.project_id}; current revision=${summary.revision}`,
+          { currentRevision: summary.revision, currentProjectId: summary.project_id },
+        );
+      }
+      return operation(summary);
+    });
   }
 
   /**
