@@ -556,9 +556,11 @@ content:
 
 The summary plus:
 
-- `paths`: each file as `{ path, expected_revision, observed_revision }`.
-  Paths are relative to `<dataDir>/projects/`, and `null` means the file is
-  absent.
+- `paths`: each file as
+  `{ path, before_revision, after_revision, observed_revision }`. These are
+  the known states before and after the operation and the file as it is now.
+  Paths are relative to `<dataDir>/projects/`, and a `null` revision means
+  the file is absent.
 - `actions`: `["recheck", "abandon"]` for comment operations,
   `["recheck"]` for everything else.
 - `review_token`: changes whenever the reviewed state changes.

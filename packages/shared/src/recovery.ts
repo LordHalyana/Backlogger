@@ -46,8 +46,11 @@ export interface RecoverySummary {
 export interface RecoveryPath {
   /** Relative to `<dataDir>/projects/`. */
   path: string;
-  /** The revision the operation started from. */
-  expected_revision: string | null;
+  /** The known state before the operation. */
+  before_revision: string | null;
+  /** The known state the operation leaves. */
+  after_revision: string | null;
+  /** The file as it is now. */
   observed_revision: string | null;
 }
 

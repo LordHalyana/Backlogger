@@ -327,7 +327,8 @@ describe('Comment crash recovery at each persisted phase', () => {
         paths: [
           {
             path: rel,
-            expected_revision: r0,
+            before_revision: r0,
+            after_revision: (JSON.parse(pendingBefore ?? '{}') as { after: string }).after,
             observed_revision: contentRevision(external),
           },
         ],
@@ -358,7 +359,14 @@ describe('Comment crash recovery at each persisted phase', () => {
         kind: 'structural',
         reason: 'file_missing',
         current_content: null,
-        paths: [{ path: rel, expected_revision: r0, observed_revision: null }],
+        paths: [
+          {
+            path: rel,
+            before_revision: r0,
+            after_revision: expect.any(String),
+            observed_revision: null,
+          },
+        ],
       });
       await request(h.app).post(`/api/recovery/${uuid(101)}/recheck`);
       expect(await exists(h, rel)).toBe(false);

@@ -233,7 +233,8 @@ function assessment(
       ? [
           {
             path: target.path,
-            expected_revision: target.before,
+            before_revision: target.before,
+            after_revision: target.after,
             observed_revision: current === null ? null : contentRevision(current),
           },
         ]

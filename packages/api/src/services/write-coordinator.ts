@@ -102,11 +102,12 @@ export interface CommandScope {
    */
   complete<A>(outcome: A, write?: () => void): A;
   /**
-   * Steps 8 and 11 in one transaction, for a retry-safe command that writes
-   * no files: claim the operation ID straight into a completed receipt
-   * together with `write`. Returns the acknowledgement.
+   * Steps 8 and 11 of a recovery abandon, in one transaction and without
+   * file writes: claim this command's operation ID straight into a completed
+   * receipt, mark `targetOperationId` abandoned (never replayed) and remove
+   * its payload and guards. Returns the acknowledgement.
    */
-  record<A>(outcome: A, write?: () => void): A;
+  abandon<A>(targetOperationId: string, outcome: A): A;
 }
 
 export interface WriteCoordinatorDeps {
@@ -272,6 +273,18 @@ export class WriteCoordinator {
     return this.running.has(operationId);
   }
 
+  /** Every pending operation with its payload, oldest first. */
+  pendingOperations(): PendingOperation[] {
+    return this.operations
+      .listPending()
+      .map((op) => ({ ...op, payload: this.operations.getPayload(op.operation_id) }));
+  }
+
+  /** The projects whose queues a recovery action on `operationId` holds. */
+  guardedProjects(operationId: string): string[] {
+    return this.operations.guardedProjects(operationId);
+  }
+
   /** An operation with its payload, or `undefined` when the ID is unused. */
   findOperation(operationId: string): PendingOperation | undefined {
     const op = this.operations.find(operationId);
@@ -391,9 +404,9 @@ export class WriteCoordinator {
         this.settle(id, outcome, write);
         return outcome;
       },
-      record: (outcome, write) => {
+      abandon: (targetOperationId, outcome) => {
         const claimed = requireOp();
-        if (intended) throw new Error('record() is for commands without an intent.');
+        if (intended) throw new Error('abandon() is for commands without an intent.');
         const now = this.now();
         this.claim(claimed, () => {
           this.operations.insert({
@@ -405,7 +418,9 @@ export class WriteCoordinator {
             created_at: now,
             completed_at: now,
           });
-          write?.();
+          this.operations.markAbandoned(targetOperationId, { abandoned_by: claimed.id }, now);
+          this.operations.removePayload(targetOperationId);
+          this.operations.releaseGuards(targetOperationId);
         });
         return outcome;
       },

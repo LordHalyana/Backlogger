@@ -9,7 +9,6 @@ import {
   type RecoverySummary,
 } from '@backlogger/shared';
 import { BadRequestError, ConflictError, NotFoundError } from '../errors.js';
-import type { OperationsRepo } from '../db/operations-repo.js';
 import {
   operationFingerprint,
   parseOperationId,
@@ -19,9 +18,7 @@ import {
 } from './write-coordinator.js';
 
 export interface RecoveryServiceDeps {
-  operations: OperationsRepo;
   coordinator: WriteCoordinator;
-  now?: () => string;
 }
 
 /** `recovery.abandon`, as received: its own Idempotency-Key and the review token. */
@@ -40,22 +37,17 @@ export interface AbandonCommand {
  * coordinator under the operation's project queues.
  */
 export class RecoveryService {
-  private readonly operations: OperationsRepo;
   private readonly coordinator: WriteCoordinator;
-  private readonly now: () => string;
 
   constructor(deps: RecoveryServiceDeps) {
-    this.operations = deps.operations;
     this.coordinator = deps.coordinator;
-    this.now = deps.now ?? (() => new Date().toISOString());
   }
 
   /** Summaries of every pending operation, oldest first. Never any content. */
   async list(): Promise<RecoveryList> {
     const operations: RecoverySummary[] = [];
-    for (const op of this.operations.listPending()) {
-      const pending = this.coordinator.findOperation(op.operation_id);
-      if (pending) operations.push(summary(pending, await this.assess(pending), this.coordinator));
+    for (const op of this.coordinator.pendingOperations()) {
+      operations.push(this.summary(op, await this.assess(op)));
     }
     return { operations };
   }
@@ -68,7 +60,7 @@ export class RecoveryService {
   async recheck(rawId: string): Promise<RecheckResult> {
     const id = this.find(rawId).operation_id;
     await this.coordinator.command({
-      locate: () => ({ projects: this.operations.guardedProjects(id) }),
+      locate: () => ({ projects: this.coordinator.guardedProjects(id) }),
       recoveryAction: true,
       run: () => this.coordinator.resume(id),
     });
@@ -98,7 +90,7 @@ export class RecoveryService {
     return this.coordinator.command({
       operation: { id: operationId, command: 'recovery.abandon', fingerprint },
       locate: () => ({
-        projects: this.operations.guardedProjects(this.find(targetId).operation_id),
+        projects: this.coordinator.guardedProjects(this.find(targetId).operation_id),
       }),
       recoveryAction: true,
       run: async (_located, scope) => {
@@ -132,25 +124,36 @@ export class RecoveryService {
           target_operation_id: targetId,
           outcome: 'abandoned',
         };
-        return scope.record(ack, () => {
-          this.operations.markAbandoned(targetId, { abandoned_by: operationId }, this.now());
-          this.operations.removePayload(targetId);
-          this.operations.releaseGuards(targetId);
-        });
+        return scope.abandon(targetId, ack);
       },
     });
   }
 
   private async detailOf(op: PendingOperation): Promise<RecoveryDetail> {
     const assessed = await this.assess(op);
-    const base = summary(op, assessed, this.coordinator);
     return {
-      ...base,
+      ...this.summary(op, assessed),
       paths: assessed.paths,
       actions: this.actionsFor(op),
       review_token: reviewToken(op, assessed),
       pending_content: assessed.pending_content,
       current_content: assessed.current_content,
+    };
+  }
+
+  private summary(op: PendingOperation, assessed: RecoveryAssessment): RecoverySummary {
+    return {
+      operation_id: op.operation_id,
+      command: op.command,
+      state: 'pending',
+      created_at: op.created_at,
+      kind: assessed.kind,
+      reason: assessed.reason,
+      message: assessed.message,
+      project_id: assessed.project_id,
+      task_id: assessed.task_id,
+      comment_id: assessed.comment_id,
+      in_progress: this.coordinator.isRunning(op.operation_id),
     };
   }
 
@@ -191,26 +194,6 @@ export class RecoveryService {
     }
     return op;
   }
-}
-
-function summary(
-  op: PendingOperation,
-  assessed: RecoveryAssessment,
-  coordinator: WriteCoordinator,
-): RecoverySummary {
-  return {
-    operation_id: op.operation_id,
-    command: op.command,
-    state: 'pending',
-    created_at: op.created_at,
-    kind: assessed.kind,
-    reason: assessed.reason,
-    message: assessed.message,
-    project_id: assessed.project_id,
-    task_id: assessed.task_id,
-    comment_id: assessed.comment_id,
-    in_progress: coordinator.isRunning(op.operation_id),
-  };
 }
 
 /** Changes whenever what the user reviewed changes: the reason, the files or the payload. */
