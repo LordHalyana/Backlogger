@@ -30,3 +30,4 @@ export * from './import.js';
 export * from './sidecar.js';
 export * from './tasks.js';
 export * from './capture.js';
+export * from './comments.js';

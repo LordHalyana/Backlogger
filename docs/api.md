@@ -51,6 +51,7 @@ Common codes include:
 - `REVISION_CONFLICT` (filing, and an update, move or delete whose document was filed into another project while it waited; `details: { currentRevision, currentProjectId }`)
 - `RECOVERY_REQUIRED` (a write blocked by an unfinished operation; `details: { operationId, inspect }`, where `inspect` is the operation's `/api/recovery/:operationId` link)
 - `CAPTURE_ID_CONFLICT`
+- `INVALID_COMMAND`, `OPERATION_ID_CONFLICT`, `OPERATION_IN_PROGRESS`, `OPERATION_ABANDONED`, `COMMENT_NOT_WRITABLE`, `COMMENT_ID_CONFLICT`, `PARENT_NOT_FOUND`, `COMMENT_NOT_FOUND` (see [Comments](#comments))
 - `PROJECT_NOT_WRITABLE`
 - `NOT_A_BACKLOG_ITEM`
 - `TARGET_PATH_TAKEN`
@@ -332,6 +333,115 @@ its id.
 - The target is written first, then the source deleted, then the index
   updated. If the process stops in between, reindex resolves the two copies
   (see `duplicates` in [Operations](api/operations.md)).
+
+## Comments
+
+Backlog items have Markdown comments, one file per comment at
+`<dataDir>/projects/<project-id>/tickets/<task-id>/comments/<comment-id>.md`:
+
+```yaml
+---
+schema_version: 1
+kind: comment
+id: <comment-uuid>
+parent_id: <task-uuid>
+created_at: '2026-10-19T16:00:00.000Z'
+updated_at: '2026-10-19T16:00:00.000Z'
+---
+Markdown comment body.
+```
+
+The server sets both timestamps; the body follows the closing `---` line
+exactly as submitted. Comments are indexed separately from documents: they
+never appear in document lists, the board, Current work or folder listings,
+and `tickets/<id>/comments` folders are reserved (`400` when creating a
+folder or document there). Commands carry no project ID: the server finds the
+parent task's current project and rechecks it once the write holds that
+project. Comment writes never touch the parent task's file or revision.
+
+Every comment write needs an `Idempotency-Key` header: a client-generated
+operation UUID, unique across the workspace, reused unchanged when retrying.
+
+- A retry of a completed operation returns its original acknowledgement and
+  status without doing anything again, even if the comment or its task has
+  changed since. This is checked before writability or the parent's location.
+- The same key with different input: `409 OPERATION_ID_CONFLICT`.
+- The same key while that request is still running: `409 OPERATION_IN_PROGRESS`;
+  retry the identical request with backoff.
+- An operation left unfinished (for example by a crash or a storage failure)
+  blocks the task: `409 RECOVERY_REQUIRED`. A storage failure is never proof
+  that nothing was written.
+
+Acknowledgements carry no body content:
+
+```json
+{
+  "operation_id": "<Idempotency-Key>",
+  "command": "comment.create",
+  "comment_id": "<comment-uuid>",
+  "parent_id": "<task-uuid>",
+  "outcome": "created",
+  "result_revision": "<revision of the new file>"
+}
+```
+
+### `POST /api/documents/:taskId/comments`
+
+```json
+{ "id": "<client-generated comment UUID>", "body": "Markdown" }
+```
+
+`201` with the acknowledgement.
+
+- Missing or invalid `Idempotency-Key`, missing or invalid `id`, or a missing
+  or whitespace-only `body`: `400 INVALID_COMMAND`; nothing is written.
+- Unknown task: `404 PARENT_NOT_FOUND`.
+- Archived task, read-only project, or a document that is not a backlog item:
+  `409 COMMENT_NOT_WRITABLE`. Done items accept comments; posting never
+  changes task state or document status.
+- A comment id already in use: `409 COMMENT_ID_CONFLICT`.
+- The task was filed into another project while the request waited:
+  `409 REVISION_CONFLICT` with `details: { currentRevision, currentProjectId }`.
+
+### `GET /api/comments/:commentId`
+
+One comment, read from its file:
+
+```json
+{
+  "id": "<comment-uuid>",
+  "parent_id": "<task-uuid>",
+  "project_id": "work",
+  "body": "Markdown",
+  "created_at": "2026-10-19T16:00:00.000Z",
+  "updated_at": "2026-10-19T16:00:00.000Z",
+  "revision": "<revision>",
+  "writable": true
+}
+```
+
+`project_id` is the parent task's current project. `writable` is false while
+the task is archived, its project is read-only, or it is not a backlog item.
+Unknown comment: `404 COMMENT_NOT_FOUND`.
+
+### `GET /api/documents/:taskId/comments?cursor=&limit=`
+
+A page of the task's comments, ordered by `created_at` then id, oldest first
+within the page:
+
+```json
+{ "comments": [/* as GET /api/comments/:commentId */], "next_cursor": "…", "total": 120 }
+```
+
+- Without `cursor`: the newest page. `next_cursor` fetches the next older
+  page; it is `null` on the page holding the oldest comment.
+- `limit` defaults to 50; 1–200 accepted, anything else (or a cursor this
+  server did not issue) is `400 INVALID_COMMAND`.
+- `total` counts all the task's comments.
+- Unknown task: `404 PARENT_NOT_FOUND`.
+
+Lists come from the comment index, which Reload and Reindex rebuild from the
+files (see [Operations](api/operations.md#admin)).
 
 ## Capture
 

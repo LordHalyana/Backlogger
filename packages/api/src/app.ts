@@ -5,6 +5,7 @@ import { errorMiddleware } from './error-middleware.js';
 import { HEALTH_JSON_SCHEMA } from './health/schema.js';
 import { adminRouter } from './routes/admin.js';
 import { captureRouter } from './routes/capture.js';
+import { commentsRouter, taskCommentsRouter } from './routes/comments.js';
 import { currentWorkRouter } from './routes/current-work.js';
 import { projectBoardRouter } from './routes/project-board.js';
 import { documentsRouter, projectDocumentsRouter } from './routes/documents.js';
@@ -58,6 +59,8 @@ export function createApp(ctx: AppContext, options: CreateAppOptions = {}): Expr
   app.use('/api/projects/:projectId/import', importRouter(ctx.importService));
   app.use('/api/capture', captureRouter(ctx.documentService));
   app.use('/api/current-work', currentWorkRouter(ctx.currentWorkService));
+  app.use('/api/documents', taskCommentsRouter(ctx.commentService));
+  app.use('/api/comments', commentsRouter(ctx.commentService));
   app.use('/api/documents', documentsRouter(ctx.documentService, ctx.linkService));
   app.use('/api/search', searchRouter(ctx.searchService));
   app.use('/api/tags', tagsRouter(ctx.tagsService));
@@ -92,7 +95,7 @@ function corsMiddlewareFor(
         },
     credentials: false,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'If-Match'],
+    allowedHeaders: ['Content-Type', 'If-Match', 'Idempotency-Key'],
     exposedHeaders: ['ETag'],
   };
 

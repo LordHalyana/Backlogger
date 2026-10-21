@@ -68,3 +68,31 @@ export function folderFromDocumentPath(projectId: string, documentPath: string):
 export function isArchivedFolder(folder: string): boolean {
   return folder === ARCHIVE_SEGMENT || folder.startsWith(`${ARCHIVE_SEGMENT}/`);
 }
+
+/** The folder that holds every task's comment directory. */
+export const TICKETS_SEGMENT = 'tickets';
+/** The per-task comment directory: `tickets/<task-id>/comments/`. */
+export const COMMENTS_SEGMENT = 'comments';
+
+/**
+ * Project-relative path (project id first) of one comment file:
+ * `<project-id>/tickets/<task-id>/comments/<comment-id>.md`.
+ */
+export function commentPath(projectId: string, taskId: string, commentId: string): string {
+  return `${projectId}/${TICKETS_SEGMENT}/${taskId}/${COMMENTS_SEGMENT}/${commentId}.md`;
+}
+
+/**
+ * Is this project-relative path (project id first) a task's comment
+ * directory or anything inside it? The scanner classifies these explicitly:
+ * they are comments, never documents. `p/tickets/<id>/comments/x.md` → true.
+ */
+export function isCommentStoragePath(projectRelativePath: string): boolean {
+  const parts = projectRelativePath.split('/');
+  return parts.length >= 4 && parts[1] === TICKETS_SEGMENT && parts[3] === COMMENTS_SEGMENT;
+}
+
+/** `isCommentStoragePath` for a *folder* path (no project id): `tickets/<id>/comments`. */
+export function isCommentStorageFolder(folder: string): boolean {
+  return isCommentStoragePath(`_/${folder}`);
+}

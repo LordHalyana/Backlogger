@@ -5,13 +5,17 @@ import {
   ProjectIdSchema,
   isArchivedPath,
   storedTaskState,
+  type CommentIndexReport,
+  type CommentProblem,
   type DocumentStatus,
   type DuplicateFile,
   type Frontmatter,
   type SidecarEntry,
   type SidecarIndex,
 } from '@backlogger/shared';
-import { sidecarRevision, type SidecarStore } from '../fs/index.js';
+import { contentRevision, sidecarRevision, type SidecarStore } from '../fs/index.js';
+import { parseCommentFile } from '../fs/comment-file.js';
+import type { CommentRow, CommentsRepo } from '../db/comments-repo.js';
 import type { DocumentsRepo } from '../db/documents-repo.js';
 import type { ProjectsRepo } from '../db/projects-repo.js';
 import type { FsRepository, RawDocument } from '../fs/index.js';
@@ -26,6 +30,7 @@ export interface ReindexReport {
   inserted: number;
   skipped: Array<{ path: string; reason: string }>;
   duplicates: DuplicateFile[];
+  comments: CommentIndexReport;
 }
 
 export interface ReloadReport {
@@ -37,6 +42,7 @@ export interface ReloadReport {
   durationMs: number;
   removedIds: string[];
   duplicates: DuplicateFile[];
+  comments: CommentIndexReport;
 }
 
 /** Thrown when a per-project reload is already running for that project. */
@@ -49,6 +55,7 @@ export class ReloadInProgressError extends Error {
 
 export interface ReindexServiceDeps {
   documentsRepo: DocumentsRepo;
+  commentsRepo: CommentsRepo;
   projectsRepo: ProjectsRepo;
   fs: FsRepository;
   linkService: LinkService;
@@ -68,6 +75,7 @@ export interface ReindexServiceDeps {
  */
 export class ReindexService {
   private readonly documentsRepo: DocumentsRepo;
+  private readonly commentsRepo: CommentsRepo;
   private readonly projectsRepo: ProjectsRepo;
   private readonly fs: FsRepository;
   private readonly linkService: LinkService;
@@ -80,6 +88,7 @@ export class ReindexService {
 
   constructor(deps: ReindexServiceDeps) {
     this.documentsRepo = deps.documentsRepo;
+    this.commentsRepo = deps.commentsRepo;
     this.projectsRepo = deps.projectsRepo;
     this.fs = deps.fs;
     this.linkService = deps.linkService;
@@ -101,7 +110,13 @@ export class ReindexService {
 
   /** `run` for a caller already holding the gate exclusively (startup). */
   async rebuildHeld(): Promise<ReindexReport> {
-    const report: ReindexReport = { scanned: 0, inserted: 0, skipped: [], duplicates: [] };
+    const report: ReindexReport = {
+      scanned: 0,
+      inserted: 0,
+      skipped: [],
+      duplicates: [],
+      comments: { indexed: 0, problems: [] },
+    };
     // id → the copy chosen for it so far, and the copies left out.
     const kept = new Map<
       string,
@@ -136,13 +151,32 @@ export class ReindexService {
       kept.set(id, { doc, projectId, indexed });
       report.inserted += 1;
     }
+
+    const comments: CommentRow[] = [];
+    const seenComments = new Map<string, string>();
+    for (const project of this.projectsRepo.list()) {
+      const found = await this.scanComments(
+        project.id,
+        (taskId) => {
+          const parent = kept.get(taskId);
+          return parent && { project_id: parent.projectId, type: parent.indexed.frontmatter.type };
+        },
+        seenComments,
+      );
+      comments.push(...found.rows);
+      report.comments.problems.push(...found.problems);
+    }
+    report.comments.indexed = comments.length;
+
     this.coordinator.transaction(() => {
       this.documentsRepo.truncate();
       this.linkService.truncate();
       this.tagsService.truncate();
+      this.commentsRepo.truncate();
       for (const { doc, projectId, indexed } of kept.values()) {
         this.indexDocument(doc, projectId, indexed);
       }
+      for (const row of comments) this.commentsRepo.upsert(row);
     });
     report.duplicates = leftOut.map(({ id, path }) => ({
       id,
@@ -189,6 +223,7 @@ export class ReindexService {
       durationMs: 0,
       removedIds: [],
       duplicates: [],
+      comments: { indexed: 0, problems: [] },
     };
 
     // Snapshot what we already have on disk-of-record.
@@ -218,8 +253,26 @@ export class ReindexService {
       else report.added += 1;
     }
 
+    // Comments elsewhere keep their ids: a second copy here is a duplicate.
+    const seenComments = new Map<string, string>();
+    const comments = await this.scanComments(
+      projectId,
+      (taskId) => {
+        const parent = chosen.get(taskId);
+        return parent && { project_id: projectId, type: parent.indexed.frontmatter.type };
+      },
+      seenComments,
+      (id) => {
+        const row = this.commentsRepo.find(id);
+        return row && row.project_id !== projectId ? row.path : undefined;
+      },
+    );
+    report.comments = { indexed: comments.rows.length, problems: comments.problems };
+
     this.coordinator.transaction(() => {
       for (const { doc, indexed } of chosen.values()) this.indexDocument(doc, projectId, indexed);
+      this.commentsRepo.deleteByProject(projectId);
+      for (const row of comments.rows) this.commentsRepo.upsert(row);
       // Anything still in `existing` lost its backing file → purge.
       for (const [id] of existing) {
         this.documentsRepo.delete(id);
@@ -237,6 +290,65 @@ export class ReindexService {
 
     report.durationMs = Date.now() - started;
     return report;
+  }
+
+  /**
+   * Read one project's comment files into index rows. Malformed files,
+   * unsupported schema versions, comments whose parent is not a backlog item
+   * of this project and second copies of an id are reported instead, and
+   * never changed. Of two copies, the first by path (`seen`, shared across
+   * calls) or one indexed elsewhere (`indexedElsewhere`) is kept.
+   */
+  private async scanComments(
+    projectId: string,
+    parentOf: (taskId: string) => { project_id: string; type: string } | undefined,
+    seen: Map<string, string>,
+    indexedElsewhere: (id: string) => string | undefined = () => undefined,
+  ): Promise<{ rows: CommentRow[]; problems: CommentProblem[] }> {
+    const rows: CommentRow[] = [];
+    const problems: CommentProblem[] = [];
+    for await (const entry of this.fs.walkComments(projectId)) {
+      if (entry.text === null) {
+        problems.push({ path: entry.path, reason: 'malformed', message: entry.problem });
+        continue;
+      }
+      const parsed = parseCommentFile(entry.path, entry.text);
+      if (!parsed.ok) {
+        problems.push({ path: entry.path, reason: parsed.reason, message: parsed.message });
+        continue;
+      }
+      const { comment } = parsed;
+      const parent = parentOf(comment.parent_id);
+      if (!parent || parent.project_id !== projectId || parent.type !== 'backlog_item') {
+        problems.push({
+          path: entry.path,
+          reason: 'missing_parent',
+          message: `No backlog item ${comment.parent_id} in project ${projectId}.`,
+        });
+        continue;
+      }
+      const keptPath = seen.get(comment.id) ?? indexedElsewhere(comment.id);
+      if (keptPath !== undefined) {
+        problems.push({
+          path: entry.path,
+          reason: 'duplicate_id',
+          message: `Comment ${comment.id} is already indexed from ${keptPath}.`,
+        });
+        continue;
+      }
+      seen.set(comment.id, entry.path);
+      rows.push({
+        id: comment.id,
+        task_id: comment.parent_id,
+        project_id: projectId,
+        path: entry.path,
+        body: comment.body,
+        created_at: comment.created_at,
+        updated_at: comment.updated_at,
+        revision: contentRevision(entry.text),
+      });
+    }
+    return { rows, problems };
   }
 
   private indexDocument(doc: RawDocument, projectId: string, indexed: IndexedMetadata): void {
