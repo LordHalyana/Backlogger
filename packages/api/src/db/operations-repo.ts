@@ -164,6 +164,26 @@ export class OperationsRepo {
       .get(scope, ...keys);
   }
 
+  /**
+   * The first path guard overlapping any of `paths`: the same path, a path
+   * under it (a guarded folder) or a path it lies under (a folder holding a
+   * guarded file). Paths are project-relative with the project ID first.
+   */
+  findPathGuard(paths: readonly string[]): GuardRow | undefined {
+    const overlaps = this.db.prepare<[{ p: string }], GuardRow>(
+      `SELECT * FROM operation_guards WHERE scope = 'path' AND (
+         key = @p
+         OR substr(key, 1, length(@p) + 1) = @p || '/'
+         OR substr(@p, 1, length(key) + 1) = key || '/'
+       ) ORDER BY operation_id LIMIT 1`,
+    );
+    for (const p of paths) {
+      const guard = overlaps.get({ p });
+      if (guard) return guard;
+    }
+    return undefined;
+  }
+
   /** The first guard of any scope living in `projectId`, or undefined. */
   findGuardInProject(projectId: string): GuardRow | undefined {
     return this.db

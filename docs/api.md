@@ -267,7 +267,7 @@ If the document was filed into another project while the update waited in the qu
 
 If the project is in read-only mode, the API returns `409 PROJECT_READ_ONLY`.
 
-If an unfinished operation guards the document (or its whole project), the API returns `409 RECOVERY_REQUIRED` with `details: { operationId, inspect }` and changes nothing. The same applies to delete, move, filing and creating documents in a guarded project. Other documents are unaffected.
+If an unfinished operation guards the document (or its whole project), the API returns `409 RECOVERY_REQUIRED` with `details: { operationId, inspect }` and changes nothing. The same applies to delete, move, filing and creating documents in a guarded project, and to a create, move or archive whose file would land on a guarded path. Other documents are unaffected.
 
 If the document was indexed from plain Markdown without Backlogger frontmatter and the project is editable, the first successful update writes Backlogger frontmatter to the same file and returns the adopted editable document.
 
@@ -500,6 +500,15 @@ a comment operation, abandoned. While it is pending:
   `RECOVERY_REQUIRED` until recovery finishes the operation. After that it
   returns the original acknowledgement. After an abandon it returns
   `409 OPERATION_ABANDONED`.
+- A pending task deletion or transfer reserves the task's ID and paths:
+  creating or capturing a document with that ID, or one whose file would
+  land on a guarded path, returns `409 RECOVERY_REQUIRED`. A path guard
+  covers the path itself, anything under it, and the folders above it.
+  Imports and folder changes check the same guards.
+- While anything is pending in a project, project deletion and `readOnly`
+  or `metadataMode` changes are refused. A pending project deletion blocks
+  every write into or out of the project, every setting, and reuse of the
+  project ID.
 - Reload and Reindex never apply a payload or drop a pending row.
 
 On startup, before serving requests, the server tries to finish every pending
@@ -628,6 +637,8 @@ Creates a draft To do backlog item from a title alone.
 - Clients generate a new id per capture and reuse it only on Retry.
 - Unknown project: `404 PROJECT_NOT_FOUND`; read-only or sidecar project:
   `409 PROJECT_NOT_WRITABLE`.
+- An id or file path reserved by an unfinished operation, or a project with a
+  pending deletion: `409 RECOVERY_REQUIRED`.
 
 ## Current work
 

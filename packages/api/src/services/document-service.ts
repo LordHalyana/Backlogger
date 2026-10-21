@@ -187,15 +187,14 @@ export class DocumentService {
     const subdir = parsed.folder ?? DOCUMENT_TYPE_TO_SUBDIR[parsed.type];
     const filename = buildFilename(parsed.title, id);
     const relPath = `${projectId}/${subdir}/${filename}`;
+    // A pending task deletion or transfer reserves its IDs and paths.
+    scope.assertUnguarded({ tasks: [id], paths: [relPath] });
 
     let body = parsed.body ?? '';
     if (parsed.template) {
       const tpl = this.templates.getOrThrow(parsed.template);
       if (!tpl) {
-        throw new NotFoundError(
-          'TEMPLATE_NOT_FOUND',
-          `Template not found: ${parsed.template}`,
-        );
+        throw new NotFoundError('TEMPLATE_NOT_FOUND', `Template not found: ${parsed.template}`);
       }
       if (tpl.type !== parsed.type) {
         throw new BadRequestError(
@@ -371,6 +370,7 @@ export class DocumentService {
             ? unarchivePath(summary.path)
             : summary.path
         : summary.path;
+    if (nextPath !== summary.path) scope.assertUnguarded({ paths: [nextPath] });
 
     const revision = await this.fs.write(nextPath, {
       frontmatter: nextFrontmatter,
@@ -499,8 +499,7 @@ export class DocumentService {
       // it; finish the job (including any sidecar entry) instead of failing.
       const existing = await this.fs.read(summary.path).catch(ignoreMissing);
       viaSidecar =
-        project.metadataMode === 'sidecar' &&
-        !(existing && hasOwnFrontmatter(summary, existing));
+        project.metadataMode === 'sidecar' && !(existing && hasOwnFrontmatter(summary, existing));
       if (existing && !viaSidecar) assertEditableBackloggerDocument(summary, existing);
     }
 
@@ -548,8 +547,7 @@ export class DocumentService {
     }
 
     const existing = await this.fs.read(summary.path);
-    const viaSidecar =
-      project.metadataMode === 'sidecar' && !hasOwnFrontmatter(summary, existing);
+    const viaSidecar = project.metadataMode === 'sidecar' && !hasOwnFrontmatter(summary, existing);
     if (!viaSidecar) assertEditableBackloggerDocument(summary, existing);
 
     const filename = summary.path.split('/').pop() ?? '';
@@ -561,6 +559,7 @@ export class DocumentService {
     if (nextPath === summary.path) {
       return { ...summary, readOnly: false, body: existing.body };
     }
+    scope.assertUnguarded({ paths: [nextPath] });
 
     const now = this.now();
 
@@ -737,7 +736,7 @@ export class DocumentService {
 
   /**
    * Run a mutation of one document through the coordinator, under its
-   * project's queue and behind its task guard. The summary is re-read once
+   * project's queue and behind its task and path guards. The summary is re-read once
    * the locks are held, so it reflects every mutation that committed before
    * (a deleted document is a 404, a moved or archived one has its new path).
    * A document filed into another project while the command waited is a 409
@@ -753,7 +752,7 @@ export class DocumentService {
         return { summary, projects: [summary.project_id] };
       },
       moved: ({ summary }) => movedConflict(summary),
-      guards: () => ({ tasks: [id] }),
+      guards: ({ summary }) => ({ tasks: [id], paths: [summary.path] }),
       run: ({ summary }, scope) => operation(summary, scope),
     });
   }

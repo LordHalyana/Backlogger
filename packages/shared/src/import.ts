@@ -41,7 +41,9 @@ export type ImportRequest = z.infer<typeof ImportRequestSchema>;
 export type ImportErrorCode =
   | 'INVALID_FRONTMATTER'
   | 'EMPTY_FILE'
-  | 'TITLE_DERIVATION_FAILED';
+  | 'TITLE_DERIVATION_FAILED'
+  /** Blocked by a pending operation; the message names it. */
+  | 'RECOVERY_REQUIRED';
 
 export interface ImportedRow {
   filename: string;

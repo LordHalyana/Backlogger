@@ -14,13 +14,17 @@ export function projectFoldersRouter(
 ): Router {
   const router = Router();
 
-  /** Folder changes are coordinated commands on the project's queue. */
-  const inProject = <T>(id: string, operation: () => Promise<T>): Promise<T> =>
+  /**
+   * Folder changes are coordinated commands on the project's queue, refused
+   * while a path guard lies on, under or above the folder.
+   */
+  const inProject = <T>(id: string, folder: string, operation: () => Promise<T>): Promise<T> =>
     coordinator.command({
       locate: () => {
         projectService.get(id); // 404 if unknown
         return { projects: [id] };
       },
+      guards: () => ({ paths: [`${id}/${folder}`] }),
       run: () => {
         assertProjectWritable(id);
         return operation();
@@ -53,7 +57,7 @@ export function projectFoldersRouter(
       const id = parseProjectId(req.params.id);
       const body = req.body as { folder?: unknown } | undefined;
       const requested = validateBody(FolderPathSchema, body?.folder);
-      const folder = await inProject(id, () => fs.createFolder(id, requested));
+      const folder = await inProject(id, requested, () => fs.createFolder(id, requested));
       res.status(201).json({ folder });
     }),
   );
@@ -65,7 +69,7 @@ export function projectFoldersRouter(
       const id = parseProjectId(req.params.id);
       const raw = (req.params as { 0?: string })[0] ?? '';
       const folder = validateBody(FolderPathSchema, decodeURIComponent(raw));
-      await inProject(id, () => removeEmptyFolder(id, folder));
+      await inProject(id, folder, () => removeEmptyFolder(id, folder));
       res.status(204).send();
     }),
   );

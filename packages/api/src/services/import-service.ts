@@ -49,6 +49,12 @@ export class ImportService {
         // whole request rather than landing in per-file errors.
         if (err instanceof NotFoundError && err.code === 'PROJECT_NOT_FOUND') throw err;
         if (err instanceof ConflictError && err.code === 'PROJECT_READ_ONLY') throw err;
+        // A file blocked by a pending operation is refused on its own; the
+        // message names the operation to review.
+        if (err instanceof ConflictError && err.code === 'RECOVERY_REQUIRED') {
+          result.errors.push({ filename: file.filename, code: err.code, message: err.message });
+          continue;
+        }
         result.errors.push({
           filename: file.filename,
           code: 'INVALID_FRONTMATTER',
@@ -164,6 +170,7 @@ export class ImportService {
       // Validation throws from DocumentService.create land here.
       if (err instanceof NotFoundError && err.code === 'PROJECT_NOT_FOUND') throw err;
       if (err instanceof ConflictError && err.code === 'PROJECT_READ_ONLY') throw err;
+      if (err instanceof ConflictError && err.code === 'RECOVERY_REQUIRED') throw err;
       if (err instanceof HttpError) {
         result.errors.push({
           filename: file.filename,

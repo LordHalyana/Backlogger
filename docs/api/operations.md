@@ -56,6 +56,12 @@ Status:
 
 Returns `409 PROJECT_READ_ONLY` while the project is in read-only mode.
 
+A file blocked by an unfinished operation is not written. It gets a per-file
+error with code `RECOVERY_REQUIRED`, and the message names the operation to
+review at `/api/recovery/:operationId`. This happens when the project has a
+pending deletion, when `replace` targets a guarded task, or when the file
+would land on a guarded path. Other files and projects are unaffected.
+
 ## Folders
 
 ### `GET /api/projects/:id/folders`
@@ -74,6 +80,9 @@ Returns `201`.
 
 Returns `409 PROJECT_READ_ONLY` while the project is in read-only mode.
 
+Returns `409 RECOVERY_REQUIRED` while an unfinished operation guards a path
+on, under or above the folder, or the project has a pending deletion.
+
 ### `DELETE /api/projects/:id/folders/*`
 
 Deletes an empty folder. The folder path is the URL-decoded wildcard segment.
@@ -85,6 +94,8 @@ Returns `404 FOLDER_NOT_FOUND` when the folder does not exist.
 Returns `409 FOLDER_NOT_EMPTY` when files or subfolders remain.
 
 Returns `409 PROJECT_READ_ONLY` while the project is in read-only mode.
+
+Returns `409 RECOVERY_REQUIRED` under the same conditions as creating a folder.
 
 ## Graph
 

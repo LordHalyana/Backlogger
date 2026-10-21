@@ -88,6 +88,12 @@ export interface CommandScope {
   /** Refuse with RECOVERY_REQUIRED while anything is pending in `projectId`. */
   assertNothingPendingIn(projectId: string): void;
   /**
+   * Step 6 for targets only known once the command runs (a new document's
+   * ID and path, say): refuse with RECOVERY_REQUIRED if a task or path
+   * guard covers any of them. Call it before writing any file.
+   */
+  assertUnguarded(targets: GuardTargets): void;
+  /**
    * Step 8: record the pending operation and install its guards, atomically.
    * A retry-safe command calls it before writing any file, so a duplicate
    * key is caught here, before a second write.
@@ -356,15 +362,21 @@ export class WriteCoordinator {
 
     // Step 6: durable guards.
     if (!plan.recoveryAction) {
-      const targets = plan.guards?.(located) ?? {};
       const guard =
         this.operations.findGuard('project', held) ??
-        this.operations.findGuard('task', targets.tasks ?? []) ??
-        this.operations.findGuard('path', targets.paths ?? []);
+        this.findTargetGuard(plan.guards?.(located) ?? {});
       if (guard) throw recoveryRequired(guard.operation_id);
     }
 
     return plan.run(located, this.scope(held, op));
+  }
+
+  /** A task guard on any of the tasks, or a path guard overlapping any of the paths. */
+  private findTargetGuard(targets: GuardTargets): GuardRow | undefined {
+    return (
+      this.operations.findGuard('task', targets.tasks ?? []) ??
+      this.operations.findPathGuard(targets.paths ?? [])
+    );
   }
 
   private scope(held: readonly string[], op: OperationIdentity | undefined): CommandScope {
@@ -377,6 +389,10 @@ export class WriteCoordinator {
       projects: held,
       assertNothingPendingIn: (projectId) => {
         const guard = this.operations.findGuardInProject(projectId);
+        if (guard) throw recoveryRequired(guard.operation_id);
+      },
+      assertUnguarded: (targets) => {
+        const guard = this.findTargetGuard(targets);
         if (guard) throw recoveryRequired(guard.operation_id);
       },
       intent: (record) => {
