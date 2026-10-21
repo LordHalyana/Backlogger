@@ -8,9 +8,14 @@ import {
   type CommentPage,
   type DocumentSummary,
 } from '@backlogger/shared';
-import { BadRequestError, ConflictError, NotFoundError } from '../errors.js';
+import {
+  BadRequestError,
+  ConflictError,
+  NotFoundError,
+  PreconditionRequiredError,
+} from '../errors.js';
 import { contentRevision, DocumentNotFoundError, type FsRepository } from '../fs/index.js';
-import { parseCommentFile, serializeComment } from '../fs/comment-file.js';
+import { parseCommentFile, rewriteCommentBody, serializeComment } from '../fs/comment-file.js';
 import type { CommentPosition, CommentRow, CommentsRepo } from '../db/comments-repo.js';
 import type { DocumentsRepo } from '../db/documents-repo.js';
 import type { ProjectsRepo } from '../db/projects-repo.js';
@@ -41,12 +46,27 @@ export interface CreateCommentCommand {
   body: unknown;
 }
 
+/** `comment.edit`, as received; `expectedRevision` is the If-Match value. */
+export interface EditCommentCommand {
+  operationId: unknown;
+  commentId: string;
+  expectedRevision: unknown;
+  body: unknown;
+}
+
+/** `comment.delete`, as received; `expectedRevision` is the If-Match value. */
+export interface DeleteCommentCommand {
+  operationId: unknown;
+  commentId: string;
+  expectedRevision: unknown;
+}
+
 export interface ListCommentsQuery {
   cursor?: unknown;
   limit?: unknown;
 }
 
-/** What a pending `comment.create` keeps until its completion transaction. */
+/** What a pending `comment.create` or `comment.edit` keeps until its completion transaction. */
 export interface PendingCommentWrite {
   path: string;
   /** The exact intended bytes, server timestamps included. */
@@ -54,6 +74,14 @@ export interface PendingCommentWrite {
   /** Revision of the file before the write; `null` when it must not exist. */
   before: string | null;
   after: string;
+}
+
+/** What a pending `comment.delete` keeps: identity, path and expected revision only. */
+export interface PendingCommentDelete {
+  comment_id: string;
+  parent_id: string;
+  path: string;
+  expected_revision: string;
 }
 
 /**
@@ -155,6 +183,105 @@ export class CommentService {
     });
   }
 
+  /**
+   * Replace a comment's body. Identity, parent, `created_at` and every other
+   * frontmatter byte stay as they are; `updated_at` becomes now.
+   */
+  async edit(command: EditCommentCommand): Promise<CommentAck> {
+    const operationId = parseOperationId(command.operationId);
+    const commentId = parseCommentId(command.commentId);
+    const expected = parseExpectedRevision(command.expectedRevision);
+    const body = parseBody(command.body);
+    const fingerprint = operationFingerprint('comment.edit', [commentId, expected, body]);
+
+    return this.coordinator.command({
+      operation: { id: operationId, command: 'comment.edit', fingerprint },
+      ...this.locateComment(commentId),
+      run: async ({ comment, parent }, scope) => {
+        this.assertWritable(parent);
+        const text = await this.readAtRevision(comment, expected);
+        const now = this.now();
+        const rewrite = rewriteCommentBody(comment.path, text, body, now);
+        if (!rewrite.ok) {
+          throw new ConflictError(
+            'COMMENT_NOT_PRESERVABLE',
+            `Comment ${commentId} cannot be edited without losing data: ${rewrite.message}.`,
+          );
+        }
+        const { content } = rewrite;
+        const revision = contentRevision(content);
+        const pending: PendingCommentWrite = {
+          path: comment.path,
+          content,
+          before: expected,
+          after: revision,
+        };
+        scope.intent({ guards: commentGuards(comment), payload: JSON.stringify(pending) });
+
+        await this.fs.writeRaw(comment.path, content);
+        if ((await this.fs.readText(comment.path)) !== content) {
+          throw new Error(`Comment file ${comment.path} does not hold the intended bytes.`);
+        }
+
+        const ack: CommentAck = {
+          operation_id: operationId,
+          command: 'comment.edit',
+          comment_id: commentId,
+          parent_id: comment.task_id,
+          outcome: 'edited',
+          result_revision: revision,
+        };
+        return scope.complete(ack, () =>
+          this.commentsRepo.upsert({ ...comment, body, updated_at: now, revision }),
+        );
+      },
+    });
+  }
+
+  /** Delete a comment's file and index row, permanently within the app. */
+  async delete(command: DeleteCommentCommand): Promise<CommentAck> {
+    const operationId = parseOperationId(command.operationId);
+    const commentId = parseCommentId(command.commentId);
+    const expected = parseExpectedRevision(command.expectedRevision);
+    const fingerprint = operationFingerprint('comment.delete', [commentId, expected]);
+
+    return this.coordinator.command({
+      operation: { id: operationId, command: 'comment.delete', fingerprint },
+      ...this.locateComment(commentId),
+      run: async ({ comment, parent }, scope) => {
+        this.assertWritable(parent);
+        await this.readAtRevision(comment, expected);
+        const pending: PendingCommentDelete = {
+          comment_id: commentId,
+          parent_id: comment.task_id,
+          path: comment.path,
+          expected_revision: expected,
+        };
+        scope.intent({ guards: commentGuards(comment), payload: JSON.stringify(pending) });
+
+        // Anything but a removed (or already absent) file leaves the
+        // operation pending for recovery.
+        const result = await this.fs.deleteIfUnchanged(comment.path, expected);
+        if (result === 'changed') {
+          throw new Error(`Comment file ${comment.path} changed before it could be deleted.`);
+        }
+        if (await this.fileExists(comment.path)) {
+          throw new Error(`Comment file ${comment.path} is still present after deletion.`);
+        }
+
+        const ack: CommentAck = {
+          operation_id: operationId,
+          command: 'comment.delete',
+          comment_id: commentId,
+          parent_id: comment.task_id,
+          outcome: 'deleted',
+          result_revision: null,
+        };
+        return scope.complete(ack, () => this.commentsRepo.delete(commentId));
+      },
+    });
+  }
+
   /** One comment, read fresh from its file. */
   async get(rawId: string): Promise<Comment> {
     const id = rawId.toLowerCase();
@@ -199,6 +326,51 @@ export class CommentService {
       next_cursor: hasOlder && page[0] ? encodeCursor(page[0]) : null,
       total: this.commentsRepo.countForTask(taskId),
     };
+  }
+
+  /**
+   * The coordinator's lookup for a command on an existing comment: the
+   * comment's index row and its parent, which must still live where the
+   * comment does.
+   */
+  private locateComment(commentId: string) {
+    const locate = () => {
+      const comment = this.commentsRepo.find(commentId);
+      if (!comment) throw commentNotFound(commentId);
+      const parent = this.findParent(comment.task_id);
+      return { comment, parent, projects: [parent.project_id, comment.project_id] };
+    };
+    return {
+      locate,
+      moved: ({ parent }: ReturnType<typeof locate>) => parentMoved(parent),
+      guards: ({ comment }: ReturnType<typeof locate>) => ({
+        tasks: [comment.task_id],
+        paths: [comment.path],
+      }),
+    };
+  }
+
+  /**
+   * The comment file's text, once its revision matches the caller's
+   * If-Match; `REVISION_CONFLICT` with the current revision otherwise.
+   */
+  private async readAtRevision(comment: CommentRow, expected: string): Promise<string> {
+    let text: string;
+    try {
+      text = await this.fs.readText(comment.path);
+    } catch (err) {
+      if (err instanceof DocumentNotFoundError) throw commentNotFound(comment.id);
+      throw err;
+    }
+    const current = contentRevision(text);
+    if (current !== expected) {
+      throw new ConflictError(
+        'REVISION_CONFLICT',
+        `Comment ${comment.id} was changed since If-Match=${expected}; current revision=${current}.`,
+        { currentRevision: current },
+      );
+    }
+    return text;
   }
 
   private findParent(taskId: string): DocumentSummary {
@@ -251,6 +423,14 @@ function toComment(row: CommentRow, projectId: string, writable: boolean): Comme
   };
 }
 
+/** A pending edit or delete blocks the parent task and the comment's path. */
+function commentGuards(comment: CommentRow) {
+  return [
+    { project_id: comment.project_id, scope: 'task' as const, key: comment.task_id },
+    { project_id: comment.project_id, scope: 'path' as const, key: comment.path },
+  ];
+}
+
 function invalid(message: string): BadRequestError {
   return new BadRequestError('INVALID_COMMAND', message);
 }
@@ -258,6 +438,17 @@ function invalid(message: string): BadRequestError {
 function parseCommentId(raw: unknown): string {
   if (typeof raw !== 'string' || !isUuid(raw.trim())) throw invalid('id must be a UUID.');
   return raw.trim().toLowerCase();
+}
+
+/** The If-Match value of an edit or delete; required, compared verbatim. */
+function parseExpectedRevision(raw: unknown): string {
+  if (typeof raw !== 'string' || raw.trim() === '') {
+    throw new PreconditionRequiredError(
+      'REVISION_REQUIRED',
+      'If-Match with the comment revision is required.',
+    );
+  }
+  return raw.trim();
 }
 
 /** Kept exactly as submitted; only whitespace-only bodies are refused. */

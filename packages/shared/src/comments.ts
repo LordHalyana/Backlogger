@@ -19,6 +19,15 @@ export interface CreateCommentRequest {
   body: string;
 }
 
+/**
+ * `PUT /api/comments/:commentId`. The operation ID travels as
+ * `Idempotency-Key`, the expected revision as `If-Match`.
+ */
+export interface UpdateCommentRequest {
+  /** Markdown, stored exactly as submitted; whitespace-only is refused. */
+  body: string;
+}
+
 /** A comment as `GET /api/comments/:commentId` and list pages return it. */
 export interface Comment {
   id: string;
@@ -46,10 +55,11 @@ export interface CommentPage {
 /** The acknowledgement of a comment command. It never carries the body. */
 export interface CommentAck {
   operation_id: string;
-  command: 'comment.create';
+  command: 'comment.create' | 'comment.edit' | 'comment.delete';
   comment_id: string;
   parent_id: string;
-  outcome: 'created';
+  outcome: 'created' | 'edited' | 'deleted';
+  /** Revision of the file the command left; `null` after a delete. */
   result_revision: string | null;
 }
 

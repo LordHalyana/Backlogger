@@ -166,7 +166,7 @@ export class WriteCoordinator {
       this.running.set(op.id, (this.running.get(op.id) ?? 0) + 1);
     }
     try {
-      const first = plan.locate();
+      const first = this.locateUnlocked(plan);
       const held = [...new Set(first.projects)].sort();
       return await this.gate.withShared(() =>
         this.inQueues(held, async () => {
@@ -224,6 +224,21 @@ export class WriteCoordinator {
       if (hook) await hook(op);
     }
     return this.operations.listPending();
+  }
+
+  /**
+   * Step 3, before any lock. An identical request may complete between the
+   * receipt lookup and here (a delete removes its own target), so a failed
+   * lookup answers from that receipt when there is one.
+   */
+  private locateUnlocked<L extends Located, T>(plan: CommandPlan<L, T>): L {
+    try {
+      return plan.locate();
+    } catch (err) {
+      const receipt = plan.operation && this.lookupReceipt(plan.operation, true);
+      if (receipt) throw new ReceiptFound(receipt.outcome);
+      throw err;
+    }
   }
 
   private async runHeld<L extends Located, T>(

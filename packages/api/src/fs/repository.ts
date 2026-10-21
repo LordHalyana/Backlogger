@@ -15,7 +15,13 @@ import {
   TICKETS_SEGMENT,
 } from '@backlogger/shared';
 import { contentRevision } from './revision.js';
-import { createNoOverwrite, replaceDurable, unlinkDurable } from './durable.js';
+import {
+  createNoOverwrite,
+  deleteChecked,
+  replaceDurable,
+  unlinkDurable,
+  type CheckedDeleteResult,
+} from './durable.js';
 
 /** A parsed Markdown document on disk. */
 export interface RawDocument {
@@ -267,6 +273,19 @@ export class FsRepository {
     const absolute = this.resolver.resolveRelative(relativePath);
     await this.resolver.assertNoSymlinks(absolute);
     await createNoOverwrite(absolute, content);
+  }
+
+  /**
+   * Delete a file only while its bytes still have `expectedRevision`
+   * (see `deleteChecked`): a missing file is `'missing'`, a changed one is
+   * kept and reported as `'changed'`.
+   */
+  async deleteIfUnchanged(
+    relativePath: string,
+    expectedRevision: string,
+  ): Promise<CheckedDeleteResult> {
+    const absolute = await this.resolver.resolveRelativeSafe(relativePath);
+    return deleteChecked(absolute, expectedRevision);
   }
 
   /** Delete a document file. Throws `DocumentNotFoundError` if missing. */

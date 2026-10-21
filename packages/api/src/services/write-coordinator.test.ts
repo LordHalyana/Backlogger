@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
+import { NotFoundError } from '../errors.js';
 import { setup, teardown, type Harness } from '../test-support.js';
 import {
   operationFingerprint,
@@ -59,6 +60,30 @@ describe('WriteCoordinator receipts', () => {
       by: 'first',
     });
     expect(writes).toEqual(['first']);
+  });
+
+  it('a target gone before the locks answers from a receipt completed in the meantime', async () => {
+    // An identical request completed (and, say, deleted the target) between
+    // the lockless receipt lookup and the first locate.
+    let calls = 0;
+    const ack = await h.ctx.coordinator.command({
+      operation: identity(),
+      locate: () => {
+        calls += 1;
+        h.ctx.operationsRepo.insert({
+          operation_id: ID,
+          command: 'test.write',
+          fingerprint: identity().fingerprint,
+          state: 'completed',
+          outcome: { outcome: 'done', by: 'other' },
+          created_at: new Date().toISOString(),
+        });
+        throw new NotFoundError('GONE', 'The target is gone.');
+      },
+      run: async (_l, scope) => complete(scope, { outcome: 'never' }),
+    });
+    expect(ack).toEqual({ outcome: 'done', by: 'other' });
+    expect(calls).toBe(1);
   });
 
   it('an operation ID reused with different input is OPERATION_ID_CONFLICT', async () => {
