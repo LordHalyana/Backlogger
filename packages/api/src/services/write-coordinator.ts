@@ -1,5 +1,10 @@
 import { createHash } from 'node:crypto';
-import { isUuid } from '@backlogger/shared';
+import {
+  isUuid,
+  type RecoveryKind,
+  type RecoveryPath,
+  type RecoveryReason,
+} from '@backlogger/shared';
 import { BadRequestError, ConflictError } from '../errors.js';
 import {
   isDuplicateOperation,
@@ -11,6 +16,7 @@ import {
 import type { Db } from '../db/database.js';
 import type { ProjectQueue } from './project-queue.js';
 import type { WorkspaceGate } from './workspace-gate.js';
+import { logger } from '../logger.js';
 
 /**
  * The one commit seam for workspace writes (spec #58, "Write coordinator").
@@ -57,6 +63,11 @@ export interface CommandPlan<L extends Located, T> {
   /** Tasks and paths this command touches; guards on the held projects are always checked. */
   guards?: (located: L) => GuardTargets;
   /**
+   * A recovery action (recheck, abandon): reads and recovery stay allowed
+   * while operations are pending, so no guard is checked.
+   */
+  recoveryAction?: boolean;
+  /**
    * Steps 7–11, with the locks held and the guards checked. A receipt found
    * by the intent claim unwinds `run` with a thrown non-Error value; a
    * `catch` in here that rolls back must rethrow whatever it caught.
@@ -90,6 +101,12 @@ export interface CommandScope {
    * the acknowledgement.
    */
   complete<A>(outcome: A, write?: () => void): A;
+  /**
+   * Steps 8 and 11 in one transaction, for a retry-safe command that writes
+   * no files: claim the operation ID straight into a completed receipt
+   * together with `write`. Returns the acknowledgement.
+   */
+  record<A>(outcome: A, write?: () => void): A;
 }
 
 export interface WriteCoordinatorDeps {
@@ -102,8 +119,40 @@ export interface WriteCoordinatorDeps {
   now?: () => string;
 }
 
-/** Tries to finish one pending operation found at startup. */
-export type RecoveryHook = (operation: OperationRecord) => Promise<void>;
+/** A pending operation with its recovery payload, if it kept one. */
+export interface PendingOperation extends OperationRecord {
+  payload: string | null;
+}
+
+/** Where a pending operation stands on disk now. */
+export interface RecoveryAssessment {
+  kind: RecoveryKind;
+  reason: RecoveryReason;
+  message: string;
+  project_id: string | null;
+  task_id: string | null;
+  comment_id: string | null;
+  paths: RecoveryPath[];
+  pending_content: string | null;
+  current_content: string | null;
+}
+
+/** The completion transaction of a resumed operation (see `CommandScope.complete`). */
+export type CompleteRecovered = (outcome: unknown, write?: () => void) => void;
+
+/** How one command's pending operations are inspected and finished after a crash. */
+export interface Recoverer {
+  /** Whether the user may abandon this command's pending operations. */
+  readonly abandonable: boolean;
+  /** Reads only: where the operation stands on disk now. */
+  assess(operation: PendingOperation): Promise<RecoveryAssessment>;
+  /**
+   * With the operation's locks held: finish it from a known state, calling
+   * `complete` once the files are in the known after state, and leave
+   * anything else pending, files and payload untouched.
+   */
+  resume(operation: PendingOperation, complete: CompleteRecovered): Promise<void>;
+}
 
 /** Step 1: an Idempotency-Key must be a client-generated UUID. Returns it normalized. */
 export function parseOperationId(raw: unknown): string {
@@ -146,7 +195,7 @@ export class WriteCoordinator {
   private readonly now: () => string;
   /** Operation IDs being worked on in this process: status, not a lock. */
   private readonly running = new Map<string, number>();
-  private readonly recoveryHooks = new Map<string, RecoveryHook>();
+  private readonly recoverers = new Map<string, Recoverer>();
 
   constructor(deps: WriteCoordinatorDeps) {
     this.db = deps.db;
@@ -208,9 +257,25 @@ export class WriteCoordinator {
     return this.db.transaction(write)();
   }
 
-  /** Register how to finish pending operations of one command after a crash. */
-  onRecover(command: string, hook: RecoveryHook): void {
-    this.recoveryHooks.set(command, hook);
+  /** Register how to inspect and finish pending operations of one command. */
+  onRecover(command: string, recoverer: Recoverer): void {
+    this.recoverers.set(command, recoverer);
+  }
+
+  /** How `command` is recovered; `undefined` when this version cannot. */
+  recovererFor(command: string): Recoverer | undefined {
+    return this.recoverers.get(command);
+  }
+
+  /** Whether a request for this operation ID is running in this process. */
+  isRunning(operationId: string): boolean {
+    return this.running.has(operationId);
+  }
+
+  /** An operation with its payload, or `undefined` when the ID is unused. */
+  findOperation(operationId: string): PendingOperation | undefined {
+    const op = this.operations.find(operationId);
+    return op && { ...op, payload: this.operations.getPayload(operationId) };
   }
 
   /**
@@ -220,10 +285,25 @@ export class WriteCoordinator {
    */
   async recoverPending(): Promise<OperationRecord[]> {
     for (const op of this.operations.listPending()) {
-      const hook = this.recoveryHooks.get(op.command);
-      if (hook) await hook(op);
+      try {
+        await this.resume(op.operation_id);
+      } catch (err) {
+        logger.warn(`recovery of ${op.operation_id} failed: ${(err as Error).message}`);
+      }
     }
     return this.operations.listPending();
+  }
+
+  /**
+   * Resume one pending operation; the caller holds its locks (the exclusive
+   * gate at startup, or a recovery action's command). Never starts a new
+   * operation: anything not pending, or without a recoverer, is left as is.
+   */
+  async resume(operationId: string): Promise<void> {
+    const op = this.findOperation(operationId);
+    const recoverer = op && this.recoverers.get(op.command);
+    if (!op || op.state !== 'pending' || !recoverer) return;
+    await recoverer.resume(op, (outcome, write) => this.settle(operationId, outcome, write));
   }
 
   /**
@@ -262,12 +342,14 @@ export class WriteCoordinator {
     }
 
     // Step 6: durable guards.
-    const targets = plan.guards?.(located) ?? {};
-    const guard =
-      this.operations.findGuard('project', held) ??
-      this.operations.findGuard('task', targets.tasks ?? []) ??
-      this.operations.findGuard('path', targets.paths ?? []);
-    if (guard) throw recoveryRequired(guard.operation_id);
+    if (!plan.recoveryAction) {
+      const targets = plan.guards?.(located) ?? {};
+      const guard =
+        this.operations.findGuard('project', held) ??
+        this.operations.findGuard('task', targets.tasks ?? []) ??
+        this.operations.findGuard('path', targets.paths ?? []);
+      if (guard) throw recoveryRequired(guard.operation_id);
+    }
 
     return plan.run(located, this.scope(held, op));
   }
@@ -306,15 +388,38 @@ export class WriteCoordinator {
       complete: (outcome, write) => {
         const { id } = requireOp();
         if (!intended) throw new Error('complete() needs a recorded intent.');
-        this.transaction(() => {
+        this.settle(id, outcome, write);
+        return outcome;
+      },
+      record: (outcome, write) => {
+        const claimed = requireOp();
+        if (intended) throw new Error('record() is for commands without an intent.');
+        const now = this.now();
+        this.claim(claimed, () => {
+          this.operations.insert({
+            operation_id: claimed.id,
+            command: claimed.command,
+            fingerprint: claimed.fingerprint,
+            state: 'completed',
+            outcome,
+            created_at: now,
+            completed_at: now,
+          });
           write?.();
-          this.operations.markCompleted(id, outcome, this.now());
-          this.operations.removePayload(id);
-          this.operations.releaseGuards(id);
         });
         return outcome;
       },
     };
+  }
+
+  /** Step 11: index writes, the receipt, payload removal and guard release, atomically. */
+  private settle(operationId: string, outcome: unknown, write?: () => void): void {
+    this.transaction(() => {
+      write?.();
+      this.operations.markCompleted(operationId, outcome, this.now());
+      this.operations.removePayload(operationId);
+      this.operations.releaseGuards(operationId);
+    });
   }
 
   /**

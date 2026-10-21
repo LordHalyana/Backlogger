@@ -15,6 +15,7 @@ import { projectGraphRouter } from './routes/project-graph.js';
 import { projectReloadRouter } from './routes/project-reload.js';
 import { projectTitlesRouter } from './routes/project-titles.js';
 import { projectsRouter } from './routes/projects.js';
+import { recoveryRouter } from './routes/recovery.js';
 import { searchRouter } from './routes/search.js';
 import { tagsRouter } from './routes/tags.js';
 import { templatesRouter } from './routes/templates.js';
@@ -62,6 +63,7 @@ export function createApp(ctx: AppContext, options: CreateAppOptions = {}): Expr
   app.use('/api/documents', taskCommentsRouter(ctx.commentService));
   app.use('/api/comments', commentsRouter(ctx.commentService));
   app.use('/api/documents', documentsRouter(ctx.documentService, ctx.linkService));
+  app.use('/api/recovery', recoveryRouter(ctx.recoveryService));
   app.use('/api/search', searchRouter(ctx.searchService));
   app.use('/api/tags', tagsRouter(ctx.tagsService));
   app.use('/api/templates', templatesRouter(ctx.templates));

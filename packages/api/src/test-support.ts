@@ -51,6 +51,17 @@ export async function setup(opts: SetupOptions = {}): Promise<Harness> {
   return { app: createApp(ctx, { allowedOrigins: opts.allowedOrigins }), dataDir, db, ctx };
 }
 
+/**
+ * A process restart: a new context, coordinator and app over the same data
+ * dir and database, so in-memory state is gone and operational rows remain.
+ * Runs the startup pass, including recovery of pending operations.
+ */
+export async function restart(h: Harness): Promise<Harness> {
+  const ctx = buildContext({ db: h.db, dataDir: h.dataDir, templates: h.ctx.templates });
+  await prepareDataDir(ctx);
+  return { app: createApp(ctx), dataDir: h.dataDir, db: h.db, ctx };
+}
+
 export async function teardown(h: Harness): Promise<void> {
   h.db.close();
   await fs.rm(h.dataDir, { recursive: true, force: true });
