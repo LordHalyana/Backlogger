@@ -91,6 +91,26 @@ export class OperationsRepo {
       .run(JSON.stringify(outcome), completedAt, operationId);
   }
 
+  /** Record that the user gave up a pending operation; it is never replayed. */
+  markAbandoned(operationId: string, outcome: unknown, abandonedAt: string): void {
+    this.db
+      .prepare(
+        `UPDATE operations SET state = 'abandoned', outcome = ?, completed_at = ?
+         WHERE operation_id = ? AND state = 'pending'`,
+      )
+      .run(JSON.stringify(outcome), abandonedAt, operationId);
+  }
+
+  getPayload(operationId: string): string | null {
+    const row = this.db
+      .prepare<
+        [string],
+        { payload: string }
+      >(`SELECT payload FROM operation_payloads WHERE operation_id = ?`)
+      .get(operationId);
+    return row?.payload ?? null;
+  }
+
   setPayload(operationId: string, payload: string): void {
     this.db
       .prepare(`INSERT INTO operation_payloads (operation_id, payload) VALUES (?, ?)`)
@@ -119,6 +139,17 @@ export class OperationsRepo {
 
   releaseGuards(operationId: string): void {
     this.db.prepare(`DELETE FROM operation_guards WHERE operation_id = ?`).run(operationId);
+  }
+
+  /** The projects an operation's guards live in, ascending. */
+  guardedProjects(operationId: string): string[] {
+    return this.db
+      .prepare<[string], { project_id: string }>(
+        `SELECT DISTINCT project_id FROM operation_guards WHERE operation_id = ?
+         ORDER BY project_id`,
+      )
+      .all(operationId)
+      .map((row) => row.project_id);
   }
 
   /** The first guard of `scope` on any of `keys`, or undefined. */

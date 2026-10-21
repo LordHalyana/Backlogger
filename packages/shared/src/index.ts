@@ -31,4 +31,5 @@ export * from './sidecar.js';
 export * from './tasks.js';
 export * from './capture.js';
 export * from './comments.js';
+export * from './recovery.js';
 export * from './ids.js';

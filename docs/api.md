@@ -52,6 +52,7 @@ Common codes include:
 - `RECOVERY_REQUIRED` (a write blocked by an unfinished operation; `details: { operationId, inspect }`, where `inspect` is the operation's `/api/recovery/:operationId` link)
 - `CAPTURE_ID_CONFLICT`
 - `INVALID_COMMAND`, `REVISION_REQUIRED` (`428`), `OPERATION_ID_CONFLICT`, `OPERATION_IN_PROGRESS`, `OPERATION_ABANDONED`, `COMMENT_NOT_WRITABLE`, `COMMENT_ID_CONFLICT`, `COMMENT_NOT_PRESERVABLE`, `PARENT_NOT_FOUND`, `COMMENT_NOT_FOUND` (see [Comments](#comments))
+- `RECOVERY_NOT_FOUND` (`404`), `RECOVERY_ACTION_NOT_ALLOWED` (see [Recovery](#recovery))
 - `PROJECT_NOT_WRITABLE`
 - `NOT_A_BACKLOG_ITEM`
 - `TARGET_PATH_TAKEN`
@@ -483,6 +484,131 @@ within the page:
 
 Lists come from the comment index, which Reload and Reindex rebuild from the
 files (see [Operations](api/operations.md#admin)).
+
+## Recovery
+
+A crash or storage failure can leave a write pending. Its operation row,
+payload and guards stay in SQLite until the operation is finished or, for
+a comment operation, abandoned. While it is pending:
+
+- A pending comment operation blocks its parent task and all of the task's
+  comments, including archiving, filing and deletion of the task, with
+  `409 RECOVERY_REQUIRED` (`details: { operationId, inspect }`). Reads,
+  recovery actions and other tasks are not blocked. Unresolved conflicts
+  restrict only the resources involved, not the whole app.
+- Retrying the original request with the same `Idempotency-Key` answers
+  `RECOVERY_REQUIRED` until recovery finishes the operation. After that it
+  returns the original acknowledgement. After an abandon it returns
+  `409 OPERATION_ABANDONED`.
+- Reload and Reindex never apply a payload or drop a pending row.
+
+On startup, before serving requests, the server tries to finish every pending
+operation from what it knows:
+
+- If the files are still in the state they had before the operation, it
+  writes the intended bytes again.
+- If they are already in the state the operation leaves, it finishes only
+  the bookkeeping.
+- Anything else keeps the files and the payload and is reported here.
+
+A missing parent, a changed owner or an ambiguous path stops recovery. A
+missing file is expected before a create and after a delete. During an edit,
+a missing file is a conflict, and the file is never recreated.
+
+### `GET /api/recovery`
+
+Summaries of the pending operations, oldest first. They never include
+content:
+
+```json
+{
+  "operations": [
+    {
+      "operation_id": "<uuid>",
+      "command": "comment.edit",
+      "state": "pending",
+      "created_at": "…",
+      "kind": "content_conflict",
+      "reason": "content_changed",
+      "message": "The comment file was changed outside this operation.",
+      "project_id": "work",
+      "task_id": "<task uuid>",
+      "comment_id": "<comment uuid>",
+      "in_progress": false
+    }
+  ]
+}
+```
+
+- `kind` is one of:
+  - `resumable`: the files are in a known state, and Recheck finishes the
+    operation.
+  - `content_conflict`: a file holds content the operation did not expect.
+  - `structural`: something must be repaired by hand first. See
+    [Backup and Restore](operations/backup-restore.md#manual-structural-repair).
+- `reason` is one of `interrupted`, `content_changed`, `file_missing`,
+  `parent_missing`, `owner_changed`, `ambiguous_path` or `unsupported`. An
+  operation this version cannot inspect reports `unsupported`.
+- `in_progress` is true while a request for the operation is running in
+  the server.
+
+### `GET /api/recovery/:operationId`
+
+The summary plus:
+
+- `paths`: each file as
+  `{ path, before_revision, after_revision, observed_revision }`. These are
+  the known states before and after the operation and the file as it is now.
+  Paths are relative to `<dataDir>/projects/`, and a `null` revision means
+  the file is absent.
+- `actions`: `["recheck", "abandon"]` for comment operations,
+  `["recheck"]` for everything else.
+- `review_token`: changes whenever the reviewed state changes.
+- `pending_content`: the exact Markdown the operation meant to write. It is
+  `null` for a delete.
+- `current_content`: the file as it is now, or `null` when it is absent.
+
+An unknown operation, or one that is no longer pending, gets
+`404 RECOVERY_NOT_FOUND`.
+
+### `POST /api/recovery/:operationId/recheck`
+
+Resumes the original operation from where its files stand now. It never
+starts a new operation.
+
+```json
+{ "operation_id": "<uuid>", "state": "completed", "acknowledgement": { /* the original ack */ }, "recovery": null }
+```
+
+While the operation is still pending, `state` is `"pending"` and `recovery`
+holds the detail described above. Unknown operation:
+`404 RECOVERY_NOT_FOUND`.
+
+### `POST /api/recovery/:operationId/abandon`
+
+Comment operations only. The request needs its own `Idempotency-Key` and the
+review token from the detail you reviewed:
+
+```json
+{ "review_token": "<from GET /api/recovery/:operationId>" }
+```
+
+One transaction records the abandon acknowledgement, marks the original
+operation `abandoned` and removes its payload and guards. The Markdown files
+are left exactly as they are.
+
+```json
+{ "operation_id": "<abandon key>", "command": "recovery.abandon", "target_operation_id": "<uuid>", "outcome": "abandoned" }
+```
+
+- Missing or invalid key, or a missing review token:
+  `400 INVALID_COMMAND`.
+- The reviewed state has changed: `409 REVISION_CONFLICT` with
+  `details.reviewToken`. Review the operation again before abandoning it.
+- A non-comment or completed operation:
+  `409 RECOVERY_ACTION_NOT_ALLOWED`.
+- An operation that was already abandoned: `409 OPERATION_ABANDONED`.
+- Retrying with the same key returns the same acknowledgement.
 
 ## Capture
 

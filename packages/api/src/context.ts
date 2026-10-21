@@ -5,6 +5,7 @@ import { OperationsRepo } from './db/operations-repo.js';
 import { ProjectsRepo } from './db/projects-repo.js';
 import { FsRepository, PathResolver, SidecarStore } from './fs/index.js';
 import { BoardService } from './services/board-service.js';
+import { COMMENT_COMMANDS, CommentRecovery } from './services/comment-recovery.js';
 import { CommentService } from './services/comment-service.js';
 import { DocumentService } from './services/document-service.js';
 import { CurrentWorkService } from './services/current-work-service.js';
@@ -14,6 +15,7 @@ import { ImportService } from './services/import-service.js';
 import { LinkService } from './services/link-service.js';
 import { ProjectService } from './services/project-service.js';
 import { ProjectQueue } from './services/project-queue.js';
+import { RecoveryService } from './services/recovery-service.js';
 import { ReindexService } from './services/reindex-service.js';
 import { SearchService } from './services/search-service.js';
 import { GraphService } from './services/graph-service.js';
@@ -37,6 +39,7 @@ export interface AppContext {
   inboxService: InboxService;
   documentService: DocumentService;
   commentService: CommentService;
+  recoveryService: RecoveryService;
   boardService: BoardService;
   currentWorkService: CurrentWorkService;
   reindexService: ReindexService;
@@ -109,6 +112,9 @@ export function buildContext(opts: BuildContextOptions): AppContext {
     fs,
     coordinator,
   });
+  const commentRecovery = new CommentRecovery({ commentsRepo, documentsRepo, fs });
+  for (const command of COMMENT_COMMANDS) coordinator.onRecover(command, commentRecovery);
+  const recoveryService = new RecoveryService({ coordinator });
   const reindexService = new ReindexService({
     documentsRepo,
     commentsRepo,
@@ -148,6 +154,7 @@ export function buildContext(opts: BuildContextOptions): AppContext {
     inboxService,
     documentService,
     commentService,
+    recoveryService,
     boardService,
     currentWorkService,
     reindexService,

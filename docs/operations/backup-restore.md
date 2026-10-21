@@ -122,3 +122,35 @@ Files with invalid Backlogger frontmatter or a mismatched `project` value are
 skipped and reported by reindex. Plain Markdown without Backlogger frontmatter
 is indexed with derived metadata; it can be adopted on first edit after the
 project is explicitly switched to editable mode.
+
+## Pending Operations And Recovery Review
+
+Pending operations, retry receipts and recovery payloads are stored in
+`backlogger.sqlite`. They are not derived from Markdown, so Reload and
+Reindex never rebuild them. Losing the database loses this retry and recovery
+history, even when the Markdown is intact. Rebuilding the index from Markdown
+is not the same as restoring the database.
+
+On startup, Backlogger tries to finish every pending operation. Operations it
+cannot finish stay listed at `GET /api/recovery`, and only the tasks and
+files they involve stay blocked (`RECOVERY_REQUIRED`). See
+[Recovery](../api.md#recovery).
+
+## Manual Structural Repair
+
+Repair by hand when recovery reports a `structural` problem: a missing file,
+a missing parent task, a changed owner or an ambiguous path. Backlogger has
+no repair tool. Follow these steps:
+
+1. Stop Backlogger.
+2. Copy the full data directory: Markdown, `workspace.json` and
+   `backlogger.sqlite` with its `-wal` and `-shm` files.
+3. Repair only the paths that `GET /api/recovery/:operationId` lists, so that
+   each file matches its expected state. For example, put a missing task file
+   back from a backup, or move a comment file back under its task.
+4. Restart Backlogger. Startup recovery runs again.
+5. Inspect `GET /api/recovery`. Recheck anything still listed, or abandon a
+   comment operation you no longer want.
+
+Never edit the operational tables (`operations`, `operation_payloads`,
+`operation_manifest_entries`, `operation_guards`) by hand.
