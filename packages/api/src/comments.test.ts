@@ -2,10 +2,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import request from 'supertest';
+import { contentRevision } from './fs/index.js';
 import { setup, teardown, type Harness } from './test-support.js';
 
 /**
- * HTTP API tests for posting, reading and listing comments (#65, spec #58).
+ * HTTP API tests for posting, reading, listing, editing and deleting comments
+ * (#65, #66, spec #58).
  * Real routes over a temp data dir; content is asserted on the Markdown
  * bytes, retry state on the operational tables.
  */
@@ -623,5 +625,347 @@ describe('Reindex and the comment index', () => {
     const reload = await request(h.app).post('/api/projects/work/reload');
     expect(reload.status).toBe(200);
     expect(reload.body.comments.problems).toHaveLength(5);
+  });
+});
+
+function put(
+  h: Harness,
+  commentId: string,
+  key: string | undefined,
+  ifMatch: string | undefined,
+  body: unknown,
+) {
+  const req = request(h.app).put(`/api/comments/${commentId}`);
+  if (key !== undefined) req.set('Idempotency-Key', key);
+  if (ifMatch !== undefined) req.set('If-Match', ifMatch);
+  return req.send(body as object);
+}
+
+function del(h: Harness, commentId: string, key: string | undefined, ifMatch: string | undefined) {
+  const req = request(h.app).delete(`/api/comments/${commentId}`);
+  if (key !== undefined) req.set('Idempotency-Key', key);
+  if (ifMatch !== undefined) req.set('If-Match', ifMatch);
+  return req.send();
+}
+
+async function revisionOf(h: Harness, commentId: string): Promise<string> {
+  const res = await request(h.app).get(`/api/comments/${commentId}`);
+  expect(res.status).toBe(200);
+  return (res.body as CommentBody).revision;
+}
+
+/** Make a comment directory unwritable, so the next file change in it fails. */
+async function freezeDir(h: Harness, rel: string): Promise<() => Promise<void>> {
+  const abs = path.join(h.dataDir, 'projects', path.dirname(rel));
+  await fs.chmod(abs, 0o555);
+  return () => fs.chmod(abs, 0o755);
+}
+
+describe('PUT /api/comments/:commentId', () => {
+  let h: Harness;
+  let task: DocBody;
+  let rel: string;
+  beforeEach(async () => {
+    h = await setup();
+    await createProject(h, 'work');
+    task = await createDoc(h, 'work', 'Edit my comments');
+    expect((await post(h, task.id, uuid(100), { id: uuid(1), body: 'First draft' })).status).toBe(
+      201,
+    );
+    rel = commentRel('work', task.id, uuid(1));
+  });
+  afterEach(() => teardown(h));
+
+  it('changes only the body and updated_at, byte-preserving identity, created_at and unknown keys', async () => {
+    const original = await disk(h, rel);
+    const at = /created_at: '([^']+)'/.exec(original)?.[1] ?? '';
+    // An external tool added keys this version does not know, with a comment.
+    const withExtras = original.replace(
+      `updated_at: '${at}'\n`,
+      `updated_at: '${at}'\nx_source: imported # keep me\nx_meta:\n  tags: [a, b]\n`,
+    );
+    await writeRaw(h, rel, withExtras);
+    const taskBefore = await disk(h, task.path);
+
+    const body = 'Second draft\r\n\n```ts\nconst x = 1;\n```\n';
+    const res = await put(h, uuid(1), uuid(101), await revisionOf(h, uuid(1)), { body });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      operation_id: uuid(101),
+      command: 'comment.edit',
+      comment_id: uuid(1),
+      parent_id: task.id,
+      outcome: 'edited',
+      result_revision: expect.any(String),
+    });
+
+    const text = await disk(h, rel);
+    const updated = /updated_at: '([^']+)'/.exec(text)?.[1] ?? '';
+    expect(updated).toMatch(ISO);
+    expect(updated >= at).toBe(true);
+    expect(text).toBe(
+      [
+        '---',
+        'schema_version: 1',
+        'kind: comment',
+        `id: ${uuid(1)}`,
+        `parent_id: ${task.id}`,
+        `created_at: '${at}'`,
+        `updated_at: '${updated}'`,
+        'x_source: imported # keep me',
+        'x_meta:',
+        '  tags: [a, b]',
+        '---',
+        body,
+      ].join('\n'),
+    );
+    expect(await disk(h, task.path)).toBe(taskBefore);
+
+    const read = await request(h.app).get(`/api/comments/${uuid(1)}`);
+    expect(read.body).toMatchObject({
+      body,
+      created_at: at,
+      updated_at: updated,
+      revision: res.body.result_revision,
+    });
+    const page = await request(h.app).get(`/api/documents/${task.id}/comments`);
+    expect(page.body.comments).toEqual([read.body]);
+    expect(count(h, 'operation_payloads')).toBe(0);
+    expect(JSON.stringify(operationRows(h))).not.toContain('Second draft');
+  });
+
+  it('requires If-Match (428) and refuses a stale one with REVISION_CONFLICT, leaving bytes unchanged', async () => {
+    const before = await disk(h, rel);
+    const current = await revisionOf(h, uuid(1));
+
+    const missing = await put(h, uuid(1), uuid(101), undefined, { body: 'x' });
+    expect(missing.status).toBe(428);
+    expect(missing.body.error.code).toBe('REVISION_REQUIRED');
+
+    const stale = await put(h, uuid(1), uuid(102), 'stale-revision', { body: 'x' });
+    expect(stale.status).toBe(409);
+    expect(stale.body.error.code).toBe('REVISION_CONFLICT');
+    expect(stale.body.error.details).toMatchObject({ currentRevision: current });
+
+    expect(await disk(h, rel)).toBe(before);
+    expect(operationRows(h).map((r) => r.operation_id)).toEqual([uuid(100)]);
+  });
+
+  it('refuses a file it cannot safely preserve and leaves it byte-identical', async () => {
+    const original = await disk(h, rel);
+    const at = /created_at: '([^']+)'/.exec(original)?.[1] ?? '';
+    const unsafe = [
+      // The value continues on the next line.
+      original.replace(`updated_at: '${at}'`, `updated_at:\n  '${at}'`),
+      // A trailing YAML comment would be lost by rewriting the line.
+      original.replace(`updated_at: '${at}'`, `updated_at: '${at}' # by hand`),
+      // No longer parses as a comment file at all.
+      original.replace('kind: comment', 'kind: [comment'),
+    ];
+    for (const [i, text] of unsafe.entries()) {
+      await writeRaw(h, rel, text);
+      const res = await put(h, uuid(1), uuid(110 + i), contentRevision(await disk(h, rel)), {
+        body: 'x',
+      });
+      expect(res.status, text).toBe(409);
+      expect(res.body.error.code).toBe('COMMENT_NOT_PRESERVABLE');
+      expect(await disk(h, rel)).toBe(text);
+    }
+    expect(count(h, 'operation_payloads')).toBe(0);
+    expect(count(h, 'operation_guards')).toBe(0);
+  });
+
+  it('retrying an edit after a later edit returns the original ack without overwriting the newer body', async () => {
+    const r0 = await revisionOf(h, uuid(1));
+    const first = await put(h, uuid(1), uuid(101), r0, { body: 'Second' });
+    expect(first.status).toBe(200);
+    const second = await put(h, uuid(1), uuid(102), first.body.result_revision, { body: 'Third' });
+    expect(second.status).toBe(200);
+    const bytes = await disk(h, rel);
+
+    const retry = await put(h, uuid(1), uuid(101), r0, { body: 'Second' });
+    expect(retry.status).toBe(200);
+    expect(retry.body).toEqual(first.body);
+    expect(await disk(h, rel)).toBe(bytes);
+    expect(bytes.endsWith('---\nThird')).toBe(true);
+
+    const reused = await put(h, uuid(1), uuid(101), r0, { body: 'Other' });
+    expect(reused.status).toBe(409);
+    expect(reused.body.error.code).toBe('OPERATION_ID_CONFLICT');
+  });
+
+  it('rejects invalid input with INVALID_COMMAND and unknown comments with COMMENT_NOT_FOUND', async () => {
+    const r0 = await revisionOf(h, uuid(1));
+    const bad: Array<[string, string | undefined, unknown]> = [
+      [uuid(1), undefined, { body: 'ok' }],
+      [uuid(1), 'nope', { body: 'ok' }],
+      [uuid(1), uuid(101), {}],
+      [uuid(1), uuid(101), { body: '  \n' }],
+      ['not-a-uuid', uuid(101), { body: 'ok' }],
+    ];
+    for (const [id, key, body] of bad) {
+      const res = await put(h, id, key, r0, body);
+      expect(res.status, JSON.stringify([id, key, body])).toBe(400);
+      expect(res.body.error.code).toBe('INVALID_COMMAND');
+    }
+    const unknown = await put(h, uuid(999), uuid(101), r0, { body: 'ok' });
+    expect(unknown.status).toBe(404);
+    expect(unknown.body.error.code).toBe('COMMENT_NOT_FOUND');
+    expect(operationRows(h)).toHaveLength(1);
+  });
+
+  it('keeps the exact intended bytes and before/after revisions while an edit is pending', async () => {
+    const r0 = await revisionOf(h, uuid(1));
+    const thaw = await freezeDir(h, rel);
+    const res = await put(h, uuid(1), uuid(101), r0, { body: 'Pending body' });
+    await thaw();
+    expect(res.status).toBe(500);
+
+    const op = operationRows(h).find((r) => r.operation_id === uuid(101));
+    expect(op).toMatchObject({ command: 'comment.edit', state: 'pending' });
+    const { payload } = h.db
+      .prepare(`SELECT payload FROM operation_payloads WHERE operation_id = ?`)
+      .get(uuid(101)) as { payload: string };
+    const pending = JSON.parse(payload) as {
+      path: string;
+      before: string;
+      content: string;
+      after: string;
+    };
+    expect(pending.path).toBe(rel);
+    expect(pending.before).toBe(r0);
+    expect(pending.content.endsWith('---\nPending body')).toBe(true);
+    expect(pending.after).toBe(contentRevision(pending.content));
+
+    const blocked = await put(h, uuid(1), uuid(102), r0, { body: 'Other' });
+    expect(blocked.body.error.code).toBe('RECOVERY_REQUIRED');
+  });
+});
+
+describe('DELETE /api/comments/:commentId', () => {
+  let h: Harness;
+  let task: DocBody;
+  let rel: string;
+  beforeEach(async () => {
+    h = await setup();
+    await createProject(h, 'work');
+    task = await createDoc(h, 'work', 'Delete my comments');
+    expect((await post(h, task.id, uuid(100), { id: uuid(1), body: 'Doomed' })).status).toBe(201);
+    rel = commentRel('work', task.id, uuid(1));
+  });
+  afterEach(() => teardown(h));
+
+  it('removes the file and index row; a retry returns the original ack and resurrects nothing', async () => {
+    const taskBefore = await disk(h, task.path);
+    const r0 = await revisionOf(h, uuid(1));
+    const res = await del(h, uuid(1), uuid(101), r0);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      operation_id: uuid(101),
+      command: 'comment.delete',
+      comment_id: uuid(1),
+      parent_id: task.id,
+      outcome: 'deleted',
+      result_revision: null,
+    });
+    expect(await exists(h, rel)).toBe(false);
+    expect(count(h, 'comments')).toBe(0);
+    expect((await request(h.app).get(`/api/comments/${uuid(1)}`)).status).toBe(404);
+    expect(await disk(h, task.path)).toBe(taskBefore);
+
+    const reused = await del(h, uuid(1), uuid(101), 'other-revision');
+    expect(reused.status).toBe(409);
+    expect(reused.body.error.code).toBe('OPERATION_ID_CONFLICT');
+    const sameRetry = await del(h, uuid(1), uuid(101), r0);
+    expect(sameRetry.status).toBe(200);
+    expect(sameRetry.body).toEqual(res.body);
+    expect(await exists(h, rel)).toBe(false);
+    expect(count(h, 'comments')).toBe(0);
+    expect(count(h, 'operation_payloads')).toBe(0);
+    expect(count(h, 'operation_guards')).toBe(0);
+  });
+
+  it('requires If-Match (428) and refuses a stale one with REVISION_CONFLICT, keeping the file', async () => {
+    const before = await disk(h, rel);
+    const missing = await del(h, uuid(1), uuid(101), undefined);
+    expect(missing.status).toBe(428);
+    expect(missing.body.error.code).toBe('REVISION_REQUIRED');
+    const stale = await del(h, uuid(1), uuid(102), 'stale-revision');
+    expect(stale.status).toBe(409);
+    expect(stale.body.error.code).toBe('REVISION_CONFLICT');
+    expect(stale.body.error.details).toMatchObject({
+      currentRevision: await revisionOf(h, uuid(1)),
+    });
+    expect(await disk(h, rel)).toBe(before);
+    expect(count(h, 'comments')).toBe(1);
+  });
+
+  it('keeps only identity, path and expected revision while a delete is pending', async () => {
+    const r0 = await revisionOf(h, uuid(1));
+    const thaw = await freezeDir(h, rel);
+    const res = await del(h, uuid(1), uuid(101), r0);
+    await thaw();
+    expect(res.status).toBe(500);
+    const { payload } = h.db
+      .prepare(`SELECT payload FROM operation_payloads WHERE operation_id = ?`)
+      .get(uuid(101)) as { payload: string };
+    expect(JSON.parse(payload)).toEqual({
+      comment_id: uuid(1),
+      parent_id: task.id,
+      path: rel,
+      expected_revision: r0,
+    });
+    expect(await exists(h, rel)).toBe(true);
+  });
+});
+
+describe('Comment edit and delete writability', () => {
+  let h: Harness;
+  afterEach(() => teardown(h));
+
+  it('refuses both on an archived parent and in a read-only project with COMMENT_NOT_WRITABLE', async () => {
+    h = await setup();
+    await createProject(h, 'work');
+    await createProject(h, 'frozen');
+    const archived = await createDoc(h, 'work', 'Archived');
+    const frozen = await createDoc(h, 'frozen', 'Frozen');
+    await post(h, archived.id, uuid(100), { id: uuid(1), body: 'a' });
+    await post(h, frozen.id, uuid(101), { id: uuid(2), body: 'b' });
+    const revisions = [await revisionOf(h, uuid(1)), await revisionOf(h, uuid(2))];
+    expect(
+      (await request(h.app).put(`/api/documents/${archived.id}`).send({ status: 'archived' }))
+        .status,
+    ).toBe(200);
+    expect((await request(h.app).put('/api/projects/frozen').send({ readOnly: true })).status).toBe(
+      200,
+    );
+
+    const rels = [
+      commentRel('work', archived.id, uuid(1)),
+      commentRel('frozen', frozen.id, uuid(2)),
+    ];
+    const before = await Promise.all(rels.map((r) => disk(h, r)));
+    for (const [i, id] of [uuid(1), uuid(2)].entries()) {
+      const edit = await put(h, id, uuid(200 + i), revisions[i], { body: 'no' });
+      const remove = await del(h, id, uuid(210 + i), revisions[i]);
+      for (const res of [edit, remove]) {
+        expect(res.status).toBe(409);
+        expect(res.body.error.code).toBe('COMMENT_NOT_WRITABLE');
+      }
+    }
+    expect(await Promise.all(rels.map((r) => disk(h, r)))).toEqual(before);
+    expect(operationRows(h)).toHaveLength(2);
+  });
+
+  it('allows both on a Done item', async () => {
+    h = await setup();
+    await createProject(h, 'work');
+    const done = await createDoc(h, 'work', 'Done', { task_state: 'done' });
+    await post(h, done.id, uuid(100), { id: uuid(1), body: 'a' });
+    const edit = await put(h, uuid(1), uuid(101), await revisionOf(h, uuid(1)), { body: 'b' });
+    expect(edit.status).toBe(200);
+    const remove = await del(h, uuid(1), uuid(102), edit.body.result_revision);
+    expect(remove.status).toBe(200);
   });
 });

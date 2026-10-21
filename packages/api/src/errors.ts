@@ -27,3 +27,10 @@ export class BadRequestError extends HttpError {
     super(400, code, message, details);
   }
 }
+
+/** 428: a conditional write sent without its `If-Match`. */
+export class PreconditionRequiredError extends HttpError {
+  constructor(code: string, message: string) {
+    super(428, code, message);
+  }
+}

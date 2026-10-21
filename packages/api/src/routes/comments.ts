@@ -44,5 +44,33 @@ export function commentsRouter(service: CommentService): Router {
     }),
   );
 
+  router.put(
+    '/:commentId',
+    asyncRoute(async (req, res) => {
+      const input = (req.body ?? {}) as { body?: unknown };
+      res.json(
+        await service.edit({
+          operationId: req.header('Idempotency-Key'),
+          commentId: req.params.commentId ?? '',
+          expectedRevision: req.header('If-Match'),
+          body: input.body,
+        }),
+      );
+    }),
+  );
+
+  router.delete(
+    '/:commentId',
+    asyncRoute(async (req, res) => {
+      res.json(
+        await service.delete({
+          operationId: req.header('Idempotency-Key'),
+          commentId: req.params.commentId ?? '',
+          expectedRevision: req.header('If-Match'),
+        }),
+      );
+    }),
+  );
+
   return router;
 }

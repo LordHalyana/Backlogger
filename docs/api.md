@@ -51,7 +51,7 @@ Common codes include:
 - `REVISION_CONFLICT` (filing, and an update, move or delete whose document was filed into another project while it waited; `details: { currentRevision, currentProjectId }`)
 - `RECOVERY_REQUIRED` (a write blocked by an unfinished operation; `details: { operationId, inspect }`, where `inspect` is the operation's `/api/recovery/:operationId` link)
 - `CAPTURE_ID_CONFLICT`
-- `INVALID_COMMAND`, `OPERATION_ID_CONFLICT`, `OPERATION_IN_PROGRESS`, `OPERATION_ABANDONED`, `COMMENT_NOT_WRITABLE`, `COMMENT_ID_CONFLICT`, `PARENT_NOT_FOUND`, `COMMENT_NOT_FOUND` (see [Comments](#comments))
+- `INVALID_COMMAND`, `REVISION_REQUIRED` (`428`), `OPERATION_ID_CONFLICT`, `OPERATION_IN_PROGRESS`, `OPERATION_ABANDONED`, `COMMENT_NOT_WRITABLE`, `COMMENT_ID_CONFLICT`, `COMMENT_NOT_PRESERVABLE`, `PARENT_NOT_FOUND`, `COMMENT_NOT_FOUND` (see [Comments](#comments))
 - `PROJECT_NOT_WRITABLE`
 - `NOT_A_BACKLOG_ITEM`
 - `TARGET_PATH_TAKEN`
@@ -385,6 +385,11 @@ Acknowledgements carry no body content:
 }
 ```
 
+`command` is `comment.create`, `comment.edit` or `comment.delete`, with
+`outcome` `created`, `edited` or `deleted`. `result_revision` is the revision
+the command left the file at, and `null` after a delete. Clients fetch the
+current comment separately.
+
 ### `POST /api/documents/:taskId/comments`
 
 ```json
@@ -423,6 +428,42 @@ One comment, read from its file:
 `project_id` is the parent task's current project. `writable` is false while
 the task is archived, its project is read-only, or it is not a backlog item.
 Unknown comment: `404 COMMENT_NOT_FOUND`.
+
+### `PUT /api/comments/:commentId`
+
+Headers `Idempotency-Key` and `If-Match: <revision>`:
+
+```json
+{ "body": "Markdown" }
+```
+
+`200` with the acknowledgement. The body is replaced exactly as submitted and
+`updated_at` set to now; the comment keeps its place in the history
+(`created_at`), and readers can compare the two timestamps to show it was
+edited. Every other byte of the frontmatter is kept, including keys this
+version does not know. The parent task's file is not touched.
+
+- Missing `If-Match`: `428 REVISION_REQUIRED`.
+- `If-Match` is not the file's current revision: `409 REVISION_CONFLICT` with
+  `details: { currentRevision }`; nothing is written.
+- A file whose frontmatter cannot be kept byte for byte (it no longer parses,
+  `updated_at` is not one plain `updated_at: '<timestamp>'` line, or rewriting
+  it would change another key): `409 COMMENT_NOT_PRESERVABLE`. The file is left
+  untouched; fix it by hand to edit it here.
+- Missing or invalid `Idempotency-Key` or comment id, or a missing or
+  whitespace-only `body`: `400 INVALID_COMMAND`.
+- Unknown comment: `404 COMMENT_NOT_FOUND`. Archived task or read-only project:
+  `409 COMMENT_NOT_WRITABLE`; Done items accept edits.
+
+### `DELETE /api/comments/:commentId`
+
+Headers `Idempotency-Key` and `If-Match: <revision>`. `200` with the
+acknowledgement (`result_revision: null`). The file and its index entry are
+removed, permanently within the app: there is no trash or version history.
+Retrying a completed delete returns the same acknowledgement and never brings
+the comment back.
+
+Errors as for `PUT`, without `COMMENT_NOT_PRESERVABLE` and the body checks.
 
 ### `GET /api/documents/:taskId/comments?cursor=&limit=`
 

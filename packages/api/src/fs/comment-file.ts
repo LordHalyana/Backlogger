@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import matter from 'gray-matter';
 import {
   COMMENT_SCHEMA_VERSION,
@@ -50,6 +51,54 @@ export function serializeComment(fields: CommentFields, body: string): string {
     '---',
     body,
   ].join('\n');
+}
+
+export type CommentRewrite = { ok: true; content: string } | { ok: false; message: string };
+
+const UPDATED_AT_LINE = /^updated_at:[ \t]*(['"]?)\d{4}-\d{2}-\d{2}T[\d:.]+Z\1[ \t]*(\r?)$/;
+
+/**
+ * The bytes of an existing comment file after an edit: the body replaced and
+ * the `updated_at` line rewritten, every other frontmatter byte kept. Refused
+ * when that cannot be done safely (an unparseable file, an `updated_at` that
+ * is not one plain line, or a result whose other keys would differ), so an
+ * edit never strips data it does not understand.
+ */
+export function rewriteCommentBody(
+  relPath: string,
+  text: string,
+  body: string,
+  updatedAt: string,
+): CommentRewrite {
+  const before = parseCommentFile(relPath, text);
+  if (!before.ok)
+    return { ok: false, message: `the file is not a valid comment: ${before.message}` };
+  const match = FRONTMATTER.exec(text);
+  if (!match) return { ok: false, message: 'no frontmatter block' };
+  const header = match[0];
+  const yaml = match[1] ?? '';
+  const start = header.indexOf('\n') + 1;
+  const lines = yaml.split('\n');
+  const lineIndex = lines.findIndex((line) => /^updated_at\s*:/.test(line));
+  const plainLine = UPDATED_AT_LINE.exec(lines[lineIndex] ?? '');
+  if (!plainLine) return { ok: false, message: 'updated_at is not a single plain line' };
+  lines[lineIndex] = `updated_at: '${updatedAt}'${plainLine[2]}`;
+  const content =
+    header.slice(0, start) + lines.join('\n') + header.slice(start + yaml.length) + body;
+
+  const after = parseCommentFile(relPath, content);
+  if (
+    !after.ok ||
+    after.comment.updated_at !== updatedAt ||
+    after.comment.body !== body ||
+    !isDeepStrictEqual(
+      { ...before.comment.frontmatter, updated_at: updatedAt },
+      after.comment.frontmatter,
+    )
+  ) {
+    return { ok: false, message: 'the rewritten file would not keep its other frontmatter' };
+  }
+  return { ok: true, content };
 }
 
 /**

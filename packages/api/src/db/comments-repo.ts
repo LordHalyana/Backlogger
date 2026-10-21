@@ -39,6 +39,10 @@ export class CommentsRepo {
       .run(row);
   }
 
+  delete(id: string): void {
+    this.db.prepare(`DELETE FROM comments WHERE id = ?`).run(id);
+  }
+
   countForTask(taskId: string): number {
     return (
       this.db
