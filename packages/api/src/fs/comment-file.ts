@@ -1,8 +1,8 @@
 import matter from 'gray-matter';
 import {
   COMMENT_SCHEMA_VERSION,
-  COMMENTS_SEGMENT,
-  TICKETS_SEGMENT,
+  isCommentStoragePath,
+  isLowercaseUuid,
   type CommentProblemReason,
 } from '@backlogger/shared';
 
@@ -34,7 +34,6 @@ export type CommentParse =
       message: string;
     };
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
 const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
 
@@ -62,12 +61,7 @@ export function serializeComment(fields: CommentFields, body: string): string {
 export function parseCommentFile(relPath: string, text: string): CommentParse {
   const parts = relPath.split('/');
   const fileName = parts[4] ?? '';
-  if (
-    parts.length !== 5 ||
-    parts[1] !== TICKETS_SEGMENT ||
-    parts[3] !== COMMENTS_SEGMENT ||
-    !fileName.endsWith('.md')
-  ) {
+  if (!isCommentStoragePath(relPath) || parts.length !== 5 || !fileName.endsWith('.md')) {
     return malformed('not a <comment-id>.md file directly inside a comment directory');
   }
   const match = FRONTMATTER.exec(text);
@@ -90,10 +84,10 @@ export function parseCommentFile(relPath: string, text: string): CommentParse {
   }
   if (data.kind !== 'comment') return malformed('kind is not comment');
   const id = data.id;
-  if (typeof id !== 'string' || !UUID.test(id)) return malformed('id is not a lowercase UUID');
+  if (!isLowercaseUuid(id)) return malformed('id is not a lowercase UUID');
   if (`${id}.md` !== fileName) return malformed('id does not match the file name');
   const parentId = data.parent_id;
-  if (typeof parentId !== 'string' || !UUID.test(parentId)) {
+  if (!isLowercaseUuid(parentId)) {
     return malformed('parent_id is not a lowercase UUID');
   }
   if (parentId !== parts[2]) return malformed('parent_id does not match the task directory');

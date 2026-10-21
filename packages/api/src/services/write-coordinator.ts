@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { isUuid } from '@backlogger/shared';
 import { BadRequestError, ConflictError } from '../errors.js';
 import {
   isDuplicateOperation,
@@ -104,11 +105,9 @@ export interface WriteCoordinatorDeps {
 /** Tries to finish one pending operation found at startup. */
 export type RecoveryHook = (operation: OperationRecord) => Promise<void>;
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 /** Step 1: an Idempotency-Key must be a client-generated UUID. Returns it normalized. */
 export function parseOperationId(raw: unknown): string {
-  if (typeof raw !== 'string' || !UUID.test(raw.trim())) {
+  if (typeof raw !== 'string' || !isUuid(raw.trim())) {
     throw new BadRequestError('INVALID_COMMAND', 'Idempotency-Key must be a UUID.');
   }
   return raw.trim().toLowerCase();

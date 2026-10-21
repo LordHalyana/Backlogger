@@ -2,6 +2,7 @@ import {
   COMMENT_PAGE_DEFAULT,
   COMMENT_PAGE_MAX,
   commentPath,
+  isUuid,
   type Comment,
   type CommentAck,
   type CommentPage,
@@ -55,8 +56,6 @@ export interface PendingCommentWrite {
   after: string;
 }
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 /**
  * Comments on backlog items (spec #58): reads from the comment index and the
  * files, writes as retry-safe commands through the write coordinator.
@@ -91,16 +90,13 @@ export class CommentService {
       operation: { id: operationId, command: 'comment.create', fingerprint },
       locate: () => {
         const parent = this.findParent(taskId);
-        return { parent, projects: [parent.project_id] };
+        const relPath = commentPath(parent.project_id, taskId, commentId);
+        return { parent, relPath, projects: [parent.project_id] };
       },
       moved: ({ parent }) => parentMoved(parent),
-      guards: ({ parent }) => ({
-        tasks: [taskId],
-        paths: [commentPath(parent.project_id, taskId, commentId)],
-      }),
-      run: async ({ parent }, scope) => {
+      guards: ({ relPath }) => ({ tasks: [taskId], paths: [relPath] }),
+      run: async ({ parent, relPath }, scope) => {
         this.assertWritable(parent);
-        const relPath = commentPath(parent.project_id, taskId, commentId);
         if (this.commentsRepo.find(commentId) || (await this.fileExists(relPath))) {
           throw new ConflictError(
             'COMMENT_ID_CONFLICT',
@@ -162,7 +158,7 @@ export class CommentService {
   /** One comment, read fresh from its file. */
   async get(rawId: string): Promise<Comment> {
     const id = rawId.toLowerCase();
-    const row = UUID.test(id) ? this.commentsRepo.find(id) : undefined;
+    const row = isUuid(id) ? this.commentsRepo.find(id) : undefined;
     if (!row) throw commentNotFound(rawId);
     let text: string;
     try {
@@ -260,7 +256,7 @@ function invalid(message: string): BadRequestError {
 }
 
 function parseCommentId(raw: unknown): string {
-  if (typeof raw !== 'string' || !UUID.test(raw.trim())) throw invalid('id must be a UUID.');
+  if (typeof raw !== 'string' || !isUuid(raw.trim())) throw invalid('id must be a UUID.');
   return raw.trim().toLowerCase();
 }
 
