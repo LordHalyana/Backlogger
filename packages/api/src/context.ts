@@ -36,6 +36,7 @@ export interface AppContext {
   linkService: LinkService;
   tagsService: TagsService;
   graphService: GraphService;
+  queue: ProjectQueue;
   templates: TemplateRegistry;
   healthService: HealthService;
   importService: ImportService;
@@ -62,11 +63,11 @@ export function buildContext(opts: BuildContextOptions): AppContext {
   const builtinTemplatesDir = opts.builtinTemplatesDir ?? '';
   const userTemplatesDir = opts.userTemplatesDir ?? '';
   const inboxService = new InboxService({ projectsRepo, fs, dataDir: opts.dataDir });
-  const projectService = new ProjectService({ projectsRepo, fs, inbox: inboxService });
   const linkService = new LinkService(opts.db);
   const tagsService = new TagsService(opts.db);
   const graphService = new GraphService(opts.db);
   const queue = new ProjectQueue();
+  const projectService = new ProjectService({ projectsRepo, fs, inbox: inboxService, queue });
   const documentService = new DocumentService({
     documentsRepo,
     projectsRepo,
@@ -121,6 +122,7 @@ export function buildContext(opts: BuildContextOptions): AppContext {
     linkService,
     tagsService,
     graphService,
+    queue,
     templates,
     healthService,
     importService,

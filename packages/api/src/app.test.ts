@@ -206,6 +206,43 @@ describe('Projects API', () => {
     const res = await request(h.app).delete('/api/projects/ghost');
     expect(res.status).toBe(404);
   });
+
+  it('keeps the project when its folder cannot be removed', async () => {
+    await request(h.app).post('/api/projects').send({ id: 'aa', name: 'A' });
+    const created = await request(h.app)
+      .post('/api/projects/aa/documents')
+      .send({ title: 'Stays', type: 'note' });
+    const docDir = path.dirname(path.join(h.dataDir, 'projects', created.body.path));
+    await fs.chmod(docDir, 0o555);
+    try {
+      const res = await request(h.app).delete('/api/projects/aa');
+      expect(res.status).toBe(500);
+    } finally {
+      await fs.chmod(docDir, 0o755);
+    }
+
+    expect((await request(h.app).get('/api/projects/aa')).status).toBe(200);
+    expect((await request(h.app).get(`/api/documents/${created.body.id}`)).status).toBe(200);
+    await expect(
+      fs.access(path.join(h.dataDir, 'projects', created.body.path)),
+    ).resolves.toBeUndefined();
+  });
+
+  it('waits for in-flight project operations before deleting', async () => {
+    await request(h.app).post('/api/projects').send({ id: 'aa', name: 'A' });
+    let release!: () => void;
+    const held = h.ctx.queue.run('aa', () => new Promise<void>((r) => (release = r)));
+
+    const pending = request(h.app).delete('/api/projects/aa').then((res) => res);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(h.ctx.projectsRepo.exists('aa')).toBe(true);
+    await expect(fs.access(path.join(h.dataDir, 'projects', 'aa'))).resolves.toBeUndefined();
+
+    release();
+    await held;
+    expect((await pending).status).toBe(204);
+    expect(h.ctx.projectsRepo.exists('aa')).toBe(false);
+  });
 });
 
 describe('Documents API', () => {
@@ -329,6 +366,38 @@ describe('Documents API', () => {
     await expect(
       fs.access(path.join(h.dataDir, 'projects', created.body.path)),
     ).rejects.toThrow();
+  });
+
+  it('keeps the document indexed when its file cannot be removed', async () => {
+    const created = await request(h.app)
+      .post('/api/projects/aa/documents')
+      .send({ title: 'Stuck', type: 'note' });
+    const file = path.join(h.dataDir, 'projects', created.body.path);
+    await fs.chmod(path.dirname(file), 0o555);
+    try {
+      const del = await request(h.app).delete(`/api/documents/${created.body.id}`);
+      expect(del.status).toBe(500);
+    } finally {
+      await fs.chmod(path.dirname(file), 0o755);
+    }
+
+    expect((await request(h.app).get(`/api/documents/${created.body.id}`)).status).toBe(200);
+    await expect(fs.access(file)).resolves.toBeUndefined();
+
+    const retry = await request(h.app).delete(`/api/documents/${created.body.id}`);
+    expect(retry.status).toBe(204);
+    await expect(fs.access(file)).rejects.toThrow();
+  });
+
+  it('finishes a delete that was interrupted after the file was removed', async () => {
+    const created = await request(h.app)
+      .post('/api/projects/aa/documents')
+      .send({ title: 'Half Gone', type: 'note' });
+    await fs.unlink(path.join(h.dataDir, 'projects', created.body.path));
+
+    const del = await request(h.app).delete(`/api/documents/${created.body.id}`);
+    expect(del.status).toBe(204);
+    expect((await request(h.app).get(`/api/documents/${created.body.id}`)).status).toBe(404);
   });
 
   it('marks documents read-only and blocks writes when the project is read-only', async () => {
