@@ -152,8 +152,11 @@ export class OperationsRepo {
       .map((row) => row.project_id);
   }
 
-  /** The first guard of `scope` on any of `keys`, or undefined. */
-  findGuard(scope: GuardScope, keys: readonly string[]): GuardRow | undefined {
+  /**
+   * The first guard of `scope` on any of `keys`, or undefined. Keys match
+   * exactly; path guards go through `findPathGuard`.
+   */
+  findGuard(scope: Exclude<GuardScope, 'path'>, keys: readonly string[]): GuardRow | undefined {
     if (keys.length === 0) return undefined;
     const marks = keys.map(() => '?').join(', ');
     return this.db
@@ -162,6 +165,30 @@ export class OperationsRepo {
          ORDER BY operation_id LIMIT 1`,
       )
       .get(scope, ...keys);
+  }
+
+  /**
+   * The first path guard overlapping any of `paths`: the same path, a path
+   * under it (a guarded folder) or, unless `contents` is false, a path it
+   * lies under (a folder holding a guarded file). Paths are project-relative
+   * with the project ID first.
+   */
+  findPathGuard(
+    paths: readonly string[],
+    { contents = true }: { contents?: boolean } = {},
+  ): GuardRow | undefined {
+    const overlaps = this.db.prepare<[{ p: string }], GuardRow>(
+      `SELECT * FROM operation_guards WHERE scope = 'path' AND (
+         key = @p
+         OR substr(@p, 1, length(key) + 1) = key || '/'
+         ${contents ? `OR substr(key, 1, length(@p) + 1) = @p || '/'` : ''}
+       ) ORDER BY operation_id LIMIT 1`,
+    );
+    for (const p of paths) {
+      const guard = overlaps.get({ p });
+      if (guard) return guard;
+    }
+    return undefined;
   }
 
   /** The first guard of any scope living in `projectId`, or undefined. */

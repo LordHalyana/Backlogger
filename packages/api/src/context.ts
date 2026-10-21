@@ -140,7 +140,11 @@ export function buildContext(opts: BuildContextOptions): AppContext {
     templates,
     version: APP_VERSION,
   });
-  const importService = new ImportService({ documentsRepo, documentService });
+  const importService = new ImportService({
+    documentsRepo,
+    documentService,
+    operations: operationsRepo,
+  });
   return {
     db: opts.db,
     resolver,

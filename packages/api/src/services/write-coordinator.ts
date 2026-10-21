@@ -50,7 +50,13 @@ export interface Located {
 
 export interface GuardTargets {
   tasks?: readonly string[];
+  /** Paths written, moved or removed: any overlapping path guard refuses them. */
   paths?: readonly string[];
+  /**
+   * Folders created: refused by a guard on the folder or a folder above it,
+   * never by guarded files inside it, since creating it writes none of them.
+   */
+  newFolders?: readonly string[];
 }
 
 export interface CommandPlan<L extends Located, T> {
@@ -87,6 +93,12 @@ export interface CommandScope {
   readonly projects: readonly string[];
   /** Refuse with RECOVERY_REQUIRED while anything is pending in `projectId`. */
   assertNothingPendingIn(projectId: string): void;
+  /**
+   * Step 6 for targets only known once the command runs (a new document's
+   * ID and path, say): refuse with RECOVERY_REQUIRED if a task or path
+   * guard covers any of them. Call it before writing any file.
+   */
+  assertUnguarded(targets: GuardTargets): void;
   /**
    * Step 8: record the pending operation and install its guards, atomically.
    * A retry-safe command calls it before writing any file, so a duplicate
@@ -180,6 +192,10 @@ export function recoveryRequired(operationId: string): ConflictError {
     `Blocked by pending operation ${operationId}; review it before retrying.`,
     { operationId, inspect: `/api/recovery/${operationId}` },
   );
+}
+
+function throwIfGuarded(guard: GuardRow | undefined): void {
+  if (guard) throw recoveryRequired(guard.operation_id);
 }
 
 /** Thrown inside a command when a re-lookup finds the original acknowledgement. */
@@ -356,15 +372,22 @@ export class WriteCoordinator {
 
     // Step 6: durable guards.
     if (!plan.recoveryAction) {
-      const targets = plan.guards?.(located) ?? {};
-      const guard =
+      throwIfGuarded(
         this.operations.findGuard('project', held) ??
-        this.operations.findGuard('task', targets.tasks ?? []) ??
-        this.operations.findGuard('path', targets.paths ?? []);
-      if (guard) throw recoveryRequired(guard.operation_id);
+          this.findTargetGuard(plan.guards?.(located) ?? {}),
+      );
     }
 
     return plan.run(located, this.scope(held, op));
+  }
+
+  /** A task guard on any of the tasks, or a path guard overlapping any of the paths. */
+  private findTargetGuard(targets: GuardTargets): GuardRow | undefined {
+    return (
+      this.operations.findGuard('task', targets.tasks ?? []) ??
+      this.operations.findPathGuard(targets.paths ?? []) ??
+      this.operations.findPathGuard(targets.newFolders ?? [], { contents: false })
+    );
   }
 
   private scope(held: readonly string[], op: OperationIdentity | undefined): CommandScope {
@@ -375,10 +398,9 @@ export class WriteCoordinator {
     };
     return {
       projects: held,
-      assertNothingPendingIn: (projectId) => {
-        const guard = this.operations.findGuardInProject(projectId);
-        if (guard) throw recoveryRequired(guard.operation_id);
-      },
+      assertNothingPendingIn: (projectId) =>
+        throwIfGuarded(this.operations.findGuardInProject(projectId)),
+      assertUnguarded: (targets) => throwIfGuarded(this.findTargetGuard(targets)),
       intent: (record) => {
         const claimed = requireOp();
         const { id, command, fingerprint } = claimed;

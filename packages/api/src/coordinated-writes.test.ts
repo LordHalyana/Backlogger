@@ -16,6 +16,7 @@ import { MIGRATIONS_DIR, setup, teardown, type Harness } from './test-support.js
 const OP = {
   a: '11111111-1111-4111-8111-111111111111',
   b: '22222222-2222-4222-8222-222222222222',
+  c: '33333333-3333-4333-8333-333333333333',
 } as const;
 
 interface DocBody {
@@ -153,6 +154,166 @@ describe('Durable guards on project settings and deletion', () => {
       .send({ target_project_id: 'work', revision: item.revision });
     expectRecoveryRequired(filed, OP.b);
     expect(await readDisk(h, item.path)).toContain('project: inbox');
+  });
+});
+
+describe('Durable guards on imports, folders, create and capture', () => {
+  let h: Harness;
+  beforeEach(async () => {
+    h = await setup();
+    await createProject(h, 'work');
+    await createProject(h, 'other');
+  });
+  afterEach(() => teardown(h));
+
+  function importFiles(projectId: string, onDuplicate: string, content: string) {
+    return request(h.app)
+      .post(`/api/projects/${projectId}/import`)
+      .send({
+        placement: { type: 'backlog_item', titleStrategy: 'frontmatter', onDuplicate },
+        files: [{ filename: 'item.md', content }],
+      });
+  }
+
+  function listDir(rel: string): Promise<string[]> {
+    return fs.readdir(path.join(h.dataDir, 'projects', rel)).catch(() => []);
+  }
+
+  function expectImportRefused(res: request.Response, operationId: string): void {
+    expect(res.status).toBe(207);
+    expect(res.body.imported).toEqual([]);
+    expect(res.body.errors).toEqual([
+      expect.objectContaining({ filename: 'item.md', code: 'RECOVERY_REQUIRED' }),
+    ]);
+    expect(res.body.errors[0].message).toContain(operationId);
+  }
+
+  it('an import replacing a guarded task is refused and leaves its bytes; a copy into a guarded path writes nothing', async () => {
+    const item = await createItem(h, 'work', 'Guarded import');
+    seedPendingOperation(h, OP.a, [
+      { project_id: 'work', scope: 'task', key: item.id },
+      { project_id: 'work', scope: 'path', key: 'work/backlog' },
+    ]);
+    const before = await readDisk(h, item.path);
+    const backlogBefore = await listDir('work/backlog');
+    const exported = `---\nid: ${item.id}\ntitle: Replaced\n---\nNew body\n`;
+
+    expectImportRefused(await importFiles('work', 'replace', exported), OP.a);
+    expectImportRefused(await importFiles('work', 'copy', exported), OP.a);
+    expect(await readDisk(h, item.path)).toBe(before);
+    expect(await listDir('work/backlog')).toEqual(backlogBefore);
+
+    const note = await request(h.app)
+      .post('/api/projects/work/documents')
+      .send({ type: 'note', title: 'Moved in' });
+    const moved = await request(h.app)
+      .post(`/api/documents/${note.body.id}/move`)
+      .send({ folder: 'backlog' });
+    expectRecoveryRequired(moved, OP.a);
+    expect(await listDir('work/backlog')).toEqual(backlogBefore);
+
+    const elsewhere = await importFiles('other', 'copy', '---\ntitle: Fine\n---\nBody\n');
+    expect(elsewhere.status).toBe(200);
+    expect(elsewhere.body.imported).toHaveLength(1);
+  });
+
+  it('an import into a project with a pending deletion is refused as a whole', async () => {
+    seedPendingOperation(h, OP.b, [{ project_id: 'work', scope: 'project', key: 'work' }]);
+    expectRecoveryRequired(await importFiles('work', 'copy', '---\ntitle: No\n---\nBody\n'), OP.b);
+    expect(await listDir('work/backlog')).toEqual([]);
+  });
+
+  it('a pending project deletion blocks writes out of the project and reuse of its ID', async () => {
+    const item = await createItem(h, 'work', 'Stuck in work');
+    seedPendingOperation(h, OP.b, [{ project_id: 'work', scope: 'project', key: 'work' }]);
+    const before = await readDisk(h, item.path);
+    const filed = await request(h.app)
+      .post(`/api/documents/${item.id}/file`)
+      .send({ target_project_id: 'other', revision: item.revision });
+    const deleted = await request(h.app).delete(`/api/documents/${item.id}`);
+    for (const res of [filed, deleted]) expectRecoveryRequired(res, OP.b);
+    expect(await readDisk(h, item.path)).toBe(before);
+
+    h.db.prepare(`DELETE FROM projects WHERE id = 'work'`).run();
+    const reused = await request(h.app).post('/api/projects').send({ id: 'work', name: 'Again' });
+    expectRecoveryRequired(reused, OP.b);
+  });
+
+  it('a plain create into a guarded folder is refused and writes nothing', async () => {
+    seedPendingOperation(h, OP.a, [{ project_id: 'work', scope: 'path', key: 'work/plans' }]);
+    const res = await request(h.app)
+      .post('/api/projects/work/documents')
+      .send({ type: 'note', title: 'Blocked', folder: 'plans' });
+    expectRecoveryRequired(res, OP.a);
+    expect(await listDir('work/plans')).toEqual([]);
+  });
+
+  it('a folder holding a guarded comment path can still be created', async () => {
+    const item = await createItem(h, 'work', 'Has a pending comment');
+    seedPendingOperation(h, OP.a, [
+      { project_id: 'work', scope: 'task', key: item.id },
+      { project_id: 'work', scope: 'path', key: `work/tickets/${item.id}/comments/c.md` },
+    ]);
+    for (const folder of [`tickets/${item.id}`, 'tickets']) {
+      const res = await request(h.app).post('/api/projects/work/folders').send({ folder });
+      expect(res.status).toBe(201);
+    }
+
+    const sibling = await request(h.app)
+      .post('/api/projects/work/folders')
+      .send({ folder: 'notes/sub' });
+    expect(sibling.status).toBe(201);
+    const elsewhere = await request(h.app)
+      .post('/api/projects/other/folders')
+      .send({ folder: `tickets/${item.id}` });
+    expect(elsewhere.status).toBe(201);
+  });
+
+  it('removing a folder that holds a guarded path is refused', async () => {
+    expect(
+      (await request(h.app).post('/api/projects/work/folders').send({ folder: 'plans' })).status,
+    ).toBe(201);
+    seedPendingOperation(h, OP.a, [
+      { project_id: 'work', scope: 'path', key: 'work/plans/pending.md' },
+    ]);
+    expectRecoveryRequired(await request(h.app).delete('/api/projects/work/folders/plans'), OP.a);
+    expect(await listDir('work')).toContain('plans');
+  });
+
+  it('capture and create reusing the ID or path of a pending task deletion are refused', async () => {
+    const id = 'abcdef12-0000-4000-8000-000000000001';
+    const captured = await request(h.app)
+      .post('/api/capture')
+      .send({ id, title: 'Going away', project_id: 'work' });
+    expect(captured.status).toBe(201);
+    const goneRel = captured.body.path as string;
+    expect((await request(h.app).delete(`/api/documents/${id}`)).status).toBe(204);
+    seedPendingOperation(h, OP.c, [
+      { project_id: 'work', scope: 'task', key: id },
+      { project_id: 'work', scope: 'path', key: goneRel },
+    ]);
+
+    const sameId = await request(h.app)
+      .post('/api/capture')
+      .send({ id, title: 'Back again', project_id: 'work' });
+    expectRecoveryRequired(sameId, OP.c);
+    // A different ID whose file name collides with the guarded path.
+    const samePath = await request(h.app).post('/api/capture').send({
+      id: 'abcdef12-0000-4000-8000-000000000002',
+      title: 'Going away',
+      project_id: 'work',
+    });
+    expectRecoveryRequired(samePath, OP.c);
+    expect(await listDir('work/backlog')).toEqual([]);
+
+    const unrelated = await request(h.app)
+      .post('/api/capture')
+      .send({ id: '99999999-0000-4000-8000-000000000003', title: 'Unrelated', project_id: 'work' });
+    expect(unrelated.status).toBe(201);
+    const created = await request(h.app)
+      .post('/api/projects/work/documents')
+      .send({ type: 'note', title: 'Note' });
+    expect(created.status).toBe(201);
   });
 });
 

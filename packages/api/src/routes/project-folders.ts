@@ -3,7 +3,7 @@ import { FolderPathSchema } from '@backlogger/shared';
 import { ConflictError, NotFoundError } from '../errors.js';
 import type { ProjectService } from '../services/project-service.js';
 import type { FsRepository } from '../fs/index.js';
-import type { WriteCoordinator } from '../services/write-coordinator.js';
+import type { GuardTargets, WriteCoordinator } from '../services/write-coordinator.js';
 import { asyncRoute, validateBody } from './util.js';
 import { parseProjectId } from './route-params.js';
 
@@ -14,13 +14,21 @@ export function projectFoldersRouter(
 ): Router {
   const router = Router();
 
-  /** Folder changes are coordinated commands on the project's queue. */
-  const inProject = <T>(id: string, operation: () => Promise<T>): Promise<T> =>
+  /**
+   * Folder changes are coordinated commands on the project's queue, behind
+   * the path guards `guards` names.
+   */
+  const inProject = <T>(
+    id: string,
+    guards: GuardTargets,
+    operation: () => Promise<T>,
+  ): Promise<T> =>
     coordinator.command({
       locate: () => {
         projectService.get(id); // 404 if unknown
         return { projects: [id] };
       },
+      guards: () => guards,
       run: () => {
         assertProjectWritable(id);
         return operation();
@@ -53,7 +61,9 @@ export function projectFoldersRouter(
       const id = parseProjectId(req.params.id);
       const body = req.body as { folder?: unknown } | undefined;
       const requested = validateBody(FolderPathSchema, body?.folder);
-      const folder = await inProject(id, () => fs.createFolder(id, requested));
+      const folder = await inProject(id, { newFolders: [`${id}/${requested}`] }, () =>
+        fs.createFolder(id, requested),
+      );
       res.status(201).json({ folder });
     }),
   );
@@ -65,7 +75,7 @@ export function projectFoldersRouter(
       const id = parseProjectId(req.params.id);
       const raw = (req.params as { 0?: string })[0] ?? '';
       const folder = validateBody(FolderPathSchema, decodeURIComponent(raw));
-      await inProject(id, () => removeEmptyFolder(id, folder));
+      await inProject(id, { paths: [`${id}/${folder}`] }, () => removeEmptyFolder(id, folder));
       res.status(204).send();
     }),
   );
