@@ -1,0 +1,145 @@
+import type { Db } from './database.js';
+
+/**
+ * The protected operational tables (migration 0011): operation rows (pending
+ * operations and completed receipts), recovery payloads, manifests and guard
+ * rows. Only the write coordinator writes them. Reload and Reindex never
+ * touch them.
+ */
+
+export type OperationState = 'pending' | 'completed' | 'abandoned';
+export type GuardScope = 'project' | 'task' | 'path';
+
+export interface OperationRecord {
+  operation_id: string;
+  command: string;
+  fingerprint: string;
+  state: OperationState;
+  /** Acknowledgement metadata; `null` until the operation completes. */
+  outcome: unknown;
+  created_at: string;
+  completed_at: string | null;
+}
+
+export interface GuardRow {
+  operation_id: string;
+  project_id: string;
+  scope: GuardScope;
+  key: string;
+}
+
+export interface ManifestEntry {
+  path: string;
+  role: string;
+  fingerprint: string | null;
+}
+
+interface OperationRow extends Omit<OperationRecord, 'outcome'> {
+  outcome: string | null;
+}
+
+function rowToOperation(row: OperationRow): OperationRecord {
+  return { ...row, outcome: row.outcome === null ? null : (JSON.parse(row.outcome) as unknown) };
+}
+
+/** True when `err` is SQLite refusing a duplicate operation ID. */
+export function isDuplicateOperation(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  return code === 'SQLITE_CONSTRAINT_PRIMARYKEY' || code === 'SQLITE_CONSTRAINT_UNIQUE';
+}
+
+export class OperationsRepo {
+  constructor(private readonly db: Db) {}
+
+  find(operationId: string): OperationRecord | undefined {
+    const row = this.db
+      .prepare<[string], OperationRow>(`SELECT * FROM operations WHERE operation_id = ?`)
+      .get(operationId);
+    return row ? rowToOperation(row) : undefined;
+  }
+
+  listPending(): OperationRecord[] {
+    return this.db
+      .prepare<
+        [],
+        OperationRow
+      >(`SELECT * FROM operations WHERE state = 'pending' ORDER BY created_at, operation_id`)
+      .all()
+      .map(rowToOperation);
+  }
+
+  /** Throws a SQLite constraint error when the ID is already taken. */
+  insert(op: Omit<OperationRecord, 'completed_at'> & { completed_at?: string | null }): void {
+    this.db
+      .prepare(
+        `INSERT INTO operations (operation_id, command, fingerprint, state, outcome, created_at, completed_at)
+         VALUES (@operation_id, @command, @fingerprint, @state, @outcome, @created_at, @completed_at)`,
+      )
+      .run({
+        ...op,
+        outcome: op.outcome === null ? null : JSON.stringify(op.outcome),
+        completed_at: op.completed_at ?? null,
+      });
+  }
+
+  markCompleted(operationId: string, outcome: unknown, completedAt: string): void {
+    this.db
+      .prepare(
+        `UPDATE operations SET state = 'completed', outcome = ?, completed_at = ?
+         WHERE operation_id = ? AND state = 'pending'`,
+      )
+      .run(JSON.stringify(outcome), completedAt, operationId);
+  }
+
+  setPayload(operationId: string, payload: string): void {
+    this.db
+      .prepare(`INSERT INTO operation_payloads (operation_id, payload) VALUES (?, ?)`)
+      .run(operationId, payload);
+  }
+
+  removePayload(operationId: string): void {
+    this.db.prepare(`DELETE FROM operation_payloads WHERE operation_id = ?`).run(operationId);
+  }
+
+  addManifest(operationId: string, entries: readonly ManifestEntry[]): void {
+    const insert = this.db.prepare(
+      `INSERT INTO operation_manifest_entries (operation_id, path, role, fingerprint)
+       VALUES (?, ?, ?, ?)`,
+    );
+    for (const e of entries) insert.run(operationId, e.path, e.role, e.fingerprint);
+  }
+
+  addGuards(operationId: string, guards: ReadonlyArray<Omit<GuardRow, 'operation_id'>>): void {
+    const insert = this.db.prepare(
+      `INSERT OR IGNORE INTO operation_guards (operation_id, project_id, scope, key)
+       VALUES (?, ?, ?, ?)`,
+    );
+    for (const g of guards) insert.run(operationId, g.project_id, g.scope, g.key);
+  }
+
+  releaseGuards(operationId: string): void {
+    this.db.prepare(`DELETE FROM operation_guards WHERE operation_id = ?`).run(operationId);
+  }
+
+  /** The first guard of `scope` on any of `keys`, or undefined. */
+  findGuard(scope: GuardScope, keys: readonly string[]): GuardRow | undefined {
+    if (keys.length === 0) return undefined;
+    const marks = keys.map(() => '?').join(', ');
+    return this.db
+      .prepare<string[], GuardRow>(
+        `SELECT * FROM operation_guards WHERE scope = ? AND key IN (${marks})
+         ORDER BY operation_id LIMIT 1`,
+      )
+      .get(scope, ...keys);
+  }
+
+  /** The first guard of any scope living in `projectId`, or undefined. */
+  findGuardInProject(projectId: string): GuardRow | undefined {
+    return this.db
+      .prepare<
+        [string],
+        GuardRow
+      >(`SELECT * FROM operation_guards WHERE project_id = ? ORDER BY operation_id LIMIT 1`)
+      .get(projectId);
+  }
+}

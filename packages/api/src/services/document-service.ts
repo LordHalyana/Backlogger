@@ -28,11 +28,10 @@ import {
 import type { DocumentsRepo } from '../db/documents-repo.js';
 import type { LinkService } from './link-service.js';
 import type { TagsService } from './tags-service.js';
-import type { GraphService } from './graph-service.js';
 import type { ProjectRecord, ProjectsRepo } from '../db/projects-repo.js';
 import { applyPlaceholders, type TemplateRegistry } from '../templates/registry.js';
-import type { ProjectQueue } from './project-queue.js';
 import type { InboxService } from './inbox-service.js';
+import type { CommandScope, WriteCoordinator } from './write-coordinator.js';
 
 export interface DocumentServiceDeps {
   documentsRepo: DocumentsRepo;
@@ -41,10 +40,9 @@ export interface DocumentServiceDeps {
   templates: TemplateRegistry;
   linkService: LinkService;
   tagsService: TagsService;
-  graphService: GraphService;
   sidecarStore: SidecarStore;
-  /** Per-project mutation queue, shared with the reindex service. */
-  queue: ProjectQueue;
+  /** Runs every mutation; it also drops the graph caches afterwards. */
+  coordinator: WriteCoordinator;
   inbox: InboxService;
   now?: () => string;
   newId?: () => string;
@@ -83,9 +81,8 @@ export class DocumentService {
   private readonly templates: TemplateRegistry;
   private readonly linkService: LinkService;
   private readonly tagsService: TagsService;
-  private readonly graphService: GraphService;
   private readonly sidecarStore: SidecarStore;
-  private readonly queue: ProjectQueue;
+  private readonly coordinator: WriteCoordinator;
   private readonly inbox: InboxService;
   private readonly now: () => string;
   private readonly newId: () => string;
@@ -97,9 +94,8 @@ export class DocumentService {
     this.templates = deps.templates;
     this.linkService = deps.linkService;
     this.tagsService = deps.tagsService;
-    this.graphService = deps.graphService;
     this.sidecarStore = deps.sidecarStore;
-    this.queue = deps.queue;
+    this.coordinator = deps.coordinator;
     this.inbox = deps.inbox;
     this.now = deps.now ?? (() => new Date().toISOString());
     this.newId = deps.newId ?? (() => uuidv4());
@@ -153,11 +149,14 @@ export class DocumentService {
     input: CreateDocumentRequest,
     options: CreateOptions = {},
   ): Promise<Document> {
-    this.getProject(projectId);
-    return this.queue.run(projectId, () => this.createInQueue(projectId, input, options));
+    return this.coordinator.command({
+      locate: () => this.locateProject(projectId),
+      run: (_located, scope) => this.createHeld(scope, projectId, input, options),
+    });
   }
 
-  private async createInQueue(
+  private async createHeld(
+    scope: CommandScope,
     projectId: string,
     input: CreateDocumentRequest,
     options: CreateOptions,
@@ -229,20 +228,24 @@ export class DocumentService {
       revision = await this.fs.write(relPath, { frontmatter, body });
     }
     try {
-      this.documentsRepo.upsert({
-        id,
-        project_id: projectId,
-        title: frontmatter.title,
-        type: frontmatter.type,
-        status: frontmatter.status,
-        path: relPath,
-        tags: frontmatter.tags,
-        readOnly: false,
-        body,
-        created_at: frontmatter.created_at,
-        updated_at: frontmatter.updated_at,
-        revision,
-        task_state: storedTaskState(frontmatter.task_state),
+      scope.commit(() => {
+        this.documentsRepo.upsert({
+          id,
+          project_id: projectId,
+          title: frontmatter.title,
+          type: frontmatter.type,
+          status: frontmatter.status,
+          path: relPath,
+          tags: frontmatter.tags,
+          readOnly: false,
+          body,
+          created_at: frontmatter.created_at,
+          updated_at: frontmatter.updated_at,
+          revision,
+          task_state: storedTaskState(frontmatter.task_state),
+        });
+        this.linkService.rebuildForDocument(id, frontmatter.title, body);
+        this.tagsService.rebuildForDocument(id, frontmatter.tags);
       });
     } catch (err) {
       // Roll back disk write to keep DB+FS consistent.
@@ -254,10 +257,6 @@ export class DocumentService {
       }
       throw err;
     }
-
-    this.linkService.rebuildForDocument(id, frontmatter.title, body);
-    this.tagsService.rebuildForDocument(id, frontmatter.tags);
-    this.graphService.invalidate(projectId);
 
     return {
       ...frontmatter,
@@ -276,25 +275,29 @@ export class DocumentService {
    */
   async capture(input: CaptureRequest): Promise<CaptureResult> {
     const projectId = input.project_id ?? this.inbox.requireId();
-    this.getProject(projectId);
-    return this.queue.run(projectId, async () => {
-      const existing = this.documentsRepo.find(input.id);
-      if (existing) {
-        if (existing.type !== 'backlog_item' || existing.title !== input.title) {
-          throw new ConflictError(
-            'CAPTURE_ID_CONFLICT',
-            `Id ${input.id} already belongs to a different document; capture with a new id.`,
-          );
+    return this.coordinator.command({
+      locate: () => this.locateProject(projectId),
+      guards: () => ({ tasks: [input.id] }),
+      run: async (_located, scope) => {
+        const existing = this.documentsRepo.find(input.id);
+        if (existing) {
+          if (existing.type !== 'backlog_item' || existing.title !== input.title) {
+            throw new ConflictError(
+              'CAPTURE_ID_CONFLICT',
+              `Id ${input.id} already belongs to a different document; capture with a new id.`,
+            );
+          }
+          return { document: await this.get(input.id), created: false };
         }
-        return { document: await this.get(input.id), created: false };
-      }
-      this.assertProjectAcceptsBacklogItems(projectId);
-      const document = await this.createInQueue(
-        projectId,
-        { type: 'backlog_item', title: input.title, status: 'draft' },
-        { id: input.id },
-      );
-      return { document, created: true };
+        this.assertProjectAcceptsBacklogItems(projectId);
+        const document = await this.createHeld(
+          scope,
+          projectId,
+          { type: 'backlog_item', title: input.title, status: 'draft' },
+          { id: input.id },
+        );
+        return { document, created: true };
+      },
     });
   }
 
@@ -304,12 +307,13 @@ export class DocumentService {
     ifMatch?: string,
     options: UpdateOptions = {},
   ): Promise<Document> {
-    return this.inDocumentQueue(id, (summary) =>
-      this.updateInQueue(summary, input, ifMatch, options),
+    return this.documentCommand(id, (summary, scope) =>
+      this.updateHeld(scope, summary, input, ifMatch, options),
     );
   }
 
-  private async updateInQueue(
+  private async updateHeld(
+    scope: CommandScope,
     summary: DocumentSummary,
     input: UpdateDocumentRequest,
     ifMatch: string | undefined,
@@ -340,7 +344,7 @@ export class DocumentService {
     const now = this.now();
     if (project.metadataMode === 'sidecar' && !hasOwnFrontmatter(summary, existing)) {
       if (input.task_state !== undefined) throw taskStateNotAllowed('sidecar-backed document');
-      return this.updateViaSidecar(summary, existing, input, now);
+      return this.updateViaSidecar(scope, summary, existing, input, now);
     }
     const nextStatus = input.status ?? summary.status;
     const nextFrontmatter = summary.readOnly
@@ -376,30 +380,30 @@ export class DocumentService {
       await this.fs.delete(summary.path).catch(() => undefined);
     }
 
-    this.documentsRepo.upsert({
-      id: summary.id,
-      project_id: summary.project_id,
-      title: nextFrontmatter.title,
-      type: nextFrontmatter.type,
-      status: nextFrontmatter.status,
-      path: nextPath,
-      tags: nextFrontmatter.tags,
-      readOnly: false,
-      body: nextBody,
-      created_at: summary.created_at,
-      updated_at: now,
-      revision,
-      task_state: storedTaskState(nextFrontmatter.task_state),
+    scope.commit(() => {
+      this.documentsRepo.upsert({
+        id: summary.id,
+        project_id: summary.project_id,
+        title: nextFrontmatter.title,
+        type: nextFrontmatter.type,
+        status: nextFrontmatter.status,
+        path: nextPath,
+        tags: nextFrontmatter.tags,
+        readOnly: false,
+        body: nextBody,
+        created_at: summary.created_at,
+        updated_at: now,
+        revision,
+        task_state: storedTaskState(nextFrontmatter.task_state),
+      });
+      this.linkService.rebuildForDocument(
+        summary.id,
+        nextFrontmatter.title,
+        nextBody,
+        summary.title,
+      );
+      this.tagsService.rebuildForDocument(summary.id, nextFrontmatter.tags);
     });
-
-    this.linkService.rebuildForDocument(
-      summary.id,
-      nextFrontmatter.title,
-      nextBody,
-      summary.title,
-    );
-    this.tagsService.rebuildForDocument(summary.id, nextFrontmatter.tags);
-    this.graphService.invalidate(summary.project_id);
 
     return {
       ...nextFrontmatter,
@@ -417,6 +421,7 @@ export class DocumentService {
    * The file is never moved — archive state is metadata, not path.
    */
   private async updateViaSidecar(
+    scope: CommandScope,
     summary: DocumentSummary,
     existing: RawDocument,
     input: UpdateDocumentRequest,
@@ -444,25 +449,25 @@ export class DocumentService {
     );
     const revision = sidecarRevision(fileRevision, entry);
 
-    this.documentsRepo.upsert({
-      id: summary.id,
-      project_id: summary.project_id,
-      title: nextTitle,
-      type: summary.type,
-      status: nextStatus,
-      path: summary.path,
-      tags: nextTags,
-      readOnly: false,
-      body: nextBody,
-      created_at: summary.created_at,
-      updated_at: now,
-      revision,
-      task_state: null,
+    scope.commit(() => {
+      this.documentsRepo.upsert({
+        id: summary.id,
+        project_id: summary.project_id,
+        title: nextTitle,
+        type: summary.type,
+        status: nextStatus,
+        path: summary.path,
+        tags: nextTags,
+        readOnly: false,
+        body: nextBody,
+        created_at: summary.created_at,
+        updated_at: now,
+        revision,
+        task_state: null,
+      });
+      this.linkService.rebuildForDocument(summary.id, nextTitle, nextBody, summary.title);
+      this.tagsService.rebuildForDocument(summary.id, nextTags);
     });
-
-    this.linkService.rebuildForDocument(summary.id, nextTitle, nextBody, summary.title);
-    this.tagsService.rebuildForDocument(summary.id, nextTags);
-    this.graphService.invalidate(summary.project_id);
 
     return {
       id: summary.id,
@@ -481,10 +486,10 @@ export class DocumentService {
   }
 
   async delete(id: string): Promise<void> {
-    return this.inDocumentQueue(id, (summary) => this.deleteInQueue(summary));
+    return this.documentCommand(id, (summary, scope) => this.deleteHeld(scope, summary));
   }
 
-  private async deleteInQueue(summary: DocumentSummary): Promise<void> {
+  private async deleteHeld(scope: CommandScope, summary: DocumentSummary): Promise<void> {
     const id = summary.id;
     const project = this.assertProjectWritable(summary.project_id);
 
@@ -509,9 +514,10 @@ export class DocumentService {
         sidecarKeyOf(summary.project_id, summary.path),
       );
     }
-    this.documentsRepo.delete(id);
-    this.linkService.onDocumentDeleted(id);
-    this.graphService.invalidate(summary.project_id);
+    scope.commit(() => {
+      this.documentsRepo.delete(id);
+      this.linkService.onDocumentDeleted(id);
+    });
   }
 
   /**
@@ -522,10 +528,16 @@ export class DocumentService {
    * controlled through `status`, not the folder.
    */
   async move(id: string, targetFolder: string): Promise<Document> {
-    return this.inDocumentQueue(id, (summary) => this.moveInQueue(summary, targetFolder));
+    return this.documentCommand(id, (summary, scope) =>
+      this.moveHeld(scope, summary, targetFolder),
+    );
   }
 
-  private async moveInQueue(summary: DocumentSummary, targetFolder: string): Promise<Document> {
+  private async moveHeld(
+    scope: CommandScope,
+    summary: DocumentSummary,
+    targetFolder: string,
+  ): Promise<Document> {
     const project = this.assertProjectWritable(summary.project_id);
 
     if (isArchivedFolder(targetFolder)) {
@@ -565,22 +577,23 @@ export class DocumentService {
         await this.sidecarStore.set(summary.project_id, toKey, entry);
         revision = sidecarRevision(fileRevision, entry);
       }
-      this.documentsRepo.upsert({
-        id: summary.id,
-        project_id: summary.project_id,
-        title: summary.title,
-        type: summary.type,
-        status: summary.status,
-        path: nextPath,
-        tags: summary.tags,
-        readOnly: false,
-        body: existing.body,
-        created_at: summary.created_at,
-        updated_at: now,
-        revision,
-        task_state: null,
-      });
-      this.graphService.invalidate(summary.project_id);
+      scope.commit(() =>
+        this.documentsRepo.upsert({
+          id: summary.id,
+          project_id: summary.project_id,
+          title: summary.title,
+          type: summary.type,
+          status: summary.status,
+          path: nextPath,
+          tags: summary.tags,
+          readOnly: false,
+          body: existing.body,
+          created_at: summary.created_at,
+          updated_at: now,
+          revision,
+          task_state: null,
+        }),
+      );
       return {
         id: summary.id,
         project_id: summary.project_id,
@@ -605,23 +618,23 @@ export class DocumentService {
     });
     await this.fs.delete(summary.path).catch(() => undefined);
 
-    this.documentsRepo.upsert({
-      id: summary.id,
-      project_id: summary.project_id,
-      title: nextFrontmatter.title,
-      type: nextFrontmatter.type,
-      status: nextFrontmatter.status,
-      path: nextPath,
-      tags: nextFrontmatter.tags,
-      readOnly: false,
-      body: existing.body,
-      created_at: summary.created_at,
-      updated_at: now,
-      revision,
-      task_state: storedTaskState(nextFrontmatter.task_state),
-    });
-
-    this.graphService.invalidate(summary.project_id);
+    scope.commit(() =>
+      this.documentsRepo.upsert({
+        id: summary.id,
+        project_id: summary.project_id,
+        title: nextFrontmatter.title,
+        type: nextFrontmatter.type,
+        status: nextFrontmatter.status,
+        path: nextPath,
+        tags: nextFrontmatter.tags,
+        readOnly: false,
+        body: existing.body,
+        created_at: summary.created_at,
+        updated_at: now,
+        revision,
+        task_state: storedTaskState(nextFrontmatter.task_state),
+      }),
+    );
 
     return {
       ...nextFrontmatter,
@@ -636,27 +649,31 @@ export class DocumentService {
   /**
    * File a backlog item into another writable native project, keeping its id
    * and every byte of its file except the frontmatter `project:` value. The
-   * file keeps its project-relative path. Holds both projects' queues, taken
-   * in sorted order. Writes the target, then deletes the source, then updates
-   * the index; a crash in between leaves two copies that the reindex resolves.
+   * file keeps its project-relative path. Holds both projects' queues. Writes
+   * the target, then deletes the source, then updates the index; a crash in
+   * between leaves two copies that the reindex resolves.
    */
   async file(id: string, targetProjectId: string, revision: string): Promise<Document> {
-    const before = this.findOrThrow(id);
-    if (before.project_id === targetProjectId) return this.get(id);
-    this.getProject(targetProjectId);
-    const [first, second] = [before.project_id, targetProjectId].sort() as [string, string];
-    return this.queue.run(first, () =>
-      this.queue.run(second, () => this.fileInQueues(id, targetProjectId, revision, [first, second])),
-    );
+    if (this.findOrThrow(id).project_id === targetProjectId) return this.get(id);
+    return this.coordinator.command({
+      locate: () => {
+        const summary = this.findOrThrow(id);
+        this.getProject(targetProjectId);
+        return { summary, projects: [summary.project_id, targetProjectId] };
+      },
+      moved: ({ summary }) => movedConflict(summary),
+      guards: () => ({ tasks: [id] }),
+      run: ({ summary }, scope) => this.fileHeld(scope, summary, targetProjectId, revision),
+    });
   }
 
-  private async fileInQueues(
-    id: string,
+  private async fileHeld(
+    scope: CommandScope,
+    summary: DocumentSummary,
     targetProjectId: string,
     revision: string,
-    held: readonly string[],
   ): Promise<Document> {
-    const summary = this.findOrThrow(id);
+    const id = summary.id;
     if (summary.project_id === targetProjectId) return this.get(id);
     if (summary.type !== 'backlog_item') {
       throw new BadRequestError(
@@ -669,8 +686,7 @@ export class DocumentService {
     this.assertProjectAcceptsBacklogItems(targetProjectId);
 
     const raw = await this.fs.read(summary.path);
-    // The item moved to a third project while this filing waited for the queues.
-    if (!held.includes(sourceId) || raw.revision !== revision) {
+    if (raw.revision !== revision) {
       throw new ConflictError(
         'REVISION_CONFLICT',
         `Document was modified since revision=${revision}; current revision=${raw.revision}`,
@@ -698,50 +714,53 @@ export class DocumentService {
     const nextRevision = await this.fs.writeRaw(nextPath, rewritten);
     await this.fs.delete(summary.path);
 
-    const indexed = this.documentsRepo.upsert({
-      id,
-      project_id: targetProjectId,
-      title: summary.title,
-      type: summary.type,
-      status: summary.status,
-      path: nextPath,
-      tags: summary.tags,
-      readOnly: false,
-      body: raw.body,
-      created_at: summary.created_at,
-      updated_at: summary.updated_at,
-      revision: nextRevision,
-      task_state: storedTaskState(raw.frontmatter.task_state),
-    });
-    this.graphService.invalidate(sourceId);
-    this.graphService.invalidate(targetProjectId);
+    const indexed = scope.commit(() =>
+      this.documentsRepo.upsert({
+        id,
+        project_id: targetProjectId,
+        title: summary.title,
+        type: summary.type,
+        status: summary.status,
+        path: nextPath,
+        tags: summary.tags,
+        readOnly: false,
+        body: raw.body,
+        created_at: summary.created_at,
+        updated_at: summary.updated_at,
+        revision: nextRevision,
+        task_state: storedTaskState(raw.frontmatter.task_state),
+      }),
+    );
 
     return { ...indexed, readOnly: false, body: raw.body };
   }
 
   /**
-   * Run a mutation of one document inside its project's queue. The summary is
-   * re-read once the operation holds the queue, so it reflects every mutation
-   * that committed before it (a deleted document is a 404, a moved or archived
-   * one has its new path). A document filed into another project while the
-   * operation waited is a 409: the queue held is no longer its project's.
+   * Run a mutation of one document through the coordinator, under its
+   * project's queue and behind its task guard. The summary is re-read once
+   * the locks are held, so it reflects every mutation that committed before
+   * (a deleted document is a 404, a moved or archived one has its new path).
+   * A document filed into another project while the command waited is a 409
+   * REVISION_CONFLICT carrying where it is now.
    */
-  private async inDocumentQueue<T>(
+  private documentCommand<T>(
     id: string,
-    operation: (summary: DocumentSummary) => Promise<T>,
+    operation: (summary: DocumentSummary, scope: CommandScope) => Promise<T>,
   ): Promise<T> {
-    const queuedProjectId = this.findOrThrow(id).project_id;
-    return this.queue.run(queuedProjectId, () => {
-      const summary = this.findOrThrow(id);
-      if (summary.project_id !== queuedProjectId) {
-        throw new ConflictError(
-          'REVISION_CONFLICT',
-          `Document was filed into project ${summary.project_id}; current revision=${summary.revision}`,
-          { currentRevision: summary.revision, currentProjectId: summary.project_id },
-        );
-      }
-      return operation(summary);
+    return this.coordinator.command({
+      locate: () => {
+        const summary = this.findOrThrow(id);
+        return { summary, projects: [summary.project_id] };
+      },
+      moved: ({ summary }) => movedConflict(summary),
+      guards: () => ({ tasks: [id] }),
+      run: ({ summary }, scope) => operation(summary, scope),
     });
+  }
+
+  private locateProject(projectId: string): { projects: string[] } {
+    this.getProject(projectId);
+    return { projects: [projectId] };
   }
 
   /**
@@ -822,6 +841,15 @@ function buildUpdatedFrontmatter(
     tags: input.tags ?? summary.tags,
     updated_at: now,
   });
+}
+
+/** A document that moved to another project while a command waited for its queue. */
+function movedConflict(summary: DocumentSummary): ConflictError {
+  return new ConflictError(
+    'REVISION_CONFLICT',
+    `Document was filed into project ${summary.project_id}; current revision=${summary.revision}`,
+    { currentRevision: summary.revision, currentProjectId: summary.project_id },
+  );
 }
 
 function taskStateNotAllowed(what: string): BadRequestError {

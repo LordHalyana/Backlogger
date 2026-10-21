@@ -6,16 +6,27 @@ import { logger } from './logger.js';
 import { formatSkippedFiles } from './services/reindex-report.js';
 
 /**
- * Everything the server does with the data dir before serving requests:
- * establish the Inbox, register project folders that have no row yet, sync
- * every known project and, over an empty index, rebuild it from disk.
+ * Everything the server does with the data dir before serving requests, with
+ * the workspace gate held exclusively: establish the Inbox, load pending
+ * operations (their guards stay in force) and try to recover them, register
+ * project folders that have no row yet, sync every known project and, over
+ * an empty index, rebuild it from disk. The caller starts the watcher and
+ * begins listening only after this resolves.
  */
-export async function prepareDataDir(ctx: AppContext): Promise<void> {
+export function prepareDataDir(ctx: AppContext): Promise<void> {
+  return ctx.coordinator.exclusive(() => startupPass(ctx));
+}
+
+async function startupPass(ctx: AppContext): Promise<void> {
   await ctx.fs.ensureRoot();
 
   // Before discovery, so a rebuilt database re-registers the designated Inbox
   // writable instead of discovering its folder as a read-only project.
   await ctx.inboxService.ensure();
+
+  for (const op of await ctx.coordinator.recoverPending()) {
+    logger.warn(`operation ${op.operation_id} (${op.command}) needs recovery review`);
+  }
 
   // Auto-discover project folders (or symlinks) that exist on disk but have
   // no DB row yet. This handles Docker volume mounts and manual folder drops:
@@ -29,7 +40,7 @@ export async function prepareDataDir(ctx: AppContext): Promise<void> {
   // catches live changes (ignoreInitial: true), so without this a restart after
   // adding docs would leave the new files unindexed until a manual reload.
   for (const project of ctx.projectsRepo.list()) {
-    const report = await ctx.reindexService.runProject(project.id);
+    const report = await ctx.reindexService.syncProjectHeld(project.id);
     if (report.added > 0 || report.updated > 0 || report.removed > 0 || report.skipped.length > 0) {
       logger.info(
         `startup sync project="${project.id}" added=${report.added} updated=${report.updated} removed=${report.removed} skipped=${report.skipped.length}`,
@@ -44,7 +55,7 @@ export async function prepareDataDir(ctx: AppContext): Promise<void> {
   // Auto-reindex on startup if the documents table is empty but the FS has
   // content (e.g. fresh DB after a restore or a manual file drop).
   if (ctx.documentsRepo.count() === 0 && (await hasAnyMarkdown(ctx.resolver.projectsRoot))) {
-    const report = await ctx.reindexService.run();
+    const report = await ctx.reindexService.rebuildHeld();
     logger.info(
       `startup reindex: scanned=${report.scanned} inserted=${report.inserted} skipped=${report.skipped.length}`,
     );
@@ -133,7 +144,7 @@ async function discoverNewProjects(ctx: AppContext): Promise<void> {
       updated_at: now,
     });
 
-    const report = await reindexService.runProject(id);
+    const report = await reindexService.syncProjectHeld(id);
     logger.info(`discovered project '${id}': indexed ${report.added} doc(s), skipped ${report.skipped.length}`);
     if (report.skipped.length > 0) {
       logger.warn(`discovered project '${id}' skipped files: ${formatSkippedFiles(report.skipped)}`);

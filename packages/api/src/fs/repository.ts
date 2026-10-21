@@ -1,6 +1,5 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { randomBytes } from 'node:crypto';
 import matter from 'gray-matter';
 import {
   DocumentNotFoundError,
@@ -10,6 +9,7 @@ import {
 import { PathResolver, PROJECT_SUBDIRS } from './path-resolver.js';
 import { SIDECAR_DIR } from '@backlogger/shared';
 import { contentRevision } from './revision.js';
+import { replaceDurable, unlinkDurable } from './durable.js';
 
 /** A parsed Markdown document on disk. */
 export interface RawDocument {
@@ -30,8 +30,8 @@ export interface FsRepositoryOptions {
 /**
  * Filesystem-backed Markdown repository.
  *
- * The filesystem is the source of truth. All writes are atomic
- * (temp file + `fsync` + `rename`). All paths are validated through
+ * The filesystem is the source of truth. All writes are atomic and durable
+ * (temp file + `fsync` + `rename` + directory `fsync`). All paths are validated through
  * the injected `PathResolver`.
  */
 export class FsRepository {
@@ -210,7 +210,8 @@ export class FsRepository {
    * Atomically write a Markdown document.
    *
    * Strategy: write to `<target>.tmp.<pid>.<rand>` in the same directory,
-   * fsync, then rename. On error, the temp file is best-effort removed.
+   * fsync, rename, then fsync the directory. On error, the temp file is
+   * best-effort removed.
    * Returns the revision of the written content.
    */
   async write(
@@ -219,10 +220,9 @@ export class FsRepository {
   ): Promise<string> {
     const absolute = this.resolver.resolveRelative(relativePath);
     await this.resolver.assertNoSymlinks(absolute);
-    await fs.mkdir(path.dirname(absolute), { recursive: true });
 
     const serialized = matter.stringify(doc.body, doc.frontmatter);
-    await this.writeAtomic(absolute, serialized);
+    await replaceDurable(absolute, serialized);
     return contentRevision(serialized);
   }
 
@@ -234,37 +234,15 @@ export class FsRepository {
   async writeRaw(relativePath: string, content: string): Promise<string> {
     const absolute = this.resolver.resolveRelative(relativePath);
     await this.resolver.assertNoSymlinks(absolute);
-    await fs.mkdir(path.dirname(absolute), { recursive: true });
-    await this.writeAtomic(absolute, content);
+    await replaceDurable(absolute, content);
     return contentRevision(content);
-  }
-
-  private async writeAtomic(absolute: string, content: string): Promise<void> {
-    const tmpName = `${path.basename(absolute)}.tmp.${process.pid}.${randomBytes(6).toString('hex')}`;
-    const tmpPath = path.join(path.dirname(absolute), tmpName);
-
-    let handle: fs.FileHandle | undefined;
-    try {
-      handle = await fs.open(tmpPath, 'wx');
-      await handle.writeFile(content, 'utf8');
-      await handle.sync();
-    } finally {
-      await handle?.close().catch(() => undefined);
-    }
-
-    try {
-      await fs.rename(tmpPath, absolute);
-    } catch (err) {
-      await fs.rm(tmpPath, { force: true }).catch(() => undefined);
-      throw err;
-    }
   }
 
   /** Delete a document file. Throws `DocumentNotFoundError` if missing. */
   async delete(relativePath: string): Promise<void> {
     const absolute = await this.resolver.resolveRelativeSafe(relativePath);
     try {
-      await fs.unlink(absolute);
+      await unlinkDurable(absolute);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
         throw new DocumentNotFoundError(relativePath);
