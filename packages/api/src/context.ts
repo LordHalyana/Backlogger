@@ -1,5 +1,6 @@
 import type { Db } from './db/database.js';
 import { DocumentsRepo } from './db/documents-repo.js';
+import { OperationsRepo } from './db/operations-repo.js';
 import { ProjectsRepo } from './db/projects-repo.js';
 import { FsRepository, PathResolver, SidecarStore } from './fs/index.js';
 import { BoardService } from './services/board-service.js';
@@ -15,6 +16,8 @@ import { ReindexService } from './services/reindex-service.js';
 import { SearchService } from './services/search-service.js';
 import { GraphService } from './services/graph-service.js';
 import { TagsService } from './services/tags-service.js';
+import { WorkspaceGate } from './services/workspace-gate.js';
+import { WriteCoordinator } from './services/write-coordinator.js';
 import { TemplateRegistry } from './templates/registry.js';
 
 export const APP_VERSION = '0.3.0';
@@ -26,6 +29,7 @@ export interface AppContext {
   sidecarStore: SidecarStore;
   projectsRepo: ProjectsRepo;
   documentsRepo: DocumentsRepo;
+  operationsRepo: OperationsRepo;
   projectService: ProjectService;
   inboxService: InboxService;
   documentService: DocumentService;
@@ -37,6 +41,7 @@ export interface AppContext {
   tagsService: TagsService;
   graphService: GraphService;
   queue: ProjectQueue;
+  coordinator: WriteCoordinator;
   templates: TemplateRegistry;
   healthService: HealthService;
   importService: ImportService;
@@ -66,8 +71,21 @@ export function buildContext(opts: BuildContextOptions): AppContext {
   const linkService = new LinkService(opts.db);
   const tagsService = new TagsService(opts.db);
   const graphService = new GraphService(opts.db);
+  const operationsRepo = new OperationsRepo(opts.db);
   const queue = new ProjectQueue();
-  const projectService = new ProjectService({ projectsRepo, fs, inbox: inboxService, queue });
+  const coordinator = new WriteCoordinator({
+    db: opts.db,
+    operations: operationsRepo,
+    gate: new WorkspaceGate(),
+    queue,
+    invalidate: (projectIds) => projectIds.forEach((id) => graphService.invalidate(id)),
+  });
+  const projectService = new ProjectService({
+    projectsRepo,
+    fs,
+    inbox: inboxService,
+    coordinator,
+  });
   const documentService = new DocumentService({
     documentsRepo,
     projectsRepo,
@@ -75,9 +93,8 @@ export function buildContext(opts: BuildContextOptions): AppContext {
     templates,
     linkService,
     tagsService,
-    graphService,
     sidecarStore,
-    queue,
+    coordinator,
     inbox: inboxService,
   });
   const reindexService = new ReindexService({
@@ -88,7 +105,7 @@ export function buildContext(opts: BuildContextOptions): AppContext {
     tagsService,
     graphService,
     sidecarStore,
-    queue,
+    coordinator,
     inbox: inboxService,
   });
   const boardService = new BoardService({ documentsRepo, projectsRepo });
@@ -112,6 +129,7 @@ export function buildContext(opts: BuildContextOptions): AppContext {
     sidecarStore,
     projectsRepo,
     documentsRepo,
+    operationsRepo,
     projectService,
     inboxService,
     documentService,
@@ -123,6 +141,7 @@ export function buildContext(opts: BuildContextOptions): AppContext {
     tagsService,
     graphService,
     queue,
+    coordinator,
     templates,
     healthService,
     importService,

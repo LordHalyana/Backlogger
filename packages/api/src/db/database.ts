@@ -25,6 +25,9 @@ export function openDatabase(opts: OpenDbOptions): Db {
   }
   const db = new Database(file);
   db.pragma('journal_mode = WAL');
+  // Coordinated writes must survive power loss once committed: WAL with FULL
+  // syncs the log on every commit (NORMAL would only sync at checkpoints).
+  db.pragma('synchronous = FULL');
   db.pragma('foreign_keys = ON');
 
   const migrationsDir = opts.migrationsDir ?? defaultMigrationsDir();

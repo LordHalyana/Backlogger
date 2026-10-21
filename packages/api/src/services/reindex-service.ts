@@ -18,7 +18,7 @@ import type { FsRepository, RawDocument } from '../fs/index.js';
 import type { LinkService } from './link-service.js';
 import type { TagsService } from './tags-service.js';
 import type { GraphService } from './graph-service.js';
-import type { ProjectQueue } from './project-queue.js';
+import type { WriteCoordinator } from './write-coordinator.js';
 import type { InboxService } from './inbox-service.js';
 
 export interface ReindexReport {
@@ -55,8 +55,8 @@ export interface ReindexServiceDeps {
   tagsService: TagsService;
   graphService: GraphService;
   sidecarStore: SidecarStore;
-  /** Per-project mutation queue, shared with the document service. */
-  queue: ProjectQueue;
+  /** Reloads run as coordinated commands, full reindexes exclusively. */
+  coordinator: WriteCoordinator;
   inbox: InboxService;
 }
 
@@ -74,7 +74,7 @@ export class ReindexService {
   private readonly tagsService: TagsService;
   private readonly graphService: GraphService;
   private readonly sidecarStore: SidecarStore;
-  private readonly queue: ProjectQueue;
+  private readonly coordinator: WriteCoordinator;
   private readonly inbox: InboxService;
   private readonly inFlight = new Set<string>();
 
@@ -86,19 +86,30 @@ export class ReindexService {
     this.tagsService = deps.tagsService;
     this.graphService = deps.graphService;
     this.sidecarStore = deps.sidecarStore;
-    this.queue = deps.queue;
+    this.coordinator = deps.coordinator;
     this.inbox = deps.inbox;
   }
 
-  async run(): Promise<ReindexReport> {
-    const report: ReindexReport = { scanned: 0, inserted: 0, skipped: [], duplicates: [] };
-    // id → the path indexed for it so far, and the copies left out.
-    const kept = new Map<string, string>();
-    const leftOut: Array<{ id: string; path: string }> = [];
-    this.documentsRepo.truncate();
-    this.linkService.truncate();
-    this.tagsService.truncate();
+  /**
+   * Full reindex: rebuild every derived index from disk with the workspace
+   * gate held exclusively. Operational tables (receipts, pending operations,
+   * guards) are not derived and are left as they are.
+   */
+  run(): Promise<ReindexReport> {
+    return this.coordinator.exclusive(() => this.rebuildHeld());
+  }
 
+  /** `run` for a caller already holding the gate exclusively (startup). */
+  async rebuildHeld(): Promise<ReindexReport> {
+    const report: ReindexReport = { scanned: 0, inserted: 0, skipped: [], duplicates: [] };
+    // id → the copy chosen for it so far, and the copies left out.
+    const kept = new Map<
+      string,
+      { doc: RawDocument; projectId: string; indexed: IndexedMetadata }
+    >();
+    const leftOut: Array<{ id: string; path: string }> = [];
+
+    // Read everything first; the index is rewritten in one transaction below.
     const sidecars = new Map<string, SidecarIndex>();
     for await (const doc of this.fs.walk()) {
       report.scanned += 1;
@@ -114,7 +125,7 @@ export class ReindexService {
       }
       const indexed = metadataForIndex(doc, projectId, sidecar);
       const id = indexed.frontmatter.id;
-      const other = kept.get(id);
+      const other = kept.get(id)?.doc.path;
       if (other !== undefined) {
         if (this.preferredCopy(other, doc.path) === other) {
           leftOut.push({ id, path: doc.path });
@@ -122,11 +133,22 @@ export class ReindexService {
         }
         leftOut.push({ id, path: other });
       }
-      kept.set(id, doc.path);
-      this.indexDocument(doc, projectId, indexed);
+      kept.set(id, { doc, projectId, indexed });
       report.inserted += 1;
     }
-    report.duplicates = leftOut.map(({ id, path }) => ({ id, path, keptPath: kept.get(id)! }));
+    this.coordinator.transaction(() => {
+      this.documentsRepo.truncate();
+      this.linkService.truncate();
+      this.tagsService.truncate();
+      for (const { doc, projectId, indexed } of kept.values()) {
+        this.indexDocument(doc, projectId, indexed);
+      }
+    });
+    report.duplicates = leftOut.map(({ id, path }) => ({
+      id,
+      path,
+      keptPath: kept.get(id)!.doc.path,
+    }));
     // Full reindex rewrote every project's links/tags → drop all graph caches.
     this.graphService.invalidate();
     return report;
@@ -143,13 +165,20 @@ export class ReindexService {
     }
     this.inFlight.add(projectId);
     try {
-      return await this.queue.run(projectId, () => this.reindexProjectInQueue(projectId));
+      return await this.coordinator.command({
+        locate: () => ({ projects: [projectId] }),
+        run: () => this.syncProjectHeld(projectId),
+      });
     } finally {
       this.inFlight.delete(projectId);
     }
   }
 
-  private async reindexProjectInQueue(projectId: string): Promise<ReloadReport> {
+  /**
+   * `runProject` for a caller already holding the project's queue or the
+   * gate exclusively (startup).
+   */
+  async syncProjectHeld(projectId: string): Promise<ReloadReport> {
     const started = Date.now();
     const report: ReloadReport = {
       projectId,
@@ -168,12 +197,15 @@ export class ReindexService {
     );
     const sidecar = await this.sidecarStore.load(projectId);
 
+    // Read the project first; the index changes are applied in one
+    // transaction below. `chosen` is the copy picked so far for each id.
+    const chosen = new Map<string, { doc: RawDocument; indexed: IndexedMetadata }>();
     for await (const doc of this.fs.walkProject(projectId)) {
       const indexed = metadataForIndex(doc, projectId, sidecar);
       const id = indexed.frontmatter.id;
       const wasPresent = existing.has(id);
       existing.delete(id);
-      const other = await this.otherIndexedCopy(id, doc.path);
+      const other = chosen.get(id)?.doc.path ?? (await this.otherIndexedCopy(id, doc.path));
       if (other !== null) {
         if (this.preferredCopy(other, doc.path) === other) {
           report.duplicates.push({ id, path: doc.path, keptPath: other });
@@ -181,21 +213,26 @@ export class ReindexService {
         }
         report.duplicates.push({ id, path: other, keptPath: doc.path });
       }
-      this.indexDocument(doc, projectId, indexed);
+      chosen.set(id, { doc, indexed });
       if (wasPresent) report.updated += 1;
       else report.added += 1;
     }
 
-    // Anything still in `existing` lost its backing file → purge.
-    for (const [id] of existing) {
-      this.documentsRepo.delete(id);
-      this.linkService.onDocumentDeleted(id);
-      report.removedIds.push(id);
-      report.removed += 1;
-    }
+    this.coordinator.transaction(() => {
+      for (const { doc, indexed } of chosen.values()) this.indexDocument(doc, projectId, indexed);
+      // Anything still in `existing` lost its backing file → purge.
+      for (const [id] of existing) {
+        this.documentsRepo.delete(id);
+        this.linkService.onDocumentDeleted(id);
+        report.removedIds.push(id);
+        report.removed += 1;
+      }
+    });
 
     // Documents/links/tags for this project changed → drop its graph cache so
     // GET /:id/graph rebuilds instead of serving a stale (TTL-cached) payload.
+    // (The coordinator does this after a Reload too; startup calls this
+    // outside any command.)
     this.graphService.invalidate(projectId);
 
     report.durationMs = Date.now() - started;
@@ -218,7 +255,11 @@ export class ReindexService {
       revision: indexed.revision,
       task_state: storedTaskState(indexed.frontmatter.task_state),
     });
-    this.linkService.rebuildForDocument(indexed.frontmatter.id, indexed.frontmatter.title, doc.body);
+    this.linkService.rebuildForDocument(
+      indexed.frontmatter.id,
+      indexed.frontmatter.title,
+      doc.body,
+    );
     this.tagsService.rebuildForDocument(indexed.frontmatter.id, indexed.frontmatter.tags);
   }
 

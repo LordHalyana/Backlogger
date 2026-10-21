@@ -33,7 +33,7 @@ export function projectsRouter(service: ProjectService): Router {
     asyncRoute(async (req, res) => {
       const id = parseProjectId(req.params.id);
       const input = validateBody(UpdateProjectRequestSchema, req.body);
-      res.json(service.update(id, input));
+      res.json(await service.update(id, input));
     }),
   );
 

@@ -46,6 +46,10 @@ logger.info(`templates loaded=${loaded.length} skipped=${skipped.length}`);
 const ctx = buildContext({ db, dataDir, templates, builtinTemplatesDir: builtinDir, userTemplatesDir: userDir });
 await ctx.fs.ensureRoot();
 
+await prepareDataDir(ctx);
+
+// Only after the startup pass released the exclusive gate. Watcher-triggered
+// reloads run as coordinated commands (ReindexService.runProject).
 const stopWatcher = watchUserTemplates({ builtinDir, userDir, registry: templates });
 let stopProjectWatcher: () => void = () => {};
 if (watchFiles) {
@@ -56,8 +60,6 @@ if (watchFiles) {
 } else {
   logger.info('project file watcher disabled (BACKLOGGER_WATCH=0)');
 }
-
-await prepareDataDir(ctx);
 
 const app = createApp(ctx, { allowedOrigins });
 

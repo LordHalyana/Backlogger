@@ -64,6 +64,10 @@ SQLite is derived state used for:
 
 If SQLite is missing or stale, Backlogger can rebuild document metadata and indexes from Markdown files with reindexing. The Markdown files matter more than the database for durability.
 
+SQLite also holds **operational state** that is not derived from Markdown and cannot be rebuilt from it: the `operations` table (pending operations and completed retry receipts), `operation_payloads`, `operation_manifest_entries` and `operation_guards`. Reload and Reindex never touch these tables, and deleting a document never cascades into them. Losing the database loses retry history and any pending recovery state. Never edit these tables by hand.
+
+The database runs in WAL mode with `synchronous=FULL`, and Backlogger fsyncs the directory after every file rename, delete and directory creation.
+
 ## Project Folder Rules
 
 A project folder must live at:

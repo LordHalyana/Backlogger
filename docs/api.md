@@ -49,6 +49,7 @@ Common codes include:
 - `DOCUMENT_NOT_FOUND`
 - `DOCUMENT_VERSION_MISMATCH`
 - `REVISION_CONFLICT` (filing, and an update, move or delete whose document was filed into another project while it waited; `details: { currentRevision, currentProjectId }`)
+- `RECOVERY_REQUIRED` (a write blocked by an unfinished operation; `details: { operationId, inspect }`, where `inspect` is the operation's `/api/recovery/:operationId` link)
 - `CAPTURE_ID_CONFLICT`
 - `PROJECT_NOT_WRITABLE`
 - `NOT_A_BACKLOG_ITEM`
@@ -166,13 +167,15 @@ All fields are optional, but at least one field is required. Use `readOnly` to p
 
 Returns the updated project.
 
+While any operation is pending in the project, changing `readOnly` or `metadataMode` returns `409 RECOVERY_REQUIRED`; a request that mixes those with allowed changes is refused as a whole. While a project deletion is pending, every setting is refused.
+
 ### `DELETE /api/projects/:id`
 
 Deletes the project and attempts to remove its folder.
 
 Returns `204`.
 
-Returns `409 PROJECT_READ_ONLY` while read-only mode is enabled.
+Returns `409 PROJECT_READ_ONLY` while read-only mode is enabled, and `409 RECOVERY_REQUIRED` while any operation is pending in the project.
 
 ## Documents
 
@@ -261,6 +264,8 @@ A missing `If-Match` header is accepted: the update is applied unconditionally, 
 If the document was filed into another project while the update waited in the queue, the API returns `409 REVISION_CONFLICT` with `details: { currentRevision, currentProjectId }`, with or without `If-Match`, and changes nothing.
 
 If the project is in read-only mode, the API returns `409 PROJECT_READ_ONLY`.
+
+If an unfinished operation guards the document (or its whole project), the API returns `409 RECOVERY_REQUIRED` with `details: { operationId, inspect }` and changes nothing. The same applies to delete, move, filing and creating documents in a guarded project. Other documents are unaffected.
 
 If the document was indexed from plain Markdown without Backlogger frontmatter and the project is editable, the first successful update writes Backlogger frontmatter to the same file and returns the adopted editable document.
 

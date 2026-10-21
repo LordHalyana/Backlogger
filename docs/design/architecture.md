@@ -101,7 +101,8 @@ Services own domain behavior:
 - `GraphService`: graph payload and in-memory cache.
 - `HealthService`: subsystem health snapshot.
 - `BoardService`: the project board (non-archived backlog items by task state, in creation order).
-- `ProjectQueue`: one in-process operation queue per project, shared by every document mutation and project reindex so they never interleave. Assumes a single server process per data dir. The full reindex (`ReindexService.run`, used at startup with an empty index and by `POST /api/admin/reindex`) does not go through it.
+- `WriteCoordinator`: the one commit seam for workspace writes (spec #58). Every document mutation, filing, project create/settings/delete, folder change and project Reload runs through `command()`: the workspace gate (shared), then the project queues in ascending ID order, all taken up front and never re-entered, then the durable guard check (`409 RECOVERY_REQUIRED`), then the command's own preconditions, file writes and one synchronous SQLite transaction, and finally graph-cache invalidation. Retry-safe commands add receipt lookup and claim keyed by the operation ID (`operations` primary key plus re-lookup; no in-memory locks). A full Reindex and the startup pass hold the gate exclusively (`exclusive()`).
+- `WorkspaceGate` / `ProjectQueue`: the coordinator's two in-process lock layers. They assume a single server process per data dir.
 
 Document writes should go through `DocumentService` so filesystem, SQLite, links, tags, search, and graph invalidation stay aligned.
 
@@ -111,6 +112,7 @@ Repositories are the only modules that should talk directly to persistence:
 
 - `FsRepository`: safe Markdown file operations.
 - `ProjectsRepo`: `projects` table.
+- `OperationsRepo`: the protected operational tables (`operations`, `operation_payloads`, `operation_manifest_entries`, `operation_guards`). Only `WriteCoordinator` uses it, and the coordinator owns every SQLite transaction a command commits.
 - `DocumentsRepo`: `documents` table reads/writes, including the `body_indexed`
   column. The `documents_fts` full-text index is maintained by SQL triggers
   (`documents_ai` / `documents_ad` / `documents_au`) defined in

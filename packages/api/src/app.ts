@@ -50,7 +50,7 @@ export function createApp(ctx: AppContext, options: CreateAppOptions = {}): Expr
 
   app.use('/api/projects', projectTitlesRouter(ctx.linkService));
   app.use('/api/projects', projectReloadRouter(ctx.projectService, ctx.reindexService));
-  app.use('/api/projects', projectFoldersRouter(ctx.projectService, ctx.fs));
+  app.use('/api/projects', projectFoldersRouter(ctx.projectService, ctx.fs, ctx.coordinator));
   app.use('/api/projects', projectGraphRouter(ctx.graphService));
   app.use('/api/projects', projectBoardRouter(ctx.boardService));
   app.use('/api/projects', projectsRouter(ctx.projectService));
