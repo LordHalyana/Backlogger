@@ -1,9 +1,11 @@
 import type { Db } from './db/database.js';
+import { CommentsRepo } from './db/comments-repo.js';
 import { DocumentsRepo } from './db/documents-repo.js';
 import { OperationsRepo } from './db/operations-repo.js';
 import { ProjectsRepo } from './db/projects-repo.js';
 import { FsRepository, PathResolver, SidecarStore } from './fs/index.js';
 import { BoardService } from './services/board-service.js';
+import { CommentService } from './services/comment-service.js';
 import { DocumentService } from './services/document-service.js';
 import { CurrentWorkService } from './services/current-work-service.js';
 import { InboxService } from './services/inbox-service.js';
@@ -29,10 +31,12 @@ export interface AppContext {
   sidecarStore: SidecarStore;
   projectsRepo: ProjectsRepo;
   documentsRepo: DocumentsRepo;
+  commentsRepo: CommentsRepo;
   operationsRepo: OperationsRepo;
   projectService: ProjectService;
   inboxService: InboxService;
   documentService: DocumentService;
+  commentService: CommentService;
   boardService: BoardService;
   currentWorkService: CurrentWorkService;
   reindexService: ReindexService;
@@ -64,6 +68,7 @@ export function buildContext(opts: BuildContextOptions): AppContext {
   const sidecarStore = new SidecarStore(resolver);
   const projectsRepo = new ProjectsRepo(opts.db);
   const documentsRepo = new DocumentsRepo(opts.db);
+  const commentsRepo = new CommentsRepo(opts.db);
   const templates = opts.templates ?? new TemplateRegistry();
   const builtinTemplatesDir = opts.builtinTemplatesDir ?? '';
   const userTemplatesDir = opts.userTemplatesDir ?? '';
@@ -97,8 +102,16 @@ export function buildContext(opts: BuildContextOptions): AppContext {
     coordinator,
     inbox: inboxService,
   });
+  const commentService = new CommentService({
+    commentsRepo,
+    documentsRepo,
+    projectsRepo,
+    fs,
+    coordinator,
+  });
   const reindexService = new ReindexService({
     documentsRepo,
+    commentsRepo,
     projectsRepo,
     fs,
     linkService,
@@ -129,10 +142,12 @@ export function buildContext(opts: BuildContextOptions): AppContext {
     sidecarStore,
     projectsRepo,
     documentsRepo,
+    commentsRepo,
     operationsRepo,
     projectService,
     inboxService,
     documentService,
+    commentService,
     boardService,
     currentWorkService,
     reindexService,

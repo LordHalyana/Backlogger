@@ -1,0 +1,83 @@
+import type { Db } from './database.js';
+
+/** One row of the derived comment index (migration 0012). */
+export interface CommentRow {
+  id: string;
+  task_id: string;
+  project_id: string;
+  /** Relative to `<dataDir>/projects/`, like documents.path. */
+  path: string;
+  body: string;
+  created_at: string;
+  updated_at: string;
+  revision: string;
+}
+
+/** Position in a task's history: `created_at`, then id. */
+export interface CommentPosition {
+  created_at: string;
+  id: string;
+}
+
+export class CommentsRepo {
+  constructor(private readonly db: Db) {}
+
+  find(id: string): CommentRow | undefined {
+    return this.db.prepare<[string], CommentRow>(`SELECT * FROM comments WHERE id = ?`).get(id);
+  }
+
+  upsert(row: CommentRow): void {
+    this.db
+      .prepare(
+        `INSERT INTO comments (id, task_id, project_id, path, body, created_at, updated_at, revision)
+         VALUES (@id, @task_id, @project_id, @path, @body, @created_at, @updated_at, @revision)
+         ON CONFLICT(id) DO UPDATE SET
+           task_id = excluded.task_id, project_id = excluded.project_id, path = excluded.path,
+           body = excluded.body, created_at = excluded.created_at,
+           updated_at = excluded.updated_at, revision = excluded.revision`,
+      )
+      .run(row);
+  }
+
+  countForTask(taskId: string): number {
+    return (
+      this.db
+        .prepare<[string], { n: number }>(`SELECT COUNT(*) AS n FROM comments WHERE task_id = ?`)
+        .get(taskId)?.n ?? 0
+    );
+  }
+
+  /**
+   * Up to `limit` comments of a task that sort before `before` (or the newest
+   * ones without it), newest first.
+   */
+  listNewestBefore(
+    taskId: string,
+    before: CommentPosition | undefined,
+    limit: number,
+  ): CommentRow[] {
+    if (!before) {
+      return this.db
+        .prepare<[string, number], CommentRow>(
+          `SELECT * FROM comments WHERE task_id = ?
+           ORDER BY created_at DESC, id DESC LIMIT ?`,
+        )
+        .all(taskId, limit);
+    }
+    return this.db
+      .prepare<[string, string, string, string, number], CommentRow>(
+        `SELECT * FROM comments
+         WHERE task_id = ? AND (created_at < ? OR (created_at = ? AND id < ?))
+         ORDER BY created_at DESC, id DESC LIMIT ?`,
+      )
+      .all(taskId, before.created_at, before.created_at, before.id, limit);
+  }
+
+  deleteByProject(projectId: string): void {
+    this.db.prepare(`DELETE FROM comments WHERE project_id = ?`).run(projectId);
+  }
+
+  truncate(): void {
+    this.db.exec(`DELETE FROM comments`);
+  }
+}

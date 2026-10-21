@@ -121,7 +121,8 @@ Example response:
   "skipped": [],
   "durationMs": 24,
   "removedIds": ["5f8c5b7b-7d9e-4b4d-a017-d3ab3e1d9d31"],
-  "duplicates": []
+  "duplicates": [],
+  "comments": { "indexed": 4, "problems": [] }
 }
 ```
 
@@ -131,6 +132,19 @@ the copy outside the designated Inbox is indexed (otherwise the
 lexicographically first path), and `path` is the leftover to delete. A project
 reload only sees a copy in another project once that project is indexed too;
 a full reindex sees all of them.
+
+`comments` reports the project's comment index, rebuilt from the files under
+`tickets/<task-id>/comments/` (see [Comments](../api.md#comments)). Comment
+files are never indexed as documents. A file that cannot be indexed is listed
+in `problems` as `{ path, reason, message }` and left byte-identical, never
+converted or deleted. `reason` is one of:
+
+- `malformed`: not a schema-v1 comment file, or its `id` or `parent_id` does
+  not match its file name or task directory;
+- `unsupported_schema_version`;
+- `missing_parent`: no backlog item with that id in this project;
+- `duplicate_id`: another file with the same comment id is indexed (the
+  lexicographically first path, or one already indexed in another project).
 
 ### `POST /api/admin/reindex`
 
@@ -143,9 +157,13 @@ The response includes `scanned`, `inserted`, and `skipped` counts. `skipped` is 
   "scanned": 12,
   "inserted": 12,
   "skipped": [],
-  "duplicates": []
+  "duplicates": [],
+  "comments": { "indexed": 4, "problems": [] }
 }
 ```
+
+`comments` rebuilds the whole comment index, with the same `problems` as a
+project reload.
 
 ### `POST /api/admin/reload-templates`
 

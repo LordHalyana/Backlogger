@@ -7,9 +7,15 @@ import {
   ProjectNotFoundError,
 } from './errors.js';
 import { PathResolver, PROJECT_SUBDIRS } from './path-resolver.js';
-import { SIDECAR_DIR } from '@backlogger/shared';
+import {
+  COMMENTS_SEGMENT,
+  isCommentStorageFolder,
+  isCommentStoragePath,
+  SIDECAR_DIR,
+  TICKETS_SEGMENT,
+} from '@backlogger/shared';
 import { contentRevision } from './revision.js';
-import { replaceDurable, unlinkDurable } from './durable.js';
+import { createNoOverwrite, replaceDurable, unlinkDurable } from './durable.js';
 
 /** A parsed Markdown document on disk. */
 export interface RawDocument {
@@ -22,6 +28,11 @@ export interface RawDocument {
   createdAt?: string;
   updatedAt?: string;
 }
+
+/** One file found in a task's comment directory, read but not yet validated. */
+export type CommentFileEntry =
+  | { path: string; text: string }
+  | { path: string; text: null; problem: string };
 
 export interface FsRepositoryOptions {
   resolver: PathResolver;
@@ -94,7 +105,9 @@ export class FsRepository {
   /**
    * List every subfolder under a project, recursively, as project-relative
    * forward-slash paths. Sorted lexicographically. Excludes the project
-   * root itself. Symlinks are skipped.
+   * root itself. Symlinks are skipped, and so is comment storage: each
+   * `tickets/<id>/comments` directory, and its `tickets/<id>` parent unless
+   * that holds other folders.
    */
   async listFolders(projectId: string): Promise<string[]> {
     if (!(await this.projectExists(projectId))) {
@@ -102,6 +115,7 @@ export class FsRepository {
     }
     const root = this.resolver.projectDir(projectId);
     const out: string[] = [];
+    const commentParents = new Set<string>();
     async function visit(dir: string, rel: string): Promise<void> {
       let entries: import('node:fs').Dirent[];
       try {
@@ -115,13 +129,20 @@ export class FsRepository {
         if (e.isSymbolicLink()) continue;
         if (e.name === SIDECAR_DIR) continue; // reserved sidecar metadata dir
         const childRel = rel ? `${rel}/${e.name}` : e.name;
+        if (isCommentStorageFolder(childRel)) {
+          commentParents.add(rel);
+          continue;
+        }
         out.push(childRel);
         await visit(path.join(dir, e.name), childRel);
       }
     }
     await visit(root, '');
-    out.sort();
-    return out;
+    const shown = out.filter(
+      (f) => !commentParents.has(f) || out.some((o) => o.startsWith(`${f}/`)),
+    );
+    shown.sort();
+    return shown;
   }
 
   /**
@@ -238,6 +259,16 @@ export class FsRepository {
     return contentRevision(content);
   }
 
+  /**
+   * Create a file that must not exist yet, durably (see `createNoOverwrite`).
+   * Rejects with `EEXIST`, leaving the existing file untouched, when it does.
+   */
+  async createNew(relativePath: string, content: string): Promise<void> {
+    const absolute = this.resolver.resolveRelative(relativePath);
+    await this.resolver.assertNoSymlinks(absolute);
+    await createNoOverwrite(absolute, content);
+  }
+
   /** Delete a document file. Throws `DocumentNotFoundError` if missing. */
   async delete(relativePath: string): Promise<void> {
     const absolute = await this.resolver.resolveRelativeSafe(relativePath);
@@ -265,11 +296,63 @@ export class FsRepository {
     }
   }
 
-  /** Yield every parseable `.md` document under one project. */
+  /**
+   * Yield every parseable `.md` document under one project. Comment storage
+   * (`tickets/<id>/comments/`) is skipped: those files are comments, which
+   * `walkComments` yields.
+   */
   async *walkProject(projectId: string): AsyncIterable<RawDocument> {
     this.resolver.assertProjectId(projectId);
     const projectDir = this.resolver.projectDir(projectId);
     yield* walkMarkdown(projectDir, this.resolver.projectsRoot);
+  }
+
+  /**
+   * Yield every entry inside each `<project>/tickets/<id>/comments/`
+   * directory, recursively, sorted by path: the text of regular files, and a
+   * problem for anything that cannot be read as one (symlinks, unreadable
+   * files). Validation is the caller's; nothing is changed.
+   */
+  async *walkComments(projectId: string): AsyncIterable<CommentFileEntry> {
+    this.resolver.assertProjectId(projectId);
+    const root = this.resolver.projectsRoot;
+    const ticketsDir = path.join(this.resolver.projectDir(projectId), TICKETS_SEGMENT);
+    for (const task of await readDirSorted(ticketsDir)) {
+      if (!task.isDirectory()) continue;
+      const dir = path.join(ticketsDir, task.name, COMMENTS_SEGMENT);
+      yield* walkCommentDir(dir, root);
+    }
+  }
+}
+
+async function readDirSorted(dir: string): Promise<import('node:fs').Dirent[]> {
+  try {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    return entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT' || code === 'ENOTDIR') return [];
+    throw err;
+  }
+}
+
+async function* walkCommentDir(dir: string, root: string): AsyncIterable<CommentFileEntry> {
+  for (const entry of await readDirSorted(dir)) {
+    const abs = path.join(dir, entry.name);
+    const rel = toForwardSlash(path.relative(root, abs));
+    if (entry.isSymbolicLink()) {
+      yield { path: rel, text: null, problem: 'symbolic links are not followed' };
+    } else if (entry.isDirectory()) {
+      yield* walkCommentDir(abs, root);
+    } else if (!entry.isFile()) {
+      yield { path: rel, text: null, problem: 'not a regular file' };
+    } else {
+      try {
+        yield { path: rel, text: await fs.readFile(abs, 'utf8') };
+      } catch (err) {
+        yield { path: rel, text: null, problem: `unreadable: ${(err as Error).message}` };
+      }
+    }
   }
 }
 
@@ -289,6 +372,7 @@ async function* walkMarkdown(
     if (entry.isSymbolicLink()) continue; // skip symlinks defensively
     if (entry.isDirectory()) {
       if (entry.name === SIDECAR_DIR) continue; // reserved sidecar metadata dir
+      if (isCommentStoragePath(toForwardSlash(path.relative(rootForRelative, abs)))) continue;
       yield* walkMarkdown(abs, rootForRelative);
     } else if (entry.isFile() && entry.name.endsWith('.md')) {
       const rel = toForwardSlash(path.relative(rootForRelative, abs));

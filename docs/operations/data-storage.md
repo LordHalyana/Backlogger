@@ -43,6 +43,7 @@ Directory layout:
   projects/
     <project-id>/
       <folders-and-markdown-files>
+      tickets/<task-id>/comments/<comment-id>.md
   templates/
     <user-template>.md
 ```
@@ -57,6 +58,7 @@ SQLite is derived state used for:
 
 - project rows
 - document metadata
+- the comment index (comment files are indexed separately from documents)
 - full-text search
 - wiki-link and backlink indexes
 - tag indexes

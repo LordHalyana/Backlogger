@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { ProjectIdSchema } from './projects.js';
 import { TagSchema } from './tags.js';
 import { TaskStateSchema } from './tasks.js';
+import { isCommentStorageFolder } from './paths.js';
 
 /**
  * Canonical list of document types. This is the single source of truth:
@@ -78,7 +79,10 @@ export const FolderPathSchema = z
       return segments.every((seg) => /^[a-z0-9][a-z0-9-_]{0,63}$/.test(seg));
     },
     { message: 'invalid folder path' },
-  );
+  )
+  .refine((value) => !isCommentStorageFolder(value), {
+    message: 'tickets/<id>/comments folders are reserved for comments',
+  });
 export type FolderPath = z.infer<typeof FolderPathSchema>;
 
 /**
