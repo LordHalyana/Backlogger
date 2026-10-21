@@ -48,7 +48,7 @@ Common codes include:
 - `PROJECT_READ_ONLY`
 - `DOCUMENT_NOT_FOUND`
 - `DOCUMENT_VERSION_MISMATCH`
-- `REVISION_CONFLICT` (filing only; `details: { currentRevision, currentProjectId }`)
+- `REVISION_CONFLICT` (filing, and an update, move or delete whose document was filed into another project while it waited; `details: { currentRevision, currentProjectId }`)
 - `CAPTURE_ID_CONFLICT`
 - `PROJECT_NOT_WRITABLE`
 - `NOT_A_BACKLOG_ITEM`
@@ -258,6 +258,8 @@ The check runs inside the project's mutation queue against the file as it is on 
 
 A missing `If-Match` header is accepted: the update is applied unconditionally, as before. The web editor (and the board) always send it.
 
+If the document was filed into another project while the update waited in the queue, the API returns `409 REVISION_CONFLICT` with `details: { currentRevision, currentProjectId }`, with or without `If-Match`, and changes nothing.
+
 If the project is in read-only mode, the API returns `409 PROJECT_READ_ONLY`.
 
 If the document was indexed from plain Markdown without Backlogger frontmatter and the project is editable, the first successful update writes Backlogger frontmatter to the same file and returns the adopted editable document.
@@ -271,6 +273,8 @@ Returns `204`.
 Returns `409 PROJECT_READ_ONLY` while the project is in read-only mode.
 
 Derived plain-Markdown documents can be deleted only when the containing project is editable. While the project is read-only, deletion returns `409 PROJECT_READ_ONLY`.
+
+Returns `409 REVISION_CONFLICT` with `details: { currentRevision, currentProjectId }` if the document was filed into another project while the delete waited in the queue.
 
 ### `POST /api/documents/:id/move`
 
@@ -287,6 +291,7 @@ Body:
 - `409 PROJECT_READ_ONLY` while the project is in read-only mode.
 - `409 DERIVED_DOCUMENT_READ_ONLY` for a document indexed from plain Markdown (adopt it first by editing it in an editable project).
 - `400 INVALID_FOLDER` when the target is the reserved `archived/` folder (archive via `status` instead).
+- `409 REVISION_CONFLICT` (`details: { currentRevision, currentProjectId }`) if the document was filed into another project while the move waited in the queue.
 
 ### `GET /api/documents/:id/raw`
 
