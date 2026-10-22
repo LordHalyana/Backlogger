@@ -116,7 +116,9 @@ Use project reload from the app when possible. Use full reindex when many projec
 
 ## Recovery Expectations
 
-If SQLite is missing but project folders exist:
+If SQLite is missing but project folders exist, Backlogger rebuilds the index
+but has lost the database; see
+[Rebuilding The Index Versus Losing The Database](#rebuilding-the-index-versus-losing-the-database).
 
 - Startup may auto-discover valid project folders.
 - A full reindex (`POST /api/admin/reindex`) rebuilds document metadata from
@@ -151,9 +153,11 @@ deleting `backlogger.sqlite`) brings back every document and comment, but:
 
 - **Retry history is gone.** A client retrying an operation that had already
   completed is treated as a new request. Retrying a comment post with the same
-  `Idempotency-Key` and body returns `409 COMMENT_ID_CONFLICT` instead of the
-  original acknowledgement, because the comment already exists and no receipt
-  says this request created it. This is expected; nothing is written twice.
+  `Idempotency-Key` and body returns `409 COMMENT_ID_CONFLICT` (or
+  `409 COMMENT_NOT_WRITABLE` in a project that came back read-only) instead
+  of the original acknowledgement, because the comment already exists and no
+  receipt says this request created it. This is expected; nothing is written
+  twice.
 - **Pending operations are gone.** Interrupted writes are no longer finished or
   listed for recovery review. Check the affected files by hand using the
   [manual repair procedure](#manual-structural-repair).
