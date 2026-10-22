@@ -77,6 +77,24 @@ export function invalidateComments(qc: QueryClient, taskId?: string): Promise<vo
   return qc.invalidateQueries({ queryKey: taskId ? queryKeys.comments(taskId) : ['comments'] });
 }
 
+/** Refetch the Recovery list and every open review, e.g. after a write that may be blocked. */
+export function invalidateRecovery(qc: QueryClient): Promise<void> {
+  return qc.invalidateQueries({ queryKey: queryKeys.recovery() });
+}
+
+/**
+ * A recovered or abandoned operation can change any project's boards,
+ * documents and comments (filing moves a task between projects), and so
+ * Current work and search too.
+ */
+export function invalidateAfterRecovery(qc: QueryClient): void {
+  void qc.invalidateQueries({ queryKey: ['board'] });
+  void qc.invalidateQueries({ queryKey: ['documents'] });
+  void qc.invalidateQueries({ queryKey: ['document'] });
+  void qc.invalidateQueries({ queryKey: queryKeys.currentWork() });
+  void invalidateComments(qc);
+}
+
 export function invalidateProjectFolders(qc: QueryClient, projectId: string): void {
   void qc.invalidateQueries({ queryKey: queryKeys.folders(projectId) });
 }

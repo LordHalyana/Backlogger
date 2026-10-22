@@ -217,7 +217,7 @@ export function recoveryRequired(operationId: string): ConflictError {
   return new ConflictError(
     'RECOVERY_REQUIRED',
     `Blocked by pending operation ${operationId}; review it before retrying.`,
-    { operationId, inspect: `/api/recovery/${operationId}` },
+    { operationId, inspect: `/recovery/${operationId}` },
   );
 }
 

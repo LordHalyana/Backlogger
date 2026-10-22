@@ -408,6 +408,75 @@ describe('RecoveryPage', () => {
     expect(within(p).queryByRole('region', { name: 'Current file' })).toBeNull();
   });
 
+  it('a comment operation stopped by a missing file is structural: its own badge, a path table and repair steps', async () => {
+    const missing = summary({
+      operation_id: EDIT_OP,
+      kind: 'structural',
+      reason: 'file_missing',
+      message: 'The comment file is missing.',
+    });
+    mockFetch(
+      server({
+        operations: [missing],
+        details: new Map([
+          [
+            EDIT_OP,
+            detail(missing, {
+              actions: ['recheck', 'abandon'],
+              pending_content: PENDING,
+              current_content: null,
+              paths: [
+                {
+                  path: commentPath,
+                  before_revision: 'r-before',
+                  after_revision: 'r-after',
+                  observed_revision: null,
+                },
+              ],
+            }),
+          ],
+        ]),
+      }),
+    );
+    renderPage(EDIT_OP);
+    const p = panel();
+    expect(await within(p).findByRole('table')).toHaveTextContent(commentPath);
+    expect(within(p).getByText('Comment write stopped', { exact: true })).toBeTruthy();
+    expect(within(p).queryByText('Content conflict', { exact: true })).toBeNull();
+    expect(within(p).queryByRole('region', { name: 'Current file' })).toBeNull();
+    expect(within(p).getByRole('list', { name: 'To repair' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: /CSV line endings/ })).toHaveTextContent(
+      'Comment write stopped',
+    );
+  });
+
+  it('a failed abandon retried on the same review reuses its Idempotency-Key', async () => {
+    const s = server();
+    const calls = mockFetch(s);
+    renderPage(EDIT_OP);
+    const p = panel();
+    const open = async (): Promise<void> => {
+      fireEvent.click(
+        await within(p).findByRole('button', {
+          name: 'Keep current file and abandon pending change…',
+        }),
+      );
+      fireEvent.click(within(p).getByRole('button', { name: 'Abandon pending change' }));
+    };
+    s.posts.push({ status: 500, body: { error: { code: 'INTERNAL', message: 'Boom.' } } });
+    await open();
+    await within(p).findByText(/Not abandoned/);
+    s.posts.push({ status: 500, body: { error: { code: 'INTERNAL', message: 'Boom.' } } });
+    await open();
+    await waitFor(() =>
+      expect(calls.filter((c) => c.url === `/api/recovery/${EDIT_OP}/abandon`)).toHaveLength(2),
+    );
+    const keys = calls
+      .filter((c) => c.url === `/api/recovery/${EDIT_OP}/abandon`)
+      .map((c) => new Headers(c.init?.headers).get('Idempotency-Key'));
+    expect(keys[0]).toBe(keys[1]);
+  });
+
   it('a deletion has no Open task: the task is hidden', async () => {
     mockFetch(server());
     renderPage(DELETE_OP);

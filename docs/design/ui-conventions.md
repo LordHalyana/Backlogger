@@ -97,6 +97,7 @@ packages/web/src/styles/modal.css
 packages/web/src/styles/graph.css
 packages/web/src/styles/board.css
 packages/web/src/styles/daily-work.css
+packages/web/src/styles/recovery.css
 ```
 
 Keep `theme.css` as the token source. `project-tree.css` owns the project
@@ -115,7 +116,8 @@ modal form/result-summary layout, `graph.css` owns the full-screen graph
 overlay, and `board.css` owns the sidebar Documents | Board switch, the board
 columns and cards, and the board's Undo notice. `daily-work.css` owns the
 workspace rail, capture form and palette, ⌂ Inbox triage and the Current work
-drawer. The per-surface split is complete: `app.css` now holds only residual
+drawer. `recovery.css` owns the Recovery page, the recovery banner and the
+recovery states on board cards, Current work rows and the task. The per-surface split is complete: `app.css` now holds only residual
 app-shell and layout rules. Put new styles in the matching per-surface file and
 keep `app.css` for shared shell/layout, preserving cascade order. Do not
 introduce Tailwind, CSS-in-JS, CSS modules, or a component library for the
@@ -131,8 +133,10 @@ Base button class:
 
 Current variants:
 
+- `.btn--primary` (the main action of a panel, such as Recheck)
 - `.btn--ghost`
 - `.btn--danger`
+- `.btn--danger-solid` (confirms an irreversible choice, such as Abandon)
 - `.btn--sm`
 - `.btn--icon`
 - `.btn--link`

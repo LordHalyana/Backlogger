@@ -137,7 +137,7 @@ const recoveryRequired = (operationId: string) => ({
     error: {
       code: 'RECOVERY_REQUIRED',
       message: 'Blocked.',
-      details: { operationId, inspect: `/api/recovery/${operationId}` },
+      details: { operationId, inspect: `/recovery/${operationId}` },
     },
   },
 });

@@ -50,7 +50,7 @@ Common codes include:
 - `DOCUMENT_VERSION_MISMATCH`
 - `DELETION_BLOCKED` (a permanent deletion whose scope holds files it must not judge on its own; `details: { paths }`)
 - `REVISION_CONFLICT` (filing, and an update, move or delete whose document was filed into another project while it waited; `details: { currentRevision, currentProjectId }`)
-- `RECOVERY_REQUIRED` (a write blocked by an unfinished operation; `details: { operationId, inspect }`, where `inspect` is the operation's `/api/recovery/:operationId` link)
+- `RECOVERY_REQUIRED` (a write blocked by an unfinished operation; `details: { operationId, inspect }`, where `inspect` is the Recovery page link `/recovery/:operationId`; its review is `GET /api/recovery/:operationId`)
 - `CAPTURE_ID_CONFLICT`
 - `INVALID_COMMAND`, `REVISION_REQUIRED` (`428`), `OPERATION_ID_CONFLICT`, `OPERATION_IN_PROGRESS`, `OPERATION_ABANDONED`, `COMMENT_NOT_WRITABLE`, `COMMENT_ID_CONFLICT`, `COMMENT_NOT_PRESERVABLE`, `PARENT_NOT_FOUND`, `COMMENT_NOT_FOUND` (see [Comments](#comments))
 - `RECOVERY_NOT_FOUND` (`404`), `RECOVERY_ACTION_NOT_ALLOWED` (see [Recovery](#recovery))

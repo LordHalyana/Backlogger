@@ -8,6 +8,7 @@ import {
   formatStarted,
   headline,
   isCommentOperation,
+  isContentConflict,
   isDeletion,
   isMoving,
   isTransfer,
@@ -126,7 +127,7 @@ export function RecoveryPage({
           announce(text);
           focusSoon('notice');
         } else if (result.state === 'pending') {
-          const content = result.recovery?.kind === 'content_conflict' && isCommentOperation(op);
+          const content = !!result.recovery && isContentConflict(result.recovery);
           setNotice({
             operationId: op.operation_id,
             kind: 'info',
@@ -150,10 +151,20 @@ export function RecoveryPage({
     });
   };
 
+  // A retry of the same review reuses its key; a new review (new token) gets a new one.
+  const abandonKey = useRef<{ review: string; key: string } | null>(null);
   const runAbandon = (review: RecoveryDetail): void => {
     if (abandon.isPending) return;
+    const scope = `${review.operation_id}:${review.review_token}`;
+    if (abandonKey.current?.review !== scope) {
+      abandonKey.current = { review: scope, key: newUuid() };
+    }
     abandon.mutate(
-      { operationId: review.operation_id, key: newUuid(), reviewToken: review.review_token },
+      {
+        operationId: review.operation_id,
+        key: abandonKey.current.key,
+        reviewToken: review.review_token,
+      },
       {
         onSuccess: () => {
           setConfirming(false);
@@ -381,7 +392,7 @@ function ReviewPanel({
     );
   }
   const content =
-    isCommentOperation(review) &&
+    isContentConflict(review) &&
     (review.pending_content !== null || review.current_content !== null);
   const abandonable = review.actions.includes('abandon');
   return (

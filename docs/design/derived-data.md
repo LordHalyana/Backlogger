@@ -194,6 +194,11 @@ Central caches currently include:
   every search query is invalidated by `invalidateSearch`, which the
   document-derived, project-list and comment helpers call, so saves, filing,
   comment writes, deletion, Reload and Reindex all clear it)
+- `['recovery']` (pending operations, and abandoned ones not yet dismissed;
+  polled, and invalidated by `invalidateRecovery` after every comment write,
+  recheck, abandon, dismiss and `RECOVERY_REQUIRED` refusal)
+- `['recovery', operationId]` (one operation's review; under the
+  `['recovery']` prefix, so the same invalidations refetch it)
 
 When document body/frontmatter changes, invalidate or update:
 
@@ -208,7 +213,10 @@ Query keys and invalidation are centralized in
 `packages/web/src/lib/query-keys.ts`. The `queryKeys` factory defines the keys
 above, and helpers — `invalidateDocument`, `invalidateDocumentDerived`, `invalidateProjectList`,
 `invalidateProjectFolders`, `invalidateProjectStructure`, `invalidateComments`, `invalidateSearch`, `setDocumentCache`,
-`removeDocumentCache`, `invalidateProjectReload`, `invalidateGlobalReindex`, and
+`removeDocumentCache`, `invalidateProjectReload`, `invalidateGlobalReindex`,
+`invalidateRecovery`, `invalidateAfterRecovery` (a recheck that finishes or an
+abandon: every board, document list, document, Current work, comments and
+search), and
 `clearDocumentBuffers` — keep mutation paths from missing invalidations. New
 mutations should reuse these helpers instead of hand-writing query keys.
 

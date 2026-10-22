@@ -2,10 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Document } from '@backlogger/shared';
 import { ApiError } from '../lib/api.js';
-import { blockingOperationId, invalidateRecovery } from '../lib/recovery.js';
+import { blockingOperationId } from '../lib/recovery.js';
 import { useDebouncedCallback } from '../lib/debounce.js';
 import { useUpdateDocument } from '../lib/documents.js';
-import { setDocumentCache } from '../lib/query-keys.js';
+import { invalidateRecovery, setDocumentCache } from '../lib/query-keys.js';
 
 const SAVE_DEBOUNCE_MS = 800;
 

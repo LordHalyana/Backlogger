@@ -3,7 +3,6 @@ import {
   useMutation,
   useQuery,
   useQueryClient,
-  type QueryClient,
   type UseMutationResult,
   type UseQueryResult,
 } from '@tanstack/react-query';
@@ -17,7 +16,7 @@ import type {
 } from '@backlogger/shared';
 import { ApiError, apiFetch } from './api.js';
 import { useDialog } from './dialog.js';
-import { queryKeys } from './query-keys.js';
+import { invalidateAfterRecovery, invalidateRecovery, queryKeys } from './query-keys.js';
 
 /*
  * Recovery review (spec #58, #61): operations a crash or failure left
@@ -50,11 +49,20 @@ export function isMoving(op: RecoverySummary): boolean {
   return op.state === 'pending' && op.in_progress && isTransfer(op);
 }
 
+/**
+ * A comment write whose file changed: reviewed as Current file vs Pending
+ * change. A comment write stopped by a structural problem (missing parent,
+ * ambiguous path) is reviewed like filing and deletion, with repair steps.
+ */
+export function isContentConflict(op: Pick<RecoverySummary, 'command' | 'kind'>): boolean {
+  return isCommentOperation(op) && op.kind === 'content_conflict';
+}
+
 /** The badge naming what stopped. */
-export function kindLabel(op: Pick<RecoverySummary, 'command'>): string {
+export function kindLabel(op: Pick<RecoverySummary, 'command' | 'kind'>): string {
   if (isTransfer(op)) return 'Filing stopped';
   if (isDeletion(op)) return 'Deletion stopped';
-  return 'Content conflict';
+  return isContentConflict(op) ? 'Content conflict' : 'Comment write stopped';
 }
 
 /** Names projects for display; falls back to the ID. */
@@ -99,7 +107,7 @@ export function attempted(op: RecoverySummary, project: ProjectNamer): string {
 export function routeLabel(op: RecoverySummary, project: ProjectNamer): string {
   if (isTransfer(op)) return `${project(op.project_id)} → ${project(op.target_project_id)}`;
   if (isDeletion(op)) return 'Delete permanently';
-  return 'Content conflict';
+  return kindLabel(op);
 }
 
 export function formatStarted(iso: string): string {
@@ -123,10 +131,6 @@ export function blockingOperationId(err: unknown): string | null {
   if (!(err instanceof ApiError) || err.code !== 'RECOVERY_REQUIRED') return null;
   const id = (err.details as { operationId?: unknown } | undefined)?.operationId;
   return typeof id === 'string' ? id : null;
-}
-
-export function invalidateRecovery(qc: QueryClient): Promise<void> {
-  return qc.invalidateQueries({ queryKey: queryKeys.recovery() });
 }
 
 /** Every pending operation, and abandoned ones not yet dismissed. Polled so the banner appears. */
@@ -157,7 +161,7 @@ export function useRecheck(): UseMutationResult<RecheckResult, Error, string> {
       if (result.recovery) {
         qc.setQueryData(queryKeys.recoveryDetail(result.operation_id), result.recovery);
       }
-      if (result.state === 'completed') refreshAfterRecovery(qc);
+      if (result.state === 'completed') invalidateAfterRecovery(qc);
     },
     onSettled: () => invalidateRecovery(qc),
   });
@@ -180,7 +184,7 @@ export function useAbandon(): UseMutationResult<AbandonRecoveryAck, Error, Aband
         body: JSON.stringify({ review_token: reviewToken }),
       }),
     onSettled: async () => {
-      refreshAfterRecovery(qc);
+      invalidateAfterRecovery(qc);
       await invalidateRecovery(qc);
     },
   });
@@ -193,13 +197,6 @@ export function useDismissRecovery(): UseMutationResult<DismissRecoveryAck, Erro
       apiFetch<DismissRecoveryAck>(`/api/recovery/${operationId}/dismiss`, { method: 'POST' }),
     onSettled: () => invalidateRecovery(qc),
   });
-}
-
-/** A finished or abandoned operation can change boards, documents, comments and search. */
-function refreshAfterRecovery(qc: QueryClient): void {
-  for (const key of ['board', 'current-work', 'documents', 'document', 'comments', 'search']) {
-    void qc.invalidateQueries({ queryKey: [key] });
-  }
 }
 
 /**

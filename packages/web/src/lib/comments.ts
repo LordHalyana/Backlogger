@@ -9,8 +9,7 @@ import {
 } from '@tanstack/react-query';
 import type { Comment, CommentAck, CommentPage } from '@backlogger/shared';
 import { apiFetch } from './api.js';
-import { invalidateComments, queryKeys } from './query-keys.js';
-import { invalidateRecovery } from './recovery.js';
+import { invalidateComments, invalidateRecovery, queryKeys } from './query-keys.js';
 
 /**
  * A task's comment history. The first page is the newest one; each further
