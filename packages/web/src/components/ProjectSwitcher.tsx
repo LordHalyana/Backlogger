@@ -94,6 +94,7 @@ export function ProjectSwitcher({
         projectName={selectedProject?.name ?? selectedId ?? ''}
         readOnly={selectedProject?.readOnly ?? false}
         isInbox={selectedProject?.isInbox ?? false}
+        linked={selectedProject?.linked ?? false}
         onDeleted={() => onSelect(null)}
       />
       {showNew && (
@@ -255,6 +256,8 @@ interface ProjectMenuProps {
   readOnly: boolean;
   /** The designated Inbox cannot be deleted. */
   isInbox: boolean;
+  /** The project folder is a symlink: deleting removes the link, not its files. */
+  linked: boolean;
   onDeleted: () => void;
 }
 
@@ -264,6 +267,7 @@ function ProjectMenu({
   projectName,
   readOnly,
   isInbox,
+  linked,
   onDeleted,
 }: ProjectMenuProps): JSX.Element {
   const [open, setOpen] = useState(false);
@@ -293,7 +297,9 @@ function ProjectMenu({
     void dialog
       .prompt({
         title: `Delete project "${projectName}"`,
-        message: `This permanently removes the project folder and everything in it: all its documents, tasks and their comments. Type the project id (${projectId}) to confirm.`,
+        message: linked
+          ? `This removes the project from Backlogger and deletes the link to its folder. The files at the link's target are kept. Type the project id (${projectId}) to confirm.`
+          : `This permanently removes the project folder and everything in it: all its documents, tasks and their comments. Type the project id (${projectId}) to confirm.`,
         placeholder: projectId,
         confirmLabel: 'Delete',
         validate: (v) => (v === projectId ? null : `Type "${projectId}" to confirm.`),

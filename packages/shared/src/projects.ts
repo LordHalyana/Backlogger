@@ -38,13 +38,19 @@ export const UpdateProjectRequestSchema = z
 export type Project = z.infer<typeof ProjectSchema> & {
   /** True for the one designated Inbox. */
   isInbox: boolean;
+  /**
+   * True when the project folder is a symlink (a mount). Deleting such a
+   * project removes the link, never the files it points at.
+   */
+  linked: boolean;
 };
 export type CreateProjectRequest = z.infer<typeof CreateProjectRequestSchema>;
 export type UpdateProjectRequest = z.infer<typeof UpdateProjectRequestSchema>;
 
 /**
  * The acknowledgement of `DELETE /api/projects/:id` (sent with an
- * `Idempotency-Key`). The project folder and everything in it are gone.
+ * `Idempotency-Key`). The project folder and everything in it are gone; for a
+ * linked project, the link is gone and the files it pointed at are kept.
  */
 export interface DeleteProjectAck {
   operation_id: string;

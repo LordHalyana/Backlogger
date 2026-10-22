@@ -76,6 +76,11 @@ export interface DeletionPlan {
   files: Array<{ path: string; revision: string }>;
   /** Folders removed once empty. */
   dirs: string[];
+  /**
+   * For a project whose own folder is a symlink (a mount): the target it
+   * pointed at. Only the link is removed, never anything at its target.
+   */
+  linkTarget: string | null;
 }
 
 /** Why a deletion cannot go on from where it stands. */
@@ -91,6 +96,8 @@ interface Observation {
   revisions: Map<string, string | null>;
   /** Entries inside the scope the inventory does not list, with their revision if a file. */
   unexpected: Array<{ path: string; revision: string | null }>;
+  /** For a linked project: what its folder links to now; `null` when it is no longer a link. */
+  linkTarget?: string | null;
 }
 
 export type DeletionResult<A> = { done: true; ack: A } | { done: false; stop: Stop };
@@ -117,7 +124,9 @@ export function ticketDir(projectId: string, taskId: string): string {
  *     one, or anything new in scope, stops the deletion with everything left
  *     kept. A document's own file goes last, after its comments.
  *  4. Remove folders only once empty, deepest first; never recursively and
- *     never through a symlink.
+ *     never through a symlink. A project whose own folder is a symlink (a
+ *     mount) is the exception to step 1: its inventory is the link alone,
+ *     fingerprinted by its target, and only the link is removed.
  *  5. Complete: derived rows, receipt and guard release in one transaction.
  *
  * Recovery runs the same steps from wherever the files stand. There is no
@@ -203,6 +212,7 @@ export class PermanentDeletion implements Recoverer {
       scopes: [scope],
       files,
       dirs: [comments, scope],
+      linkTarget: null,
     };
     return {
       plan,
@@ -216,17 +226,31 @@ export class PermanentDeletion implements Recoverer {
 
   /**
    * Step 1 for a whole project folder: every file and folder in it. Refuses,
-   * changing nothing, when the folder is a symlink or holds one.
+   * changing nothing, when the folder holds a symlink. When the folder is
+   * itself a symlink, the link alone is inventoried, dangling or not.
    */
   async prepareProject(
     operationId: string,
     projectId: string,
   ): Promise<{ plan: DeletionPlan; intent: IntentRecord }> {
-    if (await this.fs.isProjectSymlink(projectId)) {
-      throw deletionBlocked(
-        `The project folder ${projectId} is a symlink; Backlogger never deletes through one. Remove the link by hand.`,
-        [projectId],
-      );
+    const guards: IntentRecord['guards'] = [
+      { project_id: projectId, scope: 'project', key: projectId },
+    ];
+    const linkTarget = await this.fs.projectLinkTarget(projectId);
+    if (linkTarget !== null) {
+      const plan: DeletionPlan = {
+        operationId,
+        command: DELETE_PROJECT_COMMAND,
+        projectId,
+        documentId: null,
+        documentPath: null,
+        sidecarKey: null,
+        scopes: [projectId],
+        files: [],
+        dirs: [],
+        linkTarget,
+      };
+      return { plan, intent: this.intentOf(plan, guards) };
     }
     const files: DeletionPlan['files'] = [];
     const dirs: string[] = [projectId];
@@ -252,11 +276,9 @@ export class PermanentDeletion implements Recoverer {
       scopes: [projectId],
       files,
       dirs,
+      linkTarget: null,
     };
-    return {
-      plan,
-      intent: this.intentOf(plan, [{ project_id: projectId, scope: 'project', key: projectId }]),
-    };
+    return { plan, intent: this.intentOf(plan, guards) };
   }
 
   /**
@@ -281,6 +303,10 @@ export class PermanentDeletion implements Recoverer {
       if (result === 'changed') return { done: false, stop: changed(file.path) };
     }
     if (plan.sidecarKey !== null) await this.sidecarStore.delete(plan.projectId, plan.sidecarKey);
+    if (plan.linkTarget !== null) {
+      const result = await this.fs.unlinkProjectIfUnchanged(plan.projectId, plan.linkTarget);
+      if (result === 'changed') return { done: false, stop: relinked(plan.projectId) };
+    }
     for (const dir of [...plan.dirs].sort(deepestFirst)) await this.fs.removeEmptyDir(dir);
 
     stop = this.judge(plan, await this.observe(plan));
@@ -346,6 +372,16 @@ export class PermanentDeletion implements Recoverer {
             observed_revision: u.revision,
           }),
         ),
+        ...(plan.linkTarget === null
+          ? []
+          : [
+              {
+                path: plan.projectId,
+                before_revision: plan.linkTarget,
+                after_revision: null,
+                observed_revision: seen.linkTarget ?? null,
+              },
+            ]),
       ],
       pending_content: null,
       current_content: null,
@@ -373,6 +409,9 @@ export class PermanentDeletion implements Recoverer {
           (f): ManifestEntry => ({ path: f.path, role: 'file', fingerprint: f.revision }),
         ),
         ...plan.dirs.map((d): ManifestEntry => ({ path: d, role: 'dir', fingerprint: null })),
+        ...(plan.linkTarget === null
+          ? []
+          : [{ path: plan.projectId, role: 'link', fingerprint: plan.linkTarget }]),
       ],
     };
   }
@@ -401,11 +440,19 @@ export class PermanentDeletion implements Recoverer {
 
     const files: DeletionPlan['files'] = [];
     const dirs: string[] = [];
+    let linkTarget: string | null = null;
     for (const e of this.coordinator.manifestOf(op.operation_id)) {
       if (!inProject(e.path)) return undefined;
       if (e.role === 'file' && e.fingerprint !== null)
         files.push({ path: e.path, revision: e.fingerprint });
       else if (e.role === 'dir') dirs.push(e.path);
+      else if (
+        e.role === 'link' &&
+        e.fingerprint !== null &&
+        e.path === projectId &&
+        op.command === DELETE_PROJECT_COMMAND
+      )
+        linkTarget = e.fingerprint;
       else return undefined;
     }
     return {
@@ -418,6 +465,7 @@ export class PermanentDeletion implements Recoverer {
       scopes,
       files,
       dirs,
+      linkTarget,
     };
   }
 
@@ -426,6 +474,14 @@ export class PermanentDeletion implements Recoverer {
     for (const f of plan.files) revisions.set(f.path, await this.revisionOf(f.path));
     const listedDirs = new Set(plan.dirs);
     const unexpected: Observation['unexpected'] = [];
+    if (plan.linkTarget !== null) {
+      // Only the link is in scope; what it points at is never listed.
+      const linkTarget = await this.fs.projectLinkTarget(plan.projectId);
+      if (linkTarget === null && (await this.fs.entryExists(plan.projectId))) {
+        unexpected.push({ path: plan.projectId, revision: null });
+      }
+      return { revisions, unexpected, linkTarget };
+    }
     if (plan.documentId === null && (await this.fs.isProjectSymlink(plan.projectId))) {
       unexpected.push({ path: plan.projectId, revision: null });
       return { revisions, unexpected };
@@ -457,6 +513,13 @@ export class PermanentDeletion implements Recoverer {
         reason: 'unexpected_file',
         message: `${first.path} is not part of this deletion and is kept; move it out, then Recheck.`,
       };
+    }
+    if (
+      plan.linkTarget !== null &&
+      seen.linkTarget != null &&
+      seen.linkTarget !== plan.linkTarget
+    ) {
+      return relinked(plan.projectId);
     }
     for (const f of plan.files) {
       const now = seen.revisions.get(f.path) ?? null;
@@ -547,6 +610,14 @@ function changed(relPath: string): Stop {
     kind: 'content_conflict',
     reason: 'content_changed',
     message: `${relPath} changed after the deletion started; it is kept as it is.`,
+  };
+}
+
+function relinked(projectId: string): Stop {
+  return {
+    kind: 'content_conflict',
+    reason: 'content_changed',
+    message: `The project link ${projectId} points somewhere else since the deletion started; it is kept as it is.`,
   };
 }
 

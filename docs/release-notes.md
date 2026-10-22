@@ -54,3 +54,8 @@ tags: ['docs']
   and the deletion stops for review on the Recovery API. Restart, Reload and
   Reindex never bring back an item whose deletion is unfinished. See
   [`DELETE /api/documents/:id`](api.md#delete-apidocumentsid).
+- Deleting a project whose folder is a symlink (a mount) removes the link and
+  the project's index rows, dangling link or not; the files the link points at
+  are never touched. Projects now report `linked`, and the delete dialog says
+  which kind of deletion it is. See
+  [`DELETE /api/projects/:id`](api.md#delete-apiprojectsid).

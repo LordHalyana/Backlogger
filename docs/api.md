@@ -119,10 +119,15 @@ Project objects include:
   "readOnly": false,
   "metadataMode": "frontmatter",
   "isInbox": false,
+  "linked": false,
   "created_at": "2026-06-04T10:00:00.000Z",
   "updated_at": "2026-06-04T10:00:00.000Z"
 }
 ```
+
+`linked` is `true` when the project folder is a symlink (a mount, for example a
+Docker volume). Deleting a linked project removes the link, never the files it
+points at (see [`DELETE /api/projects/:id`](#delete-apiprojectsid)).
 
 `isInbox` is `true` for the one designated Inbox. The designation is stored only
 in `<dataDir>/workspace.json` (`{ "inbox_project_id": "inbox" }`); the server
@@ -183,12 +188,14 @@ Permanently deletes the project: every file and folder in its project folder, in
 
 Returns `200` with this acknowledgement. Retrying with the same key returns it again, even though the project is gone; the same key with another project is `409 OPERATION_ID_CONFLICT`.
 
+For a linked project (`linked: true`, the project folder is a symlink) only the link is removed, then the index rows: the files at its target, comments included, are never read, followed or touched. A dangling link is removed the same way. The inventory is the link and its target; if the link points elsewhere by the time it would be removed, it is kept and the deletion stops for review.
+
 The deletion is resumable, like a document deletion (see [`DELETE /api/documents/:id`](#delete-apidocumentsid)). While it is pending, the project is left out of `GET /api/projects`, its documents are hidden from lists, the board, Current work and search, and every write into the project, every setting and reuse of the project ID is `409 RECOVERY_REQUIRED`.
 
 - `409 INBOX_PROTECTED` for the designated Inbox.
 - `409 PROJECT_READ_ONLY` while read-only mode is enabled.
 - `409 RECOVERY_REQUIRED` while any operation is pending in the project, a filing into or out of it included.
-- `409 DELETION_BLOCKED` with `details.paths`, changing nothing, when the project folder is a symlink or holds one (or another special file). Backlogger never follows or deletes through a symlink; remove it by hand first.
+- `409 DELETION_BLOCKED` with `details.paths`, changing nothing, when the project folder holds a symlink (or another special file). Backlogger never follows or deletes through a symlink; remove it by hand first.
 
 ## Documents
 
