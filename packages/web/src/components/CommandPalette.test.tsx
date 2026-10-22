@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { SearchHit } from '@backlogger/shared';
 import { CommandPalette } from './CommandPalette.js';
@@ -18,27 +18,48 @@ function hit(input: Partial<SearchHit> & Pick<SearchHit, 'id' | 'title'>): Searc
   };
 }
 
-function mockSearch(hits: SearchHit[]): string[] {
+/**
+ * Answers searches with `hits`, and a document read with the document in its
+ * current project (`moved`), or 404 once it is `deleted`.
+ */
+function mockSearch(
+  hits: SearchHit[],
+  opts: { deleted?: string[]; moved?: Record<string, string> } = {},
+): string[] {
   const urls: string[] = [];
+  const json = (status: number, payload: unknown): Response =>
+    new Response(JSON.stringify(payload), {
+      status,
+      headers: { 'Content-Type': 'application/json' },
+    });
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input.toString();
       urls.push(url);
-      return new Response(JSON.stringify(hits), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      const doc = /^\/api\/documents\/([^/?]+)$/.exec(url);
+      if (doc) {
+        const id = doc[1]!;
+        if (opts.deleted?.includes(id)) {
+          return json(404, { error: { code: 'DOCUMENT_NOT_FOUND', message: 'gone' } });
+        }
+        const h = hits.find((x) => x.id === id);
+        return json(200, { ...h, project_id: opts.moved?.[id] ?? h?.project_id });
+      }
+      const live = hits.filter(
+        (h) => !opts.deleted?.includes(h.id) || !urls.some((u) => u.endsWith(h.id)),
+      );
+      return json(200, live);
     }),
   );
   return urls;
 }
 
-function renderPalette(onOpenDocument = vi.fn()) {
+function renderPalette(onOpenDocument = vi.fn(), onClose = vi.fn()) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={qc}>
-      <CommandPalette open onClose={() => undefined} onOpenDocument={onOpenDocument} />
+      <CommandPalette open onClose={onClose} onOpenDocument={onOpenDocument} />
     </QueryClientProvider>,
   );
   return onOpenDocument;
@@ -133,6 +154,67 @@ describe('CommandPalette result rows', () => {
     const [row] = await typeQuery('cache');
     expect(within(row!).getByText('Implementation plan')).toBeTruthy();
     fireEvent.click(row!);
-    expect(onOpen).toHaveBeenCalledWith('work', '00000000-0000-4000-8000-000000000003');
+    await waitFor(() =>
+      expect(onOpen).toHaveBeenCalledWith('work', '00000000-0000-4000-8000-000000000003', {
+        kind: 'description',
+        terms: ['cache'],
+      }),
+    );
+  });
+});
+
+describe('CommandPalette opening a result', () => {
+  const TASK = '00000000-0000-4000-8000-000000000001';
+  const COMMENT = '00000000-0000-4000-8000-000000000002';
+
+  it("lands a comment match on its comment, in the task's current project", async () => {
+    mockSearch(
+      [
+        hit({
+          id: TASK,
+          title: 'Filed task',
+          match: { kind: 'comment', comment_id: COMMENT, created_at: '2026-10-19T16:00:00.000Z' },
+          snippet: 'zebracorn',
+          highlights: [[0, 9]],
+        }),
+      ],
+      { moved: { [TASK]: 'elsewhere' } },
+    );
+    const onClose = vi.fn();
+    const onOpen = renderPalette(vi.fn(), onClose);
+    const [row] = await typeQuery('"zebra" corn*');
+    fireEvent.keyDown(row!, { key: 'Enter' });
+    await waitFor(() =>
+      expect(onOpen).toHaveBeenCalledWith('elsewhere', TASK, {
+        kind: 'comment',
+        commentId: COMMENT,
+        terms: ['zebra', 'corn'],
+      }),
+    );
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("a deleted task's row says so in place and the results refresh; the palette stays open", async () => {
+    const urls = mockSearch(
+      [
+        hit({ id: TASK, title: 'Deleted task', snippet: 'gone', highlights: [] }),
+        hit({ id: COMMENT, title: 'Still here', snippet: 'here', highlights: [] }),
+      ],
+      { deleted: [TASK] },
+    );
+    const onClose = vi.fn();
+    const onOpen = renderPalette(vi.fn(), onClose);
+    const [row] = await typeQuery('task');
+    const searches = () => urls.filter((u) => u.startsWith('/api/search')).length;
+    const before = searches();
+    fireEvent.click(row!);
+
+    expect(await screen.findByText('This task is no longer available.')).toBeTruthy();
+    await waitFor(() => expect(searches()).toBeGreaterThan(before));
+    expect(screen.getByText('Still here')).toBeTruthy();
+    expect(screen.queryByText('Deleted task')).toBeNull();
+    expect(screen.getByText('This task is no longer available.')).toBeTruthy();
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
   });
 });

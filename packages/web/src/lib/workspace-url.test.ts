@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
+  readCommentFromUrl,
   readWorkspaceFromUrl,
   workspacePathname,
   syncWorkspaceUrl,
@@ -111,6 +112,36 @@ describe('syncWorkspaceUrl', () => {
     setPath('/projects/demo');
     const before = window.history.length;
     syncWorkspaceUrl('demo', null);
+    expect(window.history.length).toBe(before);
+  });
+});
+
+describe('comment links', () => {
+  it('builds and reads /projects/:projectId/documents/:documentId/comments/:commentId', () => {
+    const path = workspacePathname('demo', 'doc-1', 'documents', 'c-1');
+    expect(path).toBe('/projects/demo/documents/doc-1/comments/c-1');
+    setPath(path);
+    expect(readWorkspaceFromUrl()).toEqual({ projectId: 'demo', documentId: 'doc-1', view: 'documents' });
+    expect(readCommentFromUrl()).toBe('c-1');
+  });
+
+  it('reads a comment of a document opened from the board', () => {
+    setPath('/projects/demo/board/documents/doc-1/comments/c-1');
+    expect(readWorkspaceFromUrl()).toEqual({ projectId: 'demo', documentId: 'doc-1', view: 'board' });
+    expect(readCommentFromUrl()).toBe('c-1');
+  });
+
+  it('has no comment on other paths', () => {
+    setPath('/projects/demo/documents/doc-1');
+    expect(readCommentFromUrl()).toBeNull();
+    expect(workspacePathname('demo', null, 'documents', 'c-1')).toBe('/projects/demo');
+  });
+
+  it('replaces the history entry when asked', () => {
+    setPath('/projects/old/documents/doc-1/comments/c-1');
+    const before = window.history.length;
+    syncWorkspaceUrl('new', 'doc-1', 'documents', false, { commentId: 'c-1', replace: true });
+    expect(window.location.pathname).toBe('/projects/new/documents/doc-1/comments/c-1');
     expect(window.history.length).toBe(before);
   });
 });

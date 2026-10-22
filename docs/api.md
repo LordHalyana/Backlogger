@@ -466,20 +466,36 @@ the comment back.
 
 Errors as for `PUT`, without `COMMENT_NOT_PRESERVABLE` and the body checks.
 
-### `GET /api/documents/:taskId/comments?cursor=&limit=`
+### `GET /api/documents/:taskId/comments?cursor=|after=|around=&limit=`
 
 A page of the task's comments, ordered by `created_at` then id, oldest first
 within the page:
 
 ```json
-{ "comments": [/* as GET /api/comments/:commentId */], "next_cursor": "…", "total": 120 }
+{
+  "comments": [/* as GET /api/comments/:commentId */],
+  "next_cursor": "…",
+  "newer_cursor": null,
+  "older_count": 70,
+  "newer_count": 0,
+  "total": 120
+}
 ```
 
-- Without `cursor`: the newest page. `next_cursor` fetches the next older
-  page; it is `null` on the page holding the oldest comment.
-- `limit` defaults to 50; 1–200 accepted, anything else (or a cursor this
-  server did not issue) is `400 INVALID_COMMAND`.
-- `total` counts all the task's comments.
+- Without a position: the newest page.
+- `cursor`: the next older page. `next_cursor` is `null` on the page holding
+  the oldest comment.
+- `after`: the next newer page. `newer_cursor` is `null` on the page holding
+  the newest comment (always on the default newest page).
+- `around=<commentId>`: that comment with up to `limit` neighbours either side
+  (default 2), for landing on a comment beyond the newest page. Its
+  `next_cursor` and `newer_cursor` page outwards from there. A comment that is
+  deleted or belongs to another task is `404 COMMENT_NOT_FOUND`.
+- `older_count` and `newer_count` count the comments before and after the
+  page; `total` counts all the task's comments.
+- `limit` defaults to 50; 1–200 accepted. Anything else, more than one of
+  `cursor`, `after` and `around`, a cursor this server did not issue or an
+  `around` that is not a UUID is `400 INVALID_COMMAND`.
 - Unknown task: `404 PARENT_NOT_FOUND`.
 
 Lists come from the comment index, which Reload and Reindex rebuild from the

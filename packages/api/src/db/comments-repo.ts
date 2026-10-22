@@ -77,6 +77,33 @@ export class CommentsRepo {
       .all(taskId, before.created_at, before.created_at, before.id, limit);
   }
 
+  /** Up to `limit` comments of a task that sort after `after`, oldest first. */
+  listOldestAfter(taskId: string, after: CommentPosition, limit: number): CommentRow[] {
+    return this.db
+      .prepare<[string, string, string, string, number], CommentRow>(
+        `SELECT * FROM comments
+         WHERE task_id = ? AND (created_at > ? OR (created_at = ? AND id > ?))
+         ORDER BY created_at ASC, id ASC LIMIT ?`,
+      )
+      .all(taskId, after.created_at, after.created_at, after.id, limit);
+  }
+
+  /** How many of a task's comments sort before (`older`) or after (`newer`) `at`. */
+  countAround(taskId: string, at: CommentPosition): { older: number; newer: number } {
+    const row = this.db
+      .prepare<
+        [string, string, string, string, string, string, string],
+        { older: number; newer: number }
+      >(
+        `SELECT
+           COALESCE(SUM(created_at < ? OR (created_at = ? AND id < ?)), 0) AS older,
+           COALESCE(SUM(created_at > ? OR (created_at = ? AND id > ?)), 0) AS newer
+         FROM comments WHERE task_id = ?`,
+      )
+      .get(at.created_at, at.created_at, at.id, at.created_at, at.created_at, at.id, taskId);
+    return { older: row?.older ?? 0, newer: row?.newer ?? 0 };
+  }
+
   deleteByProject(projectId: string): void {
     this.db.prepare(`DELETE FROM comments WHERE project_id = ?`).run(projectId);
   }

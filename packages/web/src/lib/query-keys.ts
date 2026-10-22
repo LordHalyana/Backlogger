@@ -19,6 +19,9 @@ export const queryKeys = {
   board: (projectId: string) => ['board', projectId] as const,
   currentWork: () => ['current-work'] as const,
   comments: (taskId: string) => ['comments', taskId] as const,
+  /** A task's history opened on one comment; under `comments(taskId)`, so writes refresh it. */
+  commentsAround: (taskId: string, commentId: string) =>
+    ['comments', taskId, 'around', commentId] as const,
   /** Every search query; each one appends its query, project filter and limit. */
   search: () => ['search'] as const,
 } as const;

@@ -1,4 +1,5 @@
 import {
+  COMMENT_AROUND_DEFAULT,
   COMMENT_PAGE_DEFAULT,
   COMMENT_PAGE_MAX,
   commentPath,
@@ -62,7 +63,12 @@ export interface DeleteCommentCommand {
 }
 
 export interface ListCommentsQuery {
+  /** Next older page: comments before this position. */
   cursor?: unknown;
+  /** Next newer page: comments after this position. */
+  after?: unknown;
+  /** A comment ID: that comment with up to `limit` neighbours either side. */
+  around?: unknown;
   limit?: unknown;
 }
 
@@ -310,22 +316,58 @@ export class CommentService {
   }
 
   /**
-   * A page of a task's comments from the index: without a cursor the newest
-   * page, with one the next older page. Oldest first within the page.
+   * A page of a task's comments from the index, oldest first within the page.
+   * Without a position it is the newest page; `cursor` pages to older
+   * comments, `after` to newer ones, and `around` opens the page on one
+   * comment with up to `limit` neighbours either side.
    */
   list(taskId: string, query: ListCommentsQuery = {}): CommentPage {
-    const limit = parseLimit(query.limit);
-    const before = query.cursor === undefined ? undefined : decodeCursor(query.cursor);
+    const positions = [query.cursor, query.after, query.around].filter((p) => p !== undefined);
+    if (positions.length > 1) throw invalid('Use only one of cursor, after and around.');
     const parent = this.findParent(taskId);
-    const rows = this.commentsRepo.listNewestBefore(taskId, before, limit + 1);
-    const hasOlder = rows.length > limit;
-    const page = rows.slice(0, limit).reverse();
+    const rows = this.pageRows(taskId, query);
+    const total = this.commentsRepo.countForTask(taskId);
+    const first = rows[0];
+    const last = rows[rows.length - 1];
+    let older_count: number;
+    let newer_count: number;
+    if (first && last) {
+      older_count = this.commentsRepo.countAround(taskId, first).older;
+      newer_count = this.commentsRepo.countAround(taskId, last).newer;
+    } else {
+      // An empty page past either end: everything lies on the other side.
+      older_count = query.after === undefined ? 0 : total;
+      newer_count = total - older_count;
+    }
     const writable = this.isWritable(parent);
     return {
-      comments: page.map((row) => toComment(row, parent.project_id, writable)),
-      next_cursor: hasOlder && page[0] ? encodeCursor(page[0]) : null,
-      total: this.commentsRepo.countForTask(taskId),
+      comments: rows.map((row) => toComment(row, parent.project_id, writable)),
+      next_cursor: older_count > 0 && first ? encodeCursor(first) : null,
+      newer_cursor: newer_count > 0 && last ? encodeCursor(last) : null,
+      older_count,
+      newer_count,
+      total,
     };
+  }
+
+  /** The rows of the page `query` asks for, oldest first. */
+  private pageRows(taskId: string, query: ListCommentsQuery): CommentRow[] {
+    if (query.around !== undefined) {
+      const neighbours = parseLimit(query.limit, COMMENT_AROUND_DEFAULT);
+      const anchor = this.commentsRepo.find(parseAroundId(query.around));
+      if (!anchor || anchor.task_id !== taskId) throw commentNotFound(String(query.around));
+      return [
+        ...this.commentsRepo.listNewestBefore(taskId, anchor, neighbours).reverse(),
+        anchor,
+        ...this.commentsRepo.listOldestAfter(taskId, anchor, neighbours),
+      ];
+    }
+    const limit = parseLimit(query.limit, COMMENT_PAGE_DEFAULT);
+    if (query.after !== undefined) {
+      return this.commentsRepo.listOldestAfter(taskId, decodeCursor(query.after), limit);
+    }
+    const before = query.cursor === undefined ? undefined : decodeCursor(query.cursor);
+    return this.commentsRepo.listNewestBefore(taskId, before, limit).reverse();
   }
 
   /**
@@ -435,6 +477,12 @@ function invalid(message: string): BadRequestError {
   return new BadRequestError('INVALID_COMMAND', message);
 }
 
+/** The `around` comment ID of a list query. */
+function parseAroundId(raw: unknown): string {
+  if (typeof raw !== 'string' || !isUuid(raw.trim())) throw invalid('around must be a comment ID.');
+  return raw.trim().toLowerCase();
+}
+
 function parseCommentId(raw: unknown): string {
   if (typeof raw !== 'string' || !isUuid(raw.trim())) throw invalid('id must be a UUID.');
   return raw.trim().toLowerCase();
@@ -459,8 +507,8 @@ function parseBody(raw: unknown): string {
   return raw;
 }
 
-function parseLimit(raw: unknown): number {
-  if (raw === undefined) return COMMENT_PAGE_DEFAULT;
+function parseLimit(raw: unknown, fallback: number): number {
+  if (raw === undefined) return fallback;
   const n = typeof raw === 'string' && /^\d+$/.test(raw) ? Number(raw) : NaN;
   if (!Number.isInteger(n) || n < 1 || n > COMMENT_PAGE_MAX) {
     throw invalid(`limit must be an integer from 1 to ${COMMENT_PAGE_MAX}.`);

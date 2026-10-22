@@ -1,13 +1,29 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { TASK_STATE_LABELS, taskStateColumn, type SearchHit } from '@backlogger/shared';
+import { useQueryClient } from '@tanstack/react-query';
+import {
+  TASK_STATE_LABELS,
+  taskStateColumn,
+  type DocumentSummary,
+  type SearchHit,
+} from '@backlogger/shared';
 import { useSearch } from '../lib/search.js';
+import { ApiError, apiFetch } from '../lib/api.js';
+import { queryTerms, type LandingTarget } from '../lib/landing.js';
+import { invalidateSearch } from '../lib/query-keys.js';
 import { DOCUMENT_TYPE_LABELS } from '../lib/display.js';
 
 export interface CommandPaletteProps {
   open: boolean;
   onClose: () => void;
-  onOpenDocument: (projectId: string, documentId: string) => void;
+  /** Open a result in its document's current project, landing on what matched. */
+  onOpenDocument: (projectId: string, documentId: string, landing: LandingTarget) => void;
+}
+
+/** A result whose document was deleted, kept in place to say so. */
+interface GoneRow {
+  hit: SearchHit;
+  index: number;
 }
 
 /**
@@ -18,6 +34,8 @@ export function CommandPalette(props: CommandPaletteProps): JSX.Element | null {
   const { open, onClose, onOpenDocument } = props;
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
+  const [gone, setGone] = useState<GoneRow | null>(null);
+  const qc = useQueryClient();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const listRef = useRef<HTMLUListElement | null>(null);
 
@@ -28,6 +46,7 @@ export function CommandPalette(props: CommandPaletteProps): JSX.Element | null {
     if (open) {
       setQuery('');
       setActiveIndex(0);
+      setGone(null);
       // Focus once mounted.
       requestAnimationFrame(() => inputRef.current?.focus());
     }
@@ -56,6 +75,40 @@ export function CommandPalette(props: CommandPaletteProps): JSX.Element | null {
 
   if (!open) return null;
 
+  /**
+   * Check the document still exists, then open it where it lives now. A
+   * deleted one says so in its row and the results refresh without it.
+   */
+  const activate = async (hit: SearchHit, index: number): Promise<void> => {
+    // Filing moves a task; open it where it is now. Any other failure opens
+    // it where the result says, and the workspace reports the error.
+    let projectId = hit.project_id;
+    try {
+      projectId = (await apiFetch<DocumentSummary>(`/api/documents/${hit.id}`)).project_id;
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) {
+        setGone({ hit, index });
+        invalidateSearch(qc);
+        return;
+      }
+    }
+    const terms = queryTerms(debouncedQuery);
+    onOpenDocument(
+      projectId,
+      hit.id,
+      hit.match.kind === 'comment'
+        ? { kind: 'comment', commentId: hit.match.comment_id, terms }
+        : { kind: 'description', terms },
+    );
+    onClose();
+  };
+
+  // The rows: the results, with a deleted one kept where it was.
+  const rows: Array<{ hit: SearchHit; gone: boolean }> = hits
+    .filter((h) => h.id !== gone?.hit.id)
+    .map((h) => ({ hit: h, gone: false }));
+  if (gone) rows.splice(Math.min(gone.index, rows.length), 0, { hit: gone.hit, gone: true });
+
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
     if (event.key === 'Escape') {
       event.preventDefault();
@@ -64,21 +117,18 @@ export function CommandPalette(props: CommandPaletteProps): JSX.Element | null {
     }
     if (event.key === 'ArrowDown') {
       event.preventDefault();
-      if (hits.length > 0) setActiveIndex((i) => Math.min(hits.length - 1, i + 1));
+      if (rows.length > 0) setActiveIndex((i) => Math.min(rows.length - 1, i + 1));
       return;
     }
     if (event.key === 'ArrowUp') {
       event.preventDefault();
-      if (hits.length > 0) setActiveIndex((i) => Math.max(0, i - 1));
+      if (rows.length > 0) setActiveIndex((i) => Math.max(0, i - 1));
       return;
     }
     if (event.key === 'Enter') {
       event.preventDefault();
-      const hit = hits[activeIndex];
-      if (hit) {
-        onOpenDocument(hit.project_id, hit.id);
-        onClose();
-      }
+      const row = rows[activeIndex];
+      if (row && !row.gone) void activate(row.hit, activeIndex);
     }
   };
 
@@ -106,6 +156,7 @@ export function CommandPalette(props: CommandPaletteProps): JSX.Element | null {
           onChange={(event) => {
             setQuery(event.target.value);
             setActiveIndex(0);
+            setGone(null);
           }}
           spellCheck={false}
           autoComplete="off"
@@ -114,19 +165,31 @@ export function CommandPalette(props: CommandPaletteProps): JSX.Element | null {
           {status}
         </div>
         <ul ref={listRef} className="command-palette-results" role="listbox">
-          {hits.map((hit, index) => (
-            <CommandPaletteRow
-              key={hit.id}
-              hit={hit}
-              index={index}
-              active={index === activeIndex}
-              onActivate={() => {
-                onOpenDocument(hit.project_id, hit.id);
-                onClose();
-              }}
-              onHover={() => setActiveIndex(index)}
-            />
-          ))}
+          {rows.map(({ hit, gone: isGone }, index) =>
+            isGone ? (
+              <li
+                key={hit.id}
+                data-index={index}
+                role="option"
+                aria-selected={index === activeIndex}
+                aria-disabled="true"
+                className="command-palette-row is-gone"
+              >
+                {hit.type === 'backlog_item'
+                  ? 'This task is no longer available.'
+                  : 'This document is no longer available.'}
+              </li>
+            ) : (
+              <CommandPaletteRow
+                key={hit.id}
+                hit={hit}
+                index={index}
+                active={index === activeIndex}
+                onActivate={() => void activate(hit, index)}
+                onHover={() => setActiveIndex(index)}
+              />
+            ),
+          )}
         </ul>
         <div className="command-palette-footer">
           <kbd>↑</kbd> <kbd>↓</kbd> navigate &middot; <kbd>Enter</kbd> open &middot; <kbd>Esc</kbd> close

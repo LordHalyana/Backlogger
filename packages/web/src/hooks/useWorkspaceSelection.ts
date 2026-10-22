@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  readCommentFromUrl,
   readTriageFromUrl,
   historyIndex,
   readWorkspaceFromUrl,
@@ -7,6 +8,7 @@ import {
   type WorkspaceView,
 } from '../lib/workspace-url.js';
 import { useConfirmLeave } from '../lib/leave-guard.js';
+import { keyLanding, type Landing, type LandingTarget } from '../lib/landing.js';
 
 export interface WorkspaceSelection {
   /** Currently selected project, or `null` when none is chosen. */
@@ -22,6 +24,12 @@ export interface WorkspaceSelection {
   tags: string[];
   /** ⌂ Inbox triage mode, in place of a project. */
   triage: boolean;
+  /**
+   * Where the open document lands: a comment (from search or a comment link,
+   * which the URL then carries) or the description's matching paragraph.
+   * Moving to another document drops it.
+   */
+  landing: Landing | null;
   /** Enter triage mode; selecting a project or opening a document leaves it. */
   openTriage: () => void;
   /**
@@ -40,8 +48,15 @@ export interface WorkspaceSelection {
    * Open a document, switching projects first if necessary.  Project and
    * document are updated in the same event handler so React batches them into
    * one render — the target document is never clobbered by the project switch.
+   * `landing` lands on a comment or the matching paragraph, each time anew.
    */
-  openDocument: (projectId: string, documentId: string) => void;
+  openDocument: (projectId: string, documentId: string, landing?: LandingTarget) => void;
+  /**
+   * The open document lives in `projectId` now (a link from before it was
+   * filed): switch to it in place, replacing the history entry and keeping
+   * the landing.
+   */
+  relocateProject: (projectId: string) => void;
   /** Toggle a tag in the active filter set. */
   toggleTag: (tag: string) => void;
   /** Clear all active tag filters. */
@@ -58,6 +73,13 @@ interface Selection {
   documentId: string | null;
   view: WorkspaceView;
   triage: boolean;
+  landing: Landing | null;
+}
+
+/** The landing a comment link in the current URL asks for. */
+function landingFromUrl(): Landing | null {
+  const commentId = readCommentFromUrl();
+  return commentId ? keyLanding({ kind: 'comment', commentId, terms: [] }) : null;
 }
 
 /**
@@ -76,10 +98,13 @@ export function useWorkspaceSelection(): WorkspaceSelection {
   const [view, setView] = useState<WorkspaceView>(initial.view);
   const [tags, setTags] = useState<string[]>([]);
   const [triage, setTriage] = useState<boolean>(() => readTriageFromUrl());
+  const [landing, setLanding] = useState<Landing | null>(landingFromUrl);
   // Mirrors of the selection so the stable callbacks can build the next one
   // without depending on (and being recreated by) every change.
-  const current = useRef<Selection>({ ...initial, triage });
-  current.current = { projectId, documentId, view, triage };
+  const current = useRef<Selection>({ ...initial, triage, landing });
+  current.current = { projectId, documentId, view, triage, landing };
+  // Set by a redirect, so the URL sync rewrites the entry instead of adding one.
+  const replaceUrl = useRef(false);
   const confirmLeave = useConfirmLeave();
 
   /**
@@ -96,6 +121,7 @@ export function useWorkspaceSelection(): WorkspaceSelection {
         setDocumentId(next.documentId);
         setView(next.view);
         setTriage(next.triage);
+        setLanding(next.landing);
         if (options.clearTags || next.projectId !== prev.projectId) setTags([]);
       };
       if (next.documentId === current.current.documentId) go();
@@ -111,10 +137,15 @@ export function useWorkspaceSelection(): WorkspaceSelection {
   // Reflect project/view/document selection into the URL path (preserving any
   // `?help=` query / hash). Tags stay local state. Skipped when the path
   // already matches (initial load, popstate).
+  const landedCommentId = landing?.kind === 'comment' ? landing.commentId : null;
   useEffect(() => {
-    syncWorkspaceUrl(projectId, documentId, view, triage);
+    syncWorkspaceUrl(projectId, documentId, view, triage, {
+      commentId: landedCommentId,
+      replace: replaceUrl.current,
+    });
+    replaceUrl.current = false;
     shownIndex.current = historyIndex();
-  }, [projectId, documentId, view, triage]);
+  }, [projectId, documentId, view, triage, landedCommentId]);
 
   // Back/forward navigation maps to workspace navigation: re-read the URL and
   // apply it. The sync effect above then sees a matching path and does not push.
@@ -139,6 +170,7 @@ export function useWorkspaceSelection(): WorkspaceSelection {
           documentId: nextDocumentId,
           view: nextView,
           triage: readTriageFromUrl(),
+          landing: landingFromUrl(),
         },
         {
           clearTags: true,
@@ -159,7 +191,7 @@ export function useWorkspaceSelection(): WorkspaceSelection {
 
   const openTriage = useCallback((): void => {
     navigate(
-      { projectId: null, documentId: null, view: 'documents', triage: true },
+      { projectId: null, documentId: null, view: 'documents', triage: true, landing: null },
       { clearTags: true },
     );
   }, [navigate]);
@@ -168,40 +200,57 @@ export function useWorkspaceSelection(): WorkspaceSelection {
     (id: string | null): void => {
       const now = current.current;
       if (now.projectId === id) navigate({ ...now, triage: false });
-      else navigate({ projectId: id, documentId: null, view: 'documents', triage: false });
+      else {
+        navigate({
+          projectId: id,
+          documentId: null,
+          view: 'documents',
+          triage: false,
+          landing: null,
+        });
+      }
     },
     [navigate],
   );
 
   const selectView = useCallback(
     (next: WorkspaceView): void => {
-      navigate({ ...current.current, view: next, documentId: null });
+      navigate({ ...current.current, view: next, documentId: null, landing: null });
     },
     [navigate],
   );
 
   const selectDocument = useCallback(
     (id: string | null): void => {
-      navigate({ ...current.current, documentId: id });
+      navigate({ ...current.current, documentId: id, landing: null });
     },
     [navigate],
   );
 
   const selectTreeDocument = useCallback(
     (id: string): void => {
-      navigate({ ...current.current, view: 'documents', documentId: id });
+      navigate({ ...current.current, view: 'documents', documentId: id, landing: null });
     },
     [navigate],
   );
 
   const openDocument = useCallback(
-    (nextProjectId: string, nextDocumentId: string): void => {
+    (nextProjectId: string, nextDocumentId: string, target?: LandingTarget): void => {
       navigate({
         ...current.current,
         projectId: nextProjectId,
         documentId: nextDocumentId,
         triage: false,
+        landing: target ? keyLanding(target) : null,
       });
+    },
+    [navigate],
+  );
+
+  const relocateProject = useCallback(
+    (nextProjectId: string): void => {
+      replaceUrl.current = true;
+      navigate({ ...current.current, projectId: nextProjectId });
     },
     [navigate],
   );
@@ -226,12 +275,14 @@ export function useWorkspaceSelection(): WorkspaceSelection {
     view,
     tags,
     triage,
+    landing,
     openTriage,
     selectProject,
     selectView,
     selectTreeDocument,
     selectDocument,
     openDocument,
+    relocateProject,
     toggleTag,
     clearTags,
     removeTag,

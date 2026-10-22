@@ -107,6 +107,12 @@
   white-space: nowrap;
 }
 
+.command-palette-row.is-gone {
+  color: var(--fg-muted);
+  cursor: default;
+  font-style: italic;
+}
+
 .command-palette-row-snippet mark {
   background: none;
   color: var(--fg);

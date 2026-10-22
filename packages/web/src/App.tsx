@@ -46,12 +46,14 @@ export function App(): JSX.Element {
     view,
     tags: selectedTags,
     triage,
+    landing,
     openTriage,
     selectProject,
     selectView,
     selectTreeDocument,
     selectDocument,
     openDocument,
+    relocateProject,
     toggleTag,
     clearTags,
     removeTag,
@@ -291,6 +293,9 @@ export function App(): JSX.Element {
                     backToTriage ?? (view === 'board' ? () => selectDocument(null) : undefined)
                   }
                   backLabel={backToTriage ? 'Back to Inbox triage' : undefined}
+                  landing={landing}
+                  onProjectMoved={relocateProject}
+                  onOpenSearch={overlays.openPalette}
                 />
               ) : (
                 <div className="workspace-empty">

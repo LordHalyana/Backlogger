@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { ComponentProps } from 'react';
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -90,12 +91,31 @@ function fakeServer(doc: Document, initial: Comment[] = []) {
       return json(200, { ...doc, ...(body as object), revision: 'task-rev-2' });
     }
     if (path === `/api/documents/${doc.id}/comments` && method === 'GET') {
-      const cursor = new URLSearchParams(query).get('cursor');
-      const end = cursor === null ? comments.length : Number(cursor);
-      const start = Math.max(0, end - 50);
+      // Cursors are indexes into `comments`: `cursor` ends a page, `after` starts one.
+      const params = new URLSearchParams(query);
+      const cursor = params.get('cursor');
+      const after = params.get('after');
+      const around = params.get('around');
+      let start: number;
+      let end: number;
+      if (around !== null) {
+        const at = comments.findIndex((c) => c.id === around);
+        if (at < 0) return json(404, { error: { code: 'COMMENT_NOT_FOUND', message: 'gone' } });
+        start = Math.max(0, at - 2);
+        end = Math.min(comments.length, at + 3);
+      } else if (after !== null) {
+        start = Number(after);
+        end = Math.min(comments.length, start + 50);
+      } else {
+        end = cursor === null ? comments.length : Number(cursor);
+        start = Math.max(0, end - 50);
+      }
       const page: CommentPage = {
         comments: comments.slice(start, end),
         next_cursor: start > 0 ? String(start) : null,
+        newer_cursor: end < comments.length ? String(end) : null,
+        older_count: start,
+        newer_count: comments.length - end,
         total: comments.length,
       };
       return json(200, page);
@@ -206,7 +226,9 @@ function LeaveButton(): JSX.Element {
 
 const leave = vi.fn();
 
-function renderTask(doc: Document = task): void {
+type WorkspaceProps = ComponentProps<typeof DocumentWorkspace>;
+
+function renderTask(doc: Document = task, props: Partial<WorkspaceProps> = {}): void {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -214,7 +236,13 @@ function renderTask(doc: Document = task): void {
     <QueryClientProvider client={qc}>
       <DialogProvider>
         <LeaveButton />
-        <DocumentWorkspace projectId="aa" documentId={doc.id} theme="dark" onDeleted={vi.fn()} />
+        <DocumentWorkspace
+          projectId="aa"
+          documentId={doc.id}
+          theme="dark"
+          onDeleted={vi.fn()}
+          {...props}
+        />
       </DialogProvider>
     </QueryClientProvider>,
   );
@@ -743,5 +771,219 @@ describe('Comments tab: composer keyboard and leaving', () => {
     });
     await screen.findByText(/late failure/);
     expect(composer().value).toBe('Slow');
+  });
+});
+
+describe('Search landing', () => {
+  /** A comment landing, as a search result or a direct link asks for. */
+  function onComment(n: number, terms: string[] = [], key = 1): WorkspaceProps['landing'] {
+    return { kind: 'comment', commentId: commentId(n), terms, key };
+  }
+
+  function comments(...ns: number[]): Comment[] {
+    return ns.map((n) => makeComment(n));
+  }
+
+  function range(from: number, to: number): number[] {
+    return Array.from({ length: to - from + 1 }, (_, i) => from + i);
+  }
+
+  function block(n: number): HTMLElement {
+    const el = document.querySelector<HTMLElement>(`[data-comment-id="${commentId(n)}"]`);
+    if (!el) throw new Error(`comment ${n} is not shown`);
+    return el;
+  }
+
+  function shownNumbers(): number[] {
+    return screen.getAllByTestId('comment').map((el) => Number(el.dataset.commentId!.slice(-12)));
+  }
+
+  function day(n: number): string {
+    return new Date(makeComment(n).created_at).toLocaleDateString(undefined, {
+      dateStyle: 'medium',
+    });
+  }
+
+  const scrollIntoView = vi.fn();
+  function stubScrolling(): void {
+    scrollIntoView.mockReset();
+    Element.prototype.scrollIntoView = scrollIntoView;
+  }
+
+  function stubReducedMotion(reduce: boolean): void {
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn((query: string) => ({
+        matches: reduce && query === '(prefers-reduced-motion: reduce)',
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
+    );
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+    delete (Element.prototype as Partial<Element>).scrollIntoView;
+  });
+
+  it('opens the Comments tab with the reader closed; the comment is centred, focused, tinted for 3 seconds and marked From search until clicked', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    stubScrolling();
+    fakeServer(task, comments(1, 2, 3, 4, 5));
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderTask(task, { landing: onComment(3) });
+
+    await waitFor(() => expect(document.activeElement).toBe(block(3)));
+    expect(screen.getByRole('tab', { name: /^Comments/ }).getAttribute('aria-selected')).toBe(
+      'true',
+    );
+    expect(screen.queryByRole('region', { name: 'Comment reader' })).toBeNull();
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center' });
+    expect(within(block(3)).getByText('From search')).toBeTruthy();
+    expect(block(3).classList.contains('is-landed')).toBe(true);
+    expect(block(3).classList.contains('is-tinted')).toBe(true);
+    await waitFor(() =>
+      expect(liveRegion().textContent).toBe(
+        `Opened Fix the parser, Comments tab, comment from ${day(3)}.`,
+      ),
+    );
+
+    act(() => vi.advanceTimersByTime(3000));
+    expect(block(3).classList.contains('is-tinted')).toBe(false);
+    expect(within(block(3)).getByText('From search')).toBeTruthy();
+
+    await user.click(within(block(3)).getByText('Comment number 3'));
+    expect(screen.getByRole('region', { name: 'Comment reader' })).toBeTruthy();
+    expect(within(block(3)).queryByText('From search')).toBeNull();
+    expect(block(3).classList.contains('is-landed')).toBe(false);
+  });
+
+  it('opening another comment clears the marker; query terms are highlighted', async () => {
+    fakeServer(task, comments(1, 2, 3));
+    const user = userEvent.setup();
+    renderTask(task, { landing: onComment(2, ['numb']) });
+    await waitFor(() => expect(document.activeElement).toBe(block(2)));
+    expect([...block(2).querySelectorAll('mark')].map((m) => m.textContent)).toEqual(['number']);
+    expect(block(1).querySelector('mark')).toBeNull();
+
+    await user.click(within(block(1)).getByText('Comment number 1'));
+    expect(within(block(2)).queryByText('From search')).toBeNull();
+  });
+
+  it('keeps the tint static under reduced motion', async () => {
+    stubReducedMotion(true);
+    fakeServer(task, comments(1, 2));
+    renderTask(task, { landing: onComment(1) });
+    await waitFor(() => expect(document.activeElement).toBe(block(1)));
+    expect(block(1).classList.contains('is-tinted-static')).toBe(true);
+    expect(block(1).classList.contains('is-tinted')).toBe(false);
+  });
+
+  it('announces an archived task', async () => {
+    fakeServer({ ...task, status: 'archived' }, comments(1));
+    renderTask({ ...task, status: 'archived' }, { landing: onComment(1) });
+    await waitFor(() =>
+      expect(liveRegion().textContent).toBe(
+        `Opened Fix the parser, Comments tab, comment from ${day(1)}. Task is archived.`,
+      ),
+    );
+    expect(screen.getByText(/This task is archived/)).toBeTruthy();
+  });
+
+  it('fetches a comment beyond the newest page with two either side, then pages both ways and jumps to latest', async () => {
+    const server = fakeServer(task, comments(...range(1, 60)));
+    const user = userEvent.setup();
+    renderTask(task, { landing: onComment(10) });
+
+    await waitFor(() => expect(document.activeElement).toBe(block(10)));
+    expect(shownNumbers()).toEqual([8, 9, 10, 11, 12]);
+    expect(server.requests.some((r) => r.url.includes(`around=${commentId(10)}`))).toBe(true);
+    expect(screen.getByText('7 earlier')).toBeTruthy();
+    expect(screen.getByText('48 newer comments')).toBeTruthy();
+
+    await user.click(screen.getByRole('button', { name: 'Show newer comments' }));
+    await waitFor(() => expect(shownNumbers()).toEqual(range(8, 60)));
+    expect(screen.queryByRole('button', { name: 'Show newer comments' })).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: 'Load older comments' }));
+    await waitFor(() => expect(shownNumbers()).toEqual(range(1, 60)));
+    expect(screen.queryByText(/earlier$/)).toBeNull();
+  });
+
+  it('Jump to latest returns to the newest 50', async () => {
+    fakeServer(task, comments(...range(1, 60)));
+    const user = userEvent.setup();
+    renderTask(task, { landing: onComment(3) });
+    await waitFor(() => expect(document.activeElement).toBe(block(3)));
+    expect(shownNumbers()).toEqual([1, 2, 3, 4, 5]);
+    expect(screen.queryByRole('button', { name: 'Load older comments' })).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: 'Jump to latest' }));
+    await waitFor(() => expect(shownNumbers()).toEqual(range(11, 60)));
+    expect(screen.getByRole('button', { name: 'Load older comments' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Jump to latest' })).toBeNull();
+  });
+
+  it('a deleted comment opens the newest page with a focused, dismissible notice', async () => {
+    fakeServer(task, comments(1, 2));
+    const user = userEvent.setup();
+    renderTask(task, { landing: onComment(99) });
+
+    const notice = await screen.findByText(
+      'This comment is no longer available. It may have been deleted. Showing the newest comments.',
+    );
+    await waitFor(() => expect(notice.closest('[role="status"]')).toBe(document.activeElement));
+    expect(shownNumbers()).toEqual([1, 2]);
+    expect(screen.queryByText('From search')).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: 'Dismiss' }));
+    expect(screen.queryByText(/This comment is no longer available/)).toBeNull();
+  });
+
+  it('a description result opens Description with the matching paragraph marked and focused', async () => {
+    const doc = {
+      ...task,
+      body: 'First paragraph about setup.\n\nThe parser drops trailing spaces.\n',
+    };
+    fakeServer(doc);
+    renderTask(doc, { landing: { kind: 'description', terms: ['trail'], key: 1 } });
+
+    await waitFor(() =>
+      expect((document.activeElement as HTMLElement | null)?.textContent).toBe(
+        'The parser drops trailing spaces.',
+      ),
+    );
+    const paragraph = document.activeElement as HTMLElement;
+    expect(paragraph.classList.contains('is-search-match')).toBe(true);
+    expect([...paragraph.querySelectorAll('mark')].map((m) => m.textContent)).toEqual(['trailing']);
+    expect(screen.getByRole('tab', { name: 'Description' }).getAttribute('aria-selected')).toBe(
+      'true',
+    );
+  });
+
+  it('a deleted task shows "This item is no longer available" with Search, and recreates nothing', async () => {
+    const server = fakeServer(task);
+    const onOpenSearch = vi.fn();
+    const user = userEvent.setup();
+    renderTask(
+      { ...task, id: '99999999-2222-3333-4444-555555555555' },
+      {
+        landing: onComment(1),
+        onOpenSearch,
+      },
+    );
+
+    expect(await screen.findByText('This item is no longer available')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Search' }));
+    expect(onOpenSearch).toHaveBeenCalledTimes(1);
+    expect(server.requests.filter((r) => r.method !== 'GET')).toEqual([]);
+  });
+
+  it('reports the current project when the link names a stale one', async () => {
+    fakeServer(task, comments(1));
+    const onProjectMoved = vi.fn();
+    renderTask(task, { projectId: 'old-project', landing: onComment(1), onProjectMoved });
+    await waitFor(() => expect(onProjectMoved).toHaveBeenCalledWith('aa'));
   });
 });
