@@ -29,10 +29,14 @@ It contains:
   Inbox's folder (`projects/inbox/` unless that id was taken).
 - `workspace.json`: which project is the designated Inbox. It is the only
   record of that designation.
-- `backlogger.sqlite`: SQLite metadata and derived indexes.
+- `backlogger.sqlite` (with its `-wal` and `-shm` files when present):
+  project rows, derived indexes and operational state — pending operations,
+  completed retry receipts and recovery payloads.
 - `templates/`: user templates.
 
-The Markdown files are the most important data. SQLite can be rebuilt from disk, but preserving it keeps startup fast and preserves project rows that may not be represented by files.
+The Markdown files are the most important data. The derived indexes in SQLite
+can be rebuilt from disk; the project rows and operational state cannot. See
+[Rebuilding The Index Versus Losing The Database](#rebuilding-the-index-versus-losing-the-database).
 
 ## Recommended Backup Procedure
 
@@ -40,7 +44,11 @@ The Markdown files are the most important data. SQLite can be rebuilt from disk,
 2. Copy the full data directory.
 3. Start Backlogger.
 
-Stopping the app avoids copying SQLite mid-write.
+Stopping the app avoids copying SQLite mid-write. A copy taken this way
+includes the Markdown, `workspace.json` and the operational SQLite state.
+Restored to a separate directory, it keeps retry behaviour: retrying a
+completed comment operation with the same `Idempotency-Key` returns the
+original acknowledgement and creates nothing.
 
 ## Minimal Backup
 
@@ -62,6 +70,10 @@ if `inbox/` exists); the old Inbox folder comes back as an ordinary read-only
 project.
 
 After restoring a minimal backup, recreate or rediscover project rows and run reindex.
+
+A minimal backup is not an equivalent restore. It rebuilds the index but
+loses the database: retry history, pending operations, ordinary-project
+display names and writability.
 
 ## Restore Procedure
 
@@ -122,6 +134,35 @@ Files with invalid Backlogger frontmatter or a mismatched `project` value are
 skipped and reported by reindex. Plain Markdown without Backlogger frontmatter
 is indexed with derived metadata; it can be adopted on first edit after the
 project is explicitly switched to editable mode.
+
+## Rebuilding The Index Versus Losing The Database
+
+`backlogger.sqlite` holds two kinds of state:
+
+- **Derived indexes**: document metadata, links, tags, search and the comment
+  index. Reload and Reindex rebuild them from Markdown at any time and keep
+  everything else in the database. Rebuilding them loses nothing.
+- **State that is not in Markdown**: project rows (display names, read-only
+  flag, metadata mode) and the operational tables — pending operations,
+  completed retry receipts and recovery payloads. Nothing rebuilds these.
+
+Losing the database and rebuilding from Markdown alone (a minimal backup, or
+deleting `backlogger.sqlite`) brings back every document and comment, but:
+
+- **Retry history is gone.** A client retrying an operation that had already
+  completed is treated as a new request. Retrying a comment post with the same
+  `Idempotency-Key` and body returns `409 COMMENT_ID_CONFLICT` instead of the
+  original acknowledgement, because the comment already exists and no receipt
+  says this request created it. This is expected; nothing is written twice.
+- **Pending operations are gone.** Interrupted writes are no longer finished or
+  listed for recovery review. Check the affected files by hand using the
+  [manual repair procedure](#manual-structural-repair).
+- **Ordinary projects come back read-only** under a name derived from their
+  folder. Only the Inbox named in `workspace.json` returns writable. This is a
+  known limitation.
+
+Restore the full data directory whenever you have it. Do not treat a
+Markdown-only rebuild as an equivalent restore.
 
 ## Pending Operations And Recovery Review
 
