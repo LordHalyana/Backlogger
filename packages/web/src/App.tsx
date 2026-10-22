@@ -157,6 +157,7 @@ export function App(): JSX.Element {
           onCapture={openCapture}
           onOpenTriage={openTriage}
           onToggleCurrentWork={toggleDrawer}
+          onOpenRecovery={openRecovery}
         />
         <span className="topbar-spacer" />
         <span className="topbar-divider" aria-hidden="true" />

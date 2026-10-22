@@ -77,7 +77,7 @@ function setupFetchMock(doc: Document = initialDoc): {
   };
 }
 
-function renderWorkspace(): {
+function renderWorkspace(onOpenRecovery?: (operationId: string) => void): {
   onDeleted: ReturnType<typeof vi.fn>;
   qc: QueryClient;
 } {
@@ -93,6 +93,7 @@ function renderWorkspace(): {
           documentId={initialDoc.id}
           theme="dark"
           onDeleted={onDeleted}
+          onOpenRecovery={onOpenRecovery}
         />
       </DialogProvider>
     </QueryClientProvider>,
@@ -383,6 +384,70 @@ describe('DocumentWorkspace permanent deletion', () => {
     expect(new Headers(del?.init?.headers).get('Idempotency-Key')).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
     );
+  });
+
+  /** Answer every DELETE with `fail()` instead; everything else as `setupFetchMock`. */
+  function failDeletes(fail: () => Promise<Response>): FetchCall[] {
+    const { calls } = setupFetchMock();
+    const answer = globalThis.fetch;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
+        init?.method === 'DELETE'
+          ? (calls.push({ url: String(input), init }), fail())
+          : answer(input, init),
+      ),
+    );
+    return calls;
+  }
+
+  async function confirmDelete(): Promise<void> {
+    const user = userEvent.setup();
+    await screen.findByDisplayValue('Hello');
+    await user.click(screen.getByRole('button', { name: /Delete document/ }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
+  }
+
+  for (const [failure, fail] of [
+    ['no answer', () => Promise.reject(new TypeError('Failed to fetch'))],
+    [
+      'a 5xx',
+      async () => Response.json({ error: { code: 'INTERNAL', message: 'boom' } }, { status: 500 }),
+    ],
+  ] as const) {
+    it(`after ${failure}, says the deletion may still be pending and opens its review on Recovery (#87)`, async () => {
+      const calls = failDeletes(fail);
+      const onOpenRecovery = vi.fn();
+      const { onDeleted } = renderWorkspace(onOpenRecovery);
+
+      await confirmDelete();
+
+      const toast = await screen.findByText(/may still be in progress/);
+      expect(toast.textContent).toContain('check Recovery before trying again');
+      await userEvent.setup().click(screen.getByRole('button', { name: 'Open Recovery' }));
+      const key = new Headers(calls.find((c) => c.init?.method === 'DELETE')?.init?.headers).get(
+        'Idempotency-Key',
+      );
+      expect(onOpenRecovery).toHaveBeenCalledWith(key);
+      expect(onDeleted).not.toHaveBeenCalled();
+      await waitFor(() => expect(calls.some((c) => c.url === '/api/recovery')).toBe(true));
+    });
+  }
+
+  it('reports a 4xx refusal as a plain failure (#87)', async () => {
+    failDeletes(async () =>
+      Response.json(
+        { error: { code: 'DELETION_BLOCKED', message: 'Move it first' } },
+        { status: 409 },
+      ),
+    );
+    renderWorkspace(vi.fn());
+
+    await confirmDelete();
+
+    expect(await screen.findByText('Failed to delete: Move it first')).toBeTruthy();
+    expect(screen.queryByText(/may still be in progress/)).toBeNull();
   });
 
   it('keeps the plain warning for documents that have no comments', async () => {

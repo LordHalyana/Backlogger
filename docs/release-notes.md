@@ -62,3 +62,7 @@ tags: ['docs']
 - In a sidecar project, a document's sidecar entry is fingerprinted with the
   rest of the deletion: an entry edited by hand while the deletion runs is kept
   and the deletion stops for review, like a changed file.
+- When a delete request gets no answer or a server error, the web app no
+  longer just says it failed: the toast says the deletion may still be in
+  progress and offers Open Recovery on that operation, and the Recovery list
+  and banner refresh straight away.
