@@ -34,7 +34,7 @@ function inboxItems(columns: Record<TaskState, BoardCard[]>): BoardCard[] {
 
 function failureMessage(err: Error, what: string): string {
   if (err instanceof ApiError) {
-    if (err.code === 'REVISION_CONFLICT' || err.code === 'DOCUMENT_VERSION_MISMATCH') {
+    if (err.code === 'REVISION_CONFLICT') {
       return `This task was changed somewhere else, so the ${what} was not saved. It has been reloaded — try again.`;
     }
     if (err.code === 'PROJECT_NOT_WRITABLE' || err.code === 'PROJECT_READ_ONLY') {

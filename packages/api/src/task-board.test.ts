@@ -125,7 +125,8 @@ describe('Write safety: overlapping mutations', () => {
     expect([a.status, b.status].sort()).toEqual([200, 409]);
     const winner = a.status === 200 ? a : b;
     const loser = a.status === 200 ? b : a;
-    expect(loser.body.error.code).toBe('DOCUMENT_VERSION_MISMATCH');
+    expect(loser.body.error.code).toBe('REVISION_CONFLICT');
+    expect(loser.body.error.details.currentRevision).toBe(winner.body.revision);
 
     const disk = await readDisk(h, winner.body.path);
     if (winner === a) {
@@ -247,7 +248,11 @@ describe('Revisions: distinct per mutation, validated against disk', () => {
       .set('If-Match', doc.revision)
       .send({ title: 'Overwrite' });
     expect(res.status).toBe(409);
-    expect(res.body.error.code).toBe('DOCUMENT_VERSION_MISMATCH');
+    expect(res.body.error).toMatchObject({
+      code: 'REVISION_CONFLICT',
+      details: { currentRevision: expect.any(String), currentProjectId: PROJECT },
+    });
+    expect(res.body.error.details.currentRevision).not.toBe(doc.revision);
     expect(await fs.readFile(file, 'utf8')).toBe(edited);
   });
 

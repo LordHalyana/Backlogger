@@ -352,7 +352,12 @@ describe('Documents API', () => {
       .set('If-Match', stale)
       .send({ title: 'New' });
     expect(res.status).toBe(409);
-    expect(res.body.error.code).toBe('DOCUMENT_VERSION_MISMATCH');
+    expect(res.body.error).toMatchObject({
+      code: 'REVISION_CONFLICT',
+      details: { currentRevision: created.body.revision, currentProjectId: 'aa' },
+    });
+    const after = await request(h.app).get(`/api/documents/${id}`);
+    expect(after.body).toMatchObject({ title: 'Lock', revision: created.body.revision });
   });
 
   it('accepts matching If-Match', async () => {
