@@ -7,6 +7,7 @@ import {
 } from '@tanstack/react-query';
 import type {
   CreateDocumentRequest,
+  DeleteDocumentAck,
   Document,
   DocumentSummary,
   ImportRequest,
@@ -82,16 +83,34 @@ export function useUpdateDocument(
   });
 }
 
+export interface DeleteDocumentArgs {
+  id: string;
+  /**
+   * The Idempotency-Key, generated when the user confirms (`newUuid`).
+   * Resending the same request must reuse it to get the original
+   * acknowledgement.
+   */
+  operationId: string;
+}
+
+/**
+ * Permanently delete a document and, for a backlog item, all its comments.
+ * The server answers with an acknowledgement only. The lists are refetched
+ * either way: a failed delete may have left a pending deletion, which hides
+ * the item.
+ */
 export function useDeleteDocument(
   projectId: string,
-): UseMutationResult<void, Error, string> {
+): UseMutationResult<DeleteDocumentAck, Error, DeleteDocumentArgs> {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id) => apiFetch<void>(`/api/documents/${id}`, { method: 'DELETE' }),
-    onSuccess: (_v, id) => {
-      removeDocumentCache(qc, id);
-      invalidateDocumentDerived(qc, projectId);
-    },
+    mutationFn: ({ id, operationId }) =>
+      apiFetch<DeleteDocumentAck>(`/api/documents/${id}`, {
+        method: 'DELETE',
+        headers: { 'Idempotency-Key': operationId },
+      }),
+    onSuccess: (_ack, { id }) => removeDocumentCache(qc, id),
+    onSettled: () => invalidateDocumentDerived(qc, projectId),
   });
 }
 

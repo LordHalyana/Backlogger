@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Document } from '@backlogger/shared';
@@ -44,6 +44,16 @@ function setupFetchMock(doc: Document = initialDoc): {
       return new Response(JSON.stringify(doc), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (url === `/api/documents/${doc.id}` && init?.method === 'DELETE') {
+      return Response.json({
+        operation_id: new Headers(init.headers).get('Idempotency-Key'),
+        command: 'document.delete',
+        document_id: doc.id,
+        project_id: doc.project_id,
+        outcome: 'deleted',
+        result_revision: null,
       });
     }
     if (url === `/api/documents/${doc.id}` && init?.method === 'PUT') {
@@ -345,5 +355,45 @@ describe('DocumentWorkspace autosave during a delayed save', () => {
     await screen.findByText(/Save failed: disk full/);
     expect(screen.getByDisplayValue('AB')).toBeTruthy();
     expect(screen.getByText(/Unsaved changes/)).toBeTruthy();
+  });
+});
+
+describe('DocumentWorkspace permanent deletion', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    cleanup();
+  });
+
+  it('warns that a backlog item is deleted with its comments, then deletes it with an Idempotency-Key (#73)', async () => {
+    const { calls } = setupFetchMock({ ...initialDoc, type: 'backlog_item', title: 'Fix gate' });
+    const user = userEvent.setup();
+    const { onDeleted } = renderWorkspace();
+
+    await screen.findByDisplayValue('Fix gate');
+    await user.click(screen.getByRole('button', { name: /Delete document/ }));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog.textContent).toContain(
+      'Delete "Fix gate" and all of its comments? The item and every comment on it are removed permanently. This cannot be undone.',
+    );
+    await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() => expect(onDeleted).toHaveBeenCalled());
+    const del = calls.find((c) => c.init?.method === 'DELETE');
+    expect(del?.url).toBe(`/api/documents/${initialDoc.id}`);
+    expect(new Headers(del?.init?.headers).get('Idempotency-Key')).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+  });
+
+  it('keeps the plain warning for documents that have no comments', async () => {
+    setupFetchMock();
+    const user = userEvent.setup();
+    renderWorkspace();
+
+    await screen.findByDisplayValue('Hello');
+    await user.click(screen.getByRole('button', { name: /Delete document/ }));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog.textContent).toContain('Delete "Hello"? This cannot be undone.');
+    expect(dialog.textContent).not.toContain('comment');
   });
 });

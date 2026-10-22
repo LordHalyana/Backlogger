@@ -100,8 +100,9 @@ export function documentsRouter(
     '/:id',
     asyncRoute(async (req, res) => {
       const id = parseDocumentId(req.params.id);
-      await service.delete(id);
-      res.status(204).send();
+      res.json(
+        await service.delete({ operationId: req.header('Idempotency-Key'), documentId: id }),
+      );
     }),
   );
 

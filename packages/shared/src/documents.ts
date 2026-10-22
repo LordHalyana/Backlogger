@@ -199,3 +199,18 @@ export interface FileDocumentAck {
   /** Revision of the task file the filing left. */
   result_revision: string;
 }
+
+/**
+ * The acknowledgement of `DELETE /api/documents/:id` (sent with an
+ * `Idempotency-Key`). The document and, for a backlog item, every one of its
+ * comments are gone; refresh the affected lists.
+ */
+export interface DeleteDocumentAck {
+  operation_id: string;
+  command: 'document.delete';
+  document_id: string;
+  /** The project the document was deleted from. */
+  project_id: string;
+  outcome: 'deleted';
+  result_revision: null;
+}

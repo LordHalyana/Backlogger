@@ -6,6 +6,7 @@ import {
   type SearchHit,
 } from '@backlogger/shared';
 import type { Db } from '../db/database.js';
+import { pendingDeletionCovers } from '../db/operations-repo.js';
 import { BadRequestError } from '../errors.js';
 
 interface SearchRow {
@@ -52,8 +53,8 @@ const SNIPPET_MARK_CLOSE = '\u0002';
  * Comments count only while their parent is an indexed backlog item, so
  * comments left behind by a deleted task never surface. Invalid and orphaned
  * comment files are never indexed, and recovery payloads live outside the
- * index altogether. Items pending deletion are not excluded here yet: that
- * state arrives with resumable deletion (#73), which must filter them out.
+ * index altogether. Tasks and projects pending deletion are excluded, with
+ * their comments, even while their rows are still indexed.
  */
 export class SearchService {
   constructor(private readonly db: Db) {}
@@ -82,6 +83,7 @@ export class SearchService {
        JOIN documents ON documents.id = search_fts.document_id
        LEFT JOIN comments ON search_fts.kind = 'comment' AND comments.id = search_fts.record_id
        WHERE search_fts MATCH ?
+         AND NOT ${pendingDeletionCovers('documents')}
          AND (search_fts.kind = 'document'
               OR (comments.id IS NOT NULL AND documents.type = 'backlog_item'))`;
     if (opts.projectId) {

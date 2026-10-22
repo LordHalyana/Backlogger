@@ -149,6 +149,37 @@ export class PathResolver {
   }
 
   /**
+   * Resolve an existing entry under a project, file or folder, whatever its
+   * name (deletion inventories cover every file in scope, not only the
+   * names Backlogger creates), and assert that no component below the
+   * project folder is a symlink. Rejects empty, `.` and `..` segments,
+   * absolute paths, NUL bytes and paths escaping `projectsRoot`. A bare
+   * project id resolves to the project folder.
+   */
+  async resolveEntrySafe(relativePath: string): Promise<string> {
+    if (typeof relativePath !== 'string' || relativePath.length === 0) {
+      throw new InvalidRelativePathError(String(relativePath));
+    }
+    const normalized = relativePath.replace(/\\/g, '/');
+    if (path.isAbsolute(relativePath) || normalized.includes('\0')) {
+      throw new InvalidRelativePathError(relativePath);
+    }
+    const segments = normalized.split('/');
+    for (const segment of segments) {
+      if (segment.length === 0 || segment === '.' || segment === '..') {
+        throw new InvalidRelativePathError(relativePath);
+      }
+    }
+    this.assertProjectId(segments[0]!);
+    const absolute = path.resolve(this.projectsRoot, normalized);
+    if (!this.isInsideProjectsRoot(absolute)) {
+      throw new PathOutsideDataDirError(relativePath);
+    }
+    await this.assertNoSymlinks(absolute);
+    return absolute;
+  }
+
+  /**
    * Like `resolveRelative` but also asserts that no path component on disk is
    * a symlink. Use this for read/write operations on existing files.
    */

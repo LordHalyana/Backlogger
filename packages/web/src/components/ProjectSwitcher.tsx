@@ -7,6 +7,7 @@ import {
   useUpdateProject,
 } from '../lib/projects.js';
 import { ApiError } from '../lib/api.js';
+import { newUuid } from '../lib/comments.js';
 import { toastError, useDialog } from '../lib/dialog.js';
 import { orderProjects } from '../lib/inbox.js';
 import { useMediaQuery } from '../hooks/useMediaQuery.js';
@@ -292,14 +293,14 @@ function ProjectMenu({
     void dialog
       .prompt({
         title: `Delete project "${projectName}"`,
-        message: `This permanently removes the project and all its documents. Type the project id (${projectId}) to confirm.`,
+        message: `This permanently removes the project folder and everything in it: all its documents, tasks and their comments. Type the project id (${projectId}) to confirm.`,
         placeholder: projectId,
         confirmLabel: 'Delete',
         validate: (v) => (v === projectId ? null : `Type "${projectId}" to confirm.`),
       })
       .then((typed) => {
         if (typed !== projectId) return;
-        del.mutate(projectId, {
+        del.mutate({ id: projectId, operationId: newUuid() }, {
           onSuccess: onDeleted,
           onError: (e) => toastError(dialog, 'Failed to delete project', e),
         });

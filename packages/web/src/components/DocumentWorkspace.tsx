@@ -16,7 +16,7 @@ import { MetadataPanel } from './MetadataPanel.js';
 import { SegmentedControl } from './SegmentedControl.js';
 import { StatusMessage } from './StatusMessage.js';
 import { DOCUMENT_STATUS_LABELS } from '../lib/display.js';
-import { flattenHistory, useCommentHistory } from '../lib/comments.js';
+import { flattenHistory, newUuid, useCommentHistory } from '../lib/comments.js';
 import { CommentsTab, type CommentWritability, type TabPanelIds } from './CommentsTab.js';
 import { ApiError } from '../lib/api.js';
 import type { Landing } from '../lib/landing.js';
@@ -157,13 +157,16 @@ export function DocumentWorkspace({
     void dialog
       .confirm({
         title: 'Delete document',
-        message: `Delete "${doc.title}"? This cannot be undone.`,
+        message:
+          doc.type === 'backlog_item'
+            ? `Delete "${doc.title}" and all of its comments? The item and every comment on it are removed permanently. This cannot be undone.`
+            : `Delete "${doc.title}"? This cannot be undone.`,
         confirmLabel: 'Delete',
         danger: true,
       })
       .then((ok) => {
         if (!ok) return;
-        del.mutate(doc.id, { onSuccess: onDeleted });
+        del.mutate({ id: doc.id, operationId: newUuid() }, { onSuccess: onDeleted });
       });
   }, [del, dialog, doc, onDeleted]);
 

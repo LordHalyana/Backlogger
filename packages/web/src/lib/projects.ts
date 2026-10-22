@@ -7,6 +7,7 @@ import {
 } from '@tanstack/react-query';
 import type {
   CreateProjectRequest,
+  DeleteProjectAck,
   DuplicateFile,
   Project,
   UpdateProjectRequest,
@@ -58,11 +59,26 @@ export function useUpdateProject(): UseMutationResult<
   });
 }
 
-export function useDeleteProject(): UseMutationResult<void, Error, string> {
+export interface DeleteProjectArgs {
+  id: string;
+  /** The Idempotency-Key, generated when the user confirms (`newUuid`). */
+  operationId: string;
+}
+
+/**
+ * Permanently delete a project with every task, comment and file in it. The
+ * project list is refetched either way: a failed delete may have left a
+ * pending deletion, which hides the project.
+ */
+export function useDeleteProject(): UseMutationResult<DeleteProjectAck, Error, DeleteProjectArgs> {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id) => apiFetch<void>(`/api/projects/${id}`, { method: 'DELETE' }),
-    onSuccess: () => invalidateProjectList(qc),
+    mutationFn: ({ id, operationId }) =>
+      apiFetch<DeleteProjectAck>(`/api/projects/${id}`, {
+        method: 'DELETE',
+        headers: { 'Idempotency-Key': operationId },
+      }),
+    onSettled: () => invalidateProjectList(qc),
   });
 }
 

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
@@ -183,8 +184,10 @@ describe('Projects API', () => {
 
   it('deletes a project and removes its folder', async () => {
     await request(h.app).post('/api/projects').send({ id: 'aa', name: 'A' });
-    const res = await request(h.app).delete('/api/projects/aa');
-    expect(res.status).toBe(204);
+    const res = await request(h.app)
+      .delete('/api/projects/aa')
+      .set('Idempotency-Key', randomUUID());
+    expect(res.status).toBe(200);
 
     const get = await request(h.app).get('/api/projects/aa');
     expect(get.status).toBe(404);
@@ -196,14 +199,18 @@ describe('Projects API', () => {
     await request(h.app).post('/api/projects').send({ id: 'aa', name: 'A' });
     await request(h.app).put('/api/projects/aa').send({ readOnly: true });
 
-    const res = await request(h.app).delete('/api/projects/aa');
+    const res = await request(h.app)
+      .delete('/api/projects/aa')
+      .set('Idempotency-Key', randomUUID());
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe('PROJECT_READ_ONLY');
     await expect(fs.access(path.join(h.dataDir, 'projects', 'aa'))).resolves.toBeUndefined();
   });
 
   it('delete returns 404 for missing project', async () => {
-    const res = await request(h.app).delete('/api/projects/ghost');
+    const res = await request(h.app)
+      .delete('/api/projects/ghost')
+      .set('Idempotency-Key', randomUUID());
     expect(res.status).toBe(404);
   });
 
@@ -215,7 +222,9 @@ describe('Projects API', () => {
     const docDir = path.dirname(path.join(h.dataDir, 'projects', created.body.path));
     await fs.chmod(docDir, 0o555);
     try {
-      const res = await request(h.app).delete('/api/projects/aa');
+      const res = await request(h.app)
+        .delete('/api/projects/aa')
+        .set('Idempotency-Key', randomUUID());
       expect(res.status).toBe(500);
     } finally {
       await fs.chmod(docDir, 0o755);
@@ -233,14 +242,17 @@ describe('Projects API', () => {
     let release!: () => void;
     const held = h.ctx.queue.run('aa', () => new Promise<void>((r) => (release = r)));
 
-    const pending = request(h.app).delete('/api/projects/aa').then((res) => res);
+    const pending = request(h.app)
+      .delete('/api/projects/aa')
+      .set('Idempotency-Key', randomUUID())
+      .then((res) => res);
     await new Promise((r) => setTimeout(r, 50));
     expect(h.ctx.projectsRepo.exists('aa')).toBe(true);
     await expect(fs.access(path.join(h.dataDir, 'projects', 'aa'))).resolves.toBeUndefined();
 
     release();
     await held;
-    expect((await pending).status).toBe(204);
+    expect((await pending).status).toBe(200);
     expect(h.ctx.projectsRepo.exists('aa')).toBe(false);
   });
 });
@@ -359,8 +371,10 @@ describe('Documents API', () => {
     const created = await request(h.app)
       .post('/api/projects/aa/documents')
       .send({ title: 'Bye', type: 'note' });
-    const del = await request(h.app).delete(`/api/documents/${created.body.id}`);
-    expect(del.status).toBe(204);
+    const del = await request(h.app)
+      .delete(`/api/documents/${created.body.id}`)
+      .set('Idempotency-Key', randomUUID());
+    expect(del.status).toBe(200);
     const get = await request(h.app).get(`/api/documents/${created.body.id}`);
     expect(get.status).toBe(404);
     await expect(
@@ -368,14 +382,17 @@ describe('Documents API', () => {
     ).rejects.toThrow();
   });
 
-  it('keeps the document indexed when its file cannot be removed', async () => {
+  it('keeps the document readable and pending deletion when its file cannot be removed', async () => {
     const created = await request(h.app)
       .post('/api/projects/aa/documents')
       .send({ title: 'Stuck', type: 'note' });
     const file = path.join(h.dataDir, 'projects', created.body.path);
+    const key = randomUUID();
     await fs.chmod(path.dirname(file), 0o555);
     try {
-      const del = await request(h.app).delete(`/api/documents/${created.body.id}`);
+      const del = await request(h.app)
+        .delete(`/api/documents/${created.body.id}`)
+        .set('Idempotency-Key', key);
       expect(del.status).toBe(500);
     } finally {
       await fs.chmod(path.dirname(file), 0o755);
@@ -383,10 +400,19 @@ describe('Documents API', () => {
 
     expect((await request(h.app).get(`/api/documents/${created.body.id}`)).status).toBe(200);
     await expect(fs.access(file)).resolves.toBeUndefined();
+    const list = await request(h.app).get('/api/projects/aa/documents');
+    expect(list.body.map((d: { id: string }) => d.id)).not.toContain(created.body.id);
 
-    const retry = await request(h.app).delete(`/api/documents/${created.body.id}`);
-    expect(retry.status).toBe(204);
+    // A new delete is blocked by the pending one; Recheck finishes it.
+    const other = await request(h.app)
+      .delete(`/api/documents/${created.body.id}`)
+      .set('Idempotency-Key', randomUUID());
+    expect(other.status).toBe(409);
+    expect(other.body.error.code).toBe('RECOVERY_REQUIRED');
+    const recheck = await request(h.app).post(`/api/recovery/${key}/recheck`);
+    expect(recheck.body.state).toBe('completed');
     await expect(fs.access(file)).rejects.toThrow();
+    expect((await request(h.app).get(`/api/documents/${created.body.id}`)).status).toBe(404);
   });
 
   it('finishes a delete that was interrupted after the file was removed', async () => {
@@ -395,8 +421,10 @@ describe('Documents API', () => {
       .send({ title: 'Half Gone', type: 'note' });
     await fs.unlink(path.join(h.dataDir, 'projects', created.body.path));
 
-    const del = await request(h.app).delete(`/api/documents/${created.body.id}`);
-    expect(del.status).toBe(204);
+    const del = await request(h.app)
+      .delete(`/api/documents/${created.body.id}`)
+      .set('Idempotency-Key', randomUUID());
+    expect(del.status).toBe(200);
     expect((await request(h.app).get(`/api/documents/${created.body.id}`)).status).toBe(404);
   });
 
@@ -426,7 +454,9 @@ describe('Documents API', () => {
     expect(update.status).toBe(409);
     expect(update.body.error.code).toBe('PROJECT_READ_ONLY');
 
-    const del = await request(h.app).delete(`/api/documents/${created.body.id}`);
+    const del = await request(h.app)
+      .delete(`/api/documents/${created.body.id}`)
+      .set('Idempotency-Key', randomUUID());
     expect(del.status).toBe(409);
     expect(del.body.error.code).toBe('PROJECT_READ_ONLY');
 
@@ -475,8 +505,10 @@ describe('Documents API', () => {
     const created = await request(h.app)
       .post('/api/projects/aa/documents')
       .send({ title: 'CascadeMe', type: 'note' });
-    const del = await request(h.app).delete('/api/projects/aa');
-    expect(del.status).toBe(204);
+    const del = await request(h.app)
+      .delete('/api/projects/aa')
+      .set('Idempotency-Key', randomUUID());
+    expect(del.status).toBe(200);
     const list = h.db.prepare('SELECT COUNT(*) AS c FROM documents').get() as { c: number };
     expect(list.c).toBe(0);
     const get = await request(h.app).get(`/api/documents/${created.body.id}`);
@@ -723,8 +755,10 @@ describe('Search API', () => {
     const before = await request(h.app).get('/api/search').query({ q: 'xyzzy' });
     expect(before.body).toHaveLength(1);
 
-    const del = await request(h.app).delete(`/api/documents/${id}`);
-    expect(del.status).toBe(204);
+    const del = await request(h.app)
+      .delete(`/api/documents/${id}`)
+      .set('Idempotency-Key', randomUUID());
+    expect(del.status).toBe(200);
 
     const after = await request(h.app).get('/api/search').query({ q: 'xyzzy' });
     expect(after.body).toHaveLength(0);
@@ -824,8 +858,10 @@ describe('Links API', () => {
       ).target_id,
     ).toBe(targetId);
 
-    const del = await request(h.app).delete(`/api/documents/${targetId}`);
-    expect(del.status).toBe(204);
+    const del = await request(h.app)
+      .delete(`/api/documents/${targetId}`)
+      .set('Idempotency-Key', randomUUID());
+    expect(del.status).toBe(200);
 
     const after = h.db
       .prepare('SELECT target_id FROM links WHERE source_id = ?')
@@ -991,8 +1027,10 @@ describe('Tags API', () => {
       .get(id) as { c: number };
     expect(before.c).toBeGreaterThan(0);
 
-    const del = await request(h.app).delete(`/api/documents/${id}`);
-    expect(del.status).toBe(204);
+    const del = await request(h.app)
+      .delete(`/api/documents/${id}`)
+      .set('Idempotency-Key', randomUUID());
+    expect(del.status).toBe(200);
 
     const after = h.db
       .prepare('SELECT COUNT(*) AS c FROM document_tags WHERE document_id = ?')
@@ -1688,8 +1726,10 @@ describe('Knowledge Graph API', () => {
     expect(before.body.nodes).toHaveLength(2);
 
     // Delete one document through the service — the only sanctioned write path.
-    const del = await request(h.app).delete(`/api/documents/${a.body.id}`);
-    expect(del.status).toBe(204);
+    const del = await request(h.app)
+      .delete(`/api/documents/${a.body.id}`)
+      .set('Idempotency-Key', randomUUID());
+    expect(del.status).toBe(200);
 
     // DocumentService.delete must invalidate the graph cache → deletion is visible.
     const after = await request(h.app).get('/api/projects/gp/graph');

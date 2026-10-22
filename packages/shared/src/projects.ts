@@ -41,3 +41,14 @@ export type Project = z.infer<typeof ProjectSchema> & {
 };
 export type CreateProjectRequest = z.infer<typeof CreateProjectRequestSchema>;
 export type UpdateProjectRequest = z.infer<typeof UpdateProjectRequestSchema>;
+
+/**
+ * The acknowledgement of `DELETE /api/projects/:id` (sent with an
+ * `Idempotency-Key`). The project folder and everything in it are gone.
+ */
+export interface DeleteProjectAck {
+  operation_id: string;
+  command: 'project.delete';
+  project_id: string;
+  outcome: 'deleted';
+}

@@ -13,6 +13,7 @@ import {
   type CreateDocumentRequest,
   type Document,
   type DocumentSummary,
+  type DeleteDocumentAck,
   type FileDocumentAck,
   type Frontmatter,
   type SidecarEntry,
@@ -49,6 +50,11 @@ import {
   TRANSFER_COMMAND,
   type TaskTransfer,
 } from './task-transfer.js';
+import {
+  DELETE_DOCUMENT_COMMAND,
+  ticketDir,
+  type PermanentDeletion,
+} from './permanent-deletion.js';
 
 export interface DocumentServiceDeps {
   documentsRepo: DocumentsRepo;
@@ -62,6 +68,8 @@ export interface DocumentServiceDeps {
   coordinator: WriteCoordinator;
   /** Filing's recoverable task-and-comment transfer. */
   transfer: TaskTransfer;
+  /** Permanent deletion of a document with its comments. */
+  deletion: PermanentDeletion;
   inbox: InboxService;
   now?: () => string;
   newId?: () => string;
@@ -99,6 +107,12 @@ export interface FileDocumentCommand {
   revision: string;
 }
 
+/** `document.delete`, as received: the Idempotency-Key unvalidated (see `FileDocumentCommand`). */
+export interface DeleteDocumentCommand {
+  operationId: unknown;
+  documentId: string;
+}
+
 /** Internal update options (not exposed over HTTP). */
 export interface UpdateOptions {
   /** Overwrites the stored task state when its value is defined. */
@@ -115,6 +129,7 @@ export class DocumentService {
   private readonly sidecarStore: SidecarStore;
   private readonly coordinator: WriteCoordinator;
   private readonly transfer: TaskTransfer;
+  private readonly deletion: PermanentDeletion;
   private readonly inbox: InboxService;
   private readonly now: () => string;
   private readonly newId: () => string;
@@ -129,6 +144,7 @@ export class DocumentService {
     this.sidecarStore = deps.sidecarStore;
     this.coordinator = deps.coordinator;
     this.transfer = deps.transfer;
+    this.deletion = deps.deletion;
     this.inbox = deps.inbox;
     this.now = deps.now ?? (() => new Date().toISOString());
     this.newId = deps.newId ?? (() => uuidv4());
@@ -518,12 +534,36 @@ export class DocumentService {
     };
   }
 
-  async delete(id: string): Promise<void> {
-    return this.documentCommand(id, (summary, scope) => this.deleteHeld(scope, summary));
+  /**
+   * Permanently delete a document and, for a backlog item, all of its
+   * comments, as a resumable deletion (see `PermanentDeletion`). Retry-safe:
+   * a resent request with the same Idempotency-Key gets the original
+   * acknowledgement, even once the document is gone.
+   */
+  async delete(command: DeleteDocumentCommand): Promise<DeleteDocumentAck> {
+    const operationId = parseOperationId(command.operationId);
+    const id = command.documentId;
+    const fingerprint = operationFingerprint(DELETE_DOCUMENT_COMMAND, [id]);
+    return this.coordinator.command({
+      operation: { id: operationId, command: DELETE_DOCUMENT_COMMAND, fingerprint },
+      locate: () => {
+        const summary = this.findOrThrow(id);
+        return { summary, projects: [summary.project_id] };
+      },
+      moved: ({ summary }) => movedConflict(summary),
+      guards: ({ summary }) => ({
+        tasks: [id],
+        paths: [summary.path, ticketDir(summary.project_id, id)],
+      }),
+      run: ({ summary }, scope) => this.deleteHeld(scope, operationId, summary),
+    });
   }
 
-  private async deleteHeld(scope: CommandScope, summary: DocumentSummary): Promise<void> {
-    const id = summary.id;
+  private async deleteHeld(
+    scope: CommandScope,
+    operationId: string,
+    summary: DocumentSummary,
+  ): Promise<DeleteDocumentAck> {
     const project = this.assertProjectWritable(summary.project_id);
 
     let viaSidecar = false;
@@ -536,20 +576,18 @@ export class DocumentService {
       if (existing && !viaSidecar) assertEditableBackloggerDocument(summary, existing);
     }
 
-    // Files (Markdown, then sidecar entry) go before the index row: if either
-    // removal fails, the error surfaces and the document stays indexed, so a
-    // retry finishes the job and a reindex never resurrects it.
-    await this.fs.delete(summary.path).catch(ignoreMissing);
-    if (viaSidecar) {
-      await this.sidecarStore.delete(
-        summary.project_id,
-        sidecarKeyOf(summary.project_id, summary.path),
-      );
-    }
-    scope.commit(() => {
-      this.documentsRepo.delete(id);
-      this.linkService.onDocumentDeleted(id);
-    });
+    const { plan, intent } = await this.deletion.prepareDocument(
+      operationId,
+      summary,
+      viaSidecar ? sidecarKeyOf(summary.project_id, summary.path) : null,
+    );
+    scope.intent(intent);
+    const result = await this.deletion.advance(plan, (outcome, write) =>
+      scope.complete(outcome, write),
+    );
+    // Stopped by an unexpected change: the deletion stays pending for review.
+    if (!result.done) throw recoveryRequired(operationId);
+    return result.ack as DeleteDocumentAck;
   }
 
   /**

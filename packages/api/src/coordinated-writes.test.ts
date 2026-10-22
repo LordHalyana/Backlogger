@@ -88,7 +88,9 @@ describe('Durable guards', () => {
     const move = await request(h.app)
       .post(`/api/documents/${guarded.id}/move`)
       .send({ folder: 'notes' });
-    const del = await request(h.app).delete(`/api/documents/${guarded.id}`);
+    const del = await request(h.app)
+      .delete(`/api/documents/${guarded.id}`)
+      .set('Idempotency-Key', randomUUID());
     for (const res of [update, move, del]) expectRecoveryRequired(res, OP.a);
     expect(await readDisk(h, guarded.path)).toBe(before);
   });
@@ -96,8 +98,10 @@ describe('Durable guards', () => {
   it('unrelated tasks in the same project are unaffected', async () => {
     const update = await request(h.app).put(`/api/documents/${other.id}`).send({ body: 'fine' });
     expect(update.status).toBe(200);
-    const del = await request(h.app).delete(`/api/documents/${other.id}`);
-    expect(del.status).toBe(204);
+    const del = await request(h.app)
+      .delete(`/api/documents/${other.id}`)
+      .set('Idempotency-Key', randomUUID());
+    expect(del.status).toBe(200);
   });
 });
 
@@ -121,7 +125,10 @@ describe('Durable guards on project settings and deletion', () => {
     ]) {
       expectRecoveryRequired(await request(h.app).put('/api/projects/work').send(change), OP.a);
     }
-    expectRecoveryRequired(await request(h.app).delete('/api/projects/work'), OP.a);
+    expectRecoveryRequired(
+      await request(h.app).delete('/api/projects/work').set('Idempotency-Key', randomUUID()),
+      OP.a,
+    );
     const project = await request(h.app).get('/api/projects/work');
     expect(project.body).toMatchObject({
       name: 'work',
@@ -233,7 +240,9 @@ describe('Durable guards on imports, folders, create and capture', () => {
       .post(`/api/documents/${item.id}/file`)
       .set('Idempotency-Key', randomUUID())
       .send({ target_project_id: 'other', revision: item.revision });
-    const deleted = await request(h.app).delete(`/api/documents/${item.id}`);
+    const deleted = await request(h.app)
+      .delete(`/api/documents/${item.id}`)
+      .set('Idempotency-Key', randomUUID());
     for (const res of [filed, deleted]) expectRecoveryRequired(res, OP.b);
     expect(await readDisk(h, item.path)).toBe(before);
 
@@ -290,7 +299,10 @@ describe('Durable guards on imports, folders, create and capture', () => {
       .send({ id, title: 'Going away', project_id: 'work' });
     expect(captured.status).toBe(201);
     const goneRel = captured.body.path as string;
-    expect((await request(h.app).delete(`/api/documents/${id}`)).status).toBe(204);
+    expect(
+      (await request(h.app).delete(`/api/documents/${id}`).set('Idempotency-Key', randomUUID()))
+        .status,
+    ).toBe(200);
     seedPendingOperation(h, OP.c, [
       { project_id: 'work', scope: 'task', key: id },
       { project_id: 'work', scope: 'path', key: goneRel },
@@ -327,13 +339,16 @@ describe('Operational tables are protected', () => {
   });
   afterEach(() => teardown(h));
 
-  function operationalRows(): unknown[] {
+  /** Every operational row, except those of `skip` (an operation this test runs itself). */
+  function operationalRows(skip = ''): unknown[] {
     return [
       'operations',
       'operation_payloads',
       'operation_manifest_entries',
       'operation_guards',
-    ].map((table) => h.db.prepare(`SELECT * FROM ${table} ORDER BY 1, 2`).all());
+    ].map((table) =>
+      h.db.prepare(`SELECT * FROM ${table} WHERE operation_id != ? ORDER BY 1, 2`).all(skip),
+    );
   }
 
   it('Reload, full Reindex and deleting the task keep receipts, pending rows, payloads, manifests and guards', async () => {
@@ -356,9 +371,13 @@ describe('Operational tables are protected', () => {
 
     expect((await request(h.app).post('/api/projects/inbox/reload')).status).toBe(200);
     expect((await request(h.app).post('/api/admin/reindex')).status).toBe(200);
-    expect((await request(h.app).delete(`/api/documents/${done.id}`)).status).toBe(204);
+    const deletion = randomUUID();
+    expect(
+      (await request(h.app).delete(`/api/documents/${done.id}`).set('Idempotency-Key', deletion))
+        .status,
+    ).toBe(200);
 
-    expect(operationalRows()).toEqual(before);
+    expect(operationalRows(deletion)).toEqual(before);
     expect(operationalRows().every((rows) => (rows as unknown[]).length > 0)).toBe(true);
   });
 });

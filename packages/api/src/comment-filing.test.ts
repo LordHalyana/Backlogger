@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -407,7 +408,7 @@ describe('Filing a commented task', () => {
     const blocked = [
       await request(h.app).put(`/api/documents/${task.id}`).send({ body: 'x' }),
       await request(h.app).put(`/api/documents/${task.id}`).send({ status: 'archived' }),
-      await request(h.app).delete(`/api/documents/${task.id}`),
+      await request(h.app).delete(`/api/documents/${task.id}`).set('Idempotency-Key', randomUUID()),
       await file(h, task.id, uuid(502), { target_project_id: 'work', revision: task.revision }),
       await request(h.app)
         .post(`/api/documents/${task.id}/comments`)

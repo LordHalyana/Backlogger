@@ -104,6 +104,11 @@ export class CommentsRepo {
     return { older: row?.older ?? 0, newer: row?.newer ?? 0 };
   }
 
+  /** Every comment row of a task. */
+  deleteByTask(taskId: string): void {
+    this.db.prepare(`DELETE FROM comments WHERE task_id = ?`).run(taskId);
+  }
+
   /** Every comment row of a project, except those of the tasks in `keepTasks`. */
   deleteByProject(projectId: string, keepTasks: Iterable<string> = []): void {
     const keep = [...keepTasks];
