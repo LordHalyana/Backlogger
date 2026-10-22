@@ -1,4 +1,5 @@
 import type { Db } from '../db/database.js';
+import { pendingDeletionCovers } from '../db/operations-repo.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -111,7 +112,7 @@ export class GraphService {
           (SELECT COUNT(*) FROM links WHERE source_id = d.id) AS out_degree,
           (SELECT COUNT(*) FROM links WHERE target_id = d.id) AS in_degree
         FROM documents d
-        WHERE d.project_id = ?`,
+        WHERE d.project_id = ? AND NOT ${pendingDeletionCovers('d')}`,
       )
       .all(projectId);
 
@@ -124,7 +125,7 @@ export class GraphService {
           COUNT(*)                         AS in_degree
         FROM links l
         JOIN documents d ON d.id = l.source_id
-        WHERE d.project_id = ? AND l.target_id IS NULL
+        WHERE d.project_id = ? AND l.target_id IS NULL AND NOT ${pendingDeletionCovers('d')}
         GROUP BY l.target_title_norm`,
       )
       .all(projectId);
@@ -138,7 +139,9 @@ export class GraphService {
           l.display
         FROM links l
         JOIN documents d ON d.id = l.source_id
-        WHERE d.project_id = ?`,
+        LEFT JOIN documents t ON t.id = l.target_id
+        WHERE d.project_id = ? AND NOT ${pendingDeletionCovers('d')}
+          AND (t.id IS NULL OR NOT ${pendingDeletionCovers('t')})`,
       )
       .all(projectId);
 

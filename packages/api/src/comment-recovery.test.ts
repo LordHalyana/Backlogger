@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -476,7 +477,9 @@ describe('Task-scoped recovery guards', () => {
       .post(`/api/documents/${task.id}/file`)
       .set('Idempotency-Key', uuid(105))
       .send({ target_project_id: 'inbox', revision: task.revision });
-    const deletion = await request(h.app).delete(`/api/documents/${task.id}`);
+    const deletion = await request(h.app)
+      .delete(`/api/documents/${task.id}`)
+      .set('Idempotency-Key', randomUUID());
     const create = await post(h, task.id, uuid(102), { id: uuid(4), body: 'More' });
     const edit = await put(h, uuid(1), uuid(103), r0, { body: 'Changed' });
     const remove = await del(h, uuid(1), uuid(104), r0);

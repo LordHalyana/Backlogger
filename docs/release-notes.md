@@ -15,20 +15,25 @@ tags: ['docs']
 
 ### Breaking changes
 
-- **Filing requires an `Idempotency-Key`.** `POST /api/documents/:id/file`
-  now needs an `Idempotency-Key` header holding a client-generated UUID.
-  Without one it returns `400 INVALID_COMMAND` and changes nothing. The body
-  stays `{ target_project_id, revision }`.
-- **Filing returns an acknowledgement, not the document.** A successful filing
-  answers `200` with `{ operation_id, command, document_id,
-source_project_id, target_project_id, outcome, result_revision }`. Fetch the
-  document afterwards for its current state. Retrying with the same key
-  returns the original acknowledgement.
-- **Refresh open browser tabs after upgrading.** Tabs loaded before the
-  upgrade file items without a key, and the server refuses those requests.
-
-Permanent task and project deletion move to the same contract in a later
-release. See [Filing and deletion API migration](https://github.com/LordHalyana/Backlogger/issues/58).
+1. **Filing and permanent deletion require an `Idempotency-Key`.**
+   `POST /api/documents/:id/file`, `DELETE /api/documents/:id` and
+   `DELETE /api/projects/:id` now need an `Idempotency-Key` header holding a
+   client-generated UUID. Without a valid one they return
+   `400 INVALID_COMMAND` and change nothing. The filing body stays
+   `{ target_project_id, revision }`. Retrying with the same key returns the
+   original acknowledgement, even after the item was deleted or filed again.
+2. **Filing returns an acknowledgement, not the document.** A successful filing
+   answers `200` with `{ operation_id, command, document_id,
+   source_project_id, target_project_id, outcome, result_revision }`. Fetch the
+   document afterwards for its current state.
+3. **Deletion returns `200` with an acknowledgement instead of `204`.**
+   Deleting a document answers `{ operation_id, command: "document.delete",
+   document_id, project_id, outcome: "deleted", result_revision: null }`;
+   deleting a project answers `{ operation_id, command: "project.delete",
+   project_id, outcome: "deleted" }`. Refresh the affected lists afterwards.
+4. **Refresh open browser tabs after upgrading.** Tabs loaded before the
+   upgrade file and delete items without a key, and the server refuses those
+   requests.
 
 ### Changes
 
@@ -40,3 +45,12 @@ release. See [Filing and deletion API migration](https://github.com/LordHalyana/
   [`POST /api/documents/:id/file`](api.md#post-apidocumentsidfile).
 - Reload and Reindex follow a pending filing's manifest, so a task mid-filing
   is never shown twice.
+- Deleting a backlog item deletes all of its comments, and the delete dialog
+  says so. Deleting a project deletes every task, comment and file in its
+  folder. Deletion is resumable: it records an inventory of what it removes
+  (paths and fingerprints, no content), then removes only files that still
+  match it, and folders only once they are empty. It never follows a
+  symlink. A file changed or added in scope while a deletion runs is kept,
+  and the deletion stops for review on the Recovery API. Restart, Reload and
+  Reindex never bring back an item whose deletion is unfinished. See
+  [`DELETE /api/documents/:id`](api.md#delete-apidocumentsid).

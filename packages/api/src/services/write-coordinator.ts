@@ -314,6 +314,11 @@ export class WriteCoordinator {
     return this.operations.getManifest(operationId);
   }
 
+  /** Whether a pending project deletion hides `projectId`. */
+  isProjectPendingDeletion(projectId: string): boolean {
+    return this.operations.isProjectPendingDeletion(projectId);
+  }
+
   /** The projects whose queues a recovery action on `operationId` holds. */
   guardedProjects(operationId: string): string[] {
     return this.operations.guardedProjects(operationId);

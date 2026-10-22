@@ -34,6 +34,25 @@ export interface ManifestEntry {
   fingerprint: string | null;
 }
 
+/** Commands whose pending operations hide what they delete (see `PermanentDeletion`). */
+export const DELETE_DOCUMENT_COMMAND = 'document.delete';
+export const DELETE_PROJECT_COMMAND = 'project.delete';
+
+/**
+ * SQL that is true while a pending permanent deletion covers the document
+ * `doc` (an alias of `documents`): its task guard, or its project's guard.
+ * Pending deletion wins over indexing: whatever Reload or Reindex put back
+ * in the index stays hidden from boards, lists and search until the deletion
+ * completes and its completion transaction removes the rows.
+ */
+export function pendingDeletionCovers(doc: string): string {
+  return `EXISTS (
+    SELECT 1 FROM operation_guards g JOIN operations o ON o.operation_id = g.operation_id
+    WHERE o.state = 'pending'
+      AND ((o.command = '${DELETE_DOCUMENT_COMMAND}' AND g.scope = 'task' AND g.key = ${doc}.id)
+        OR (o.command = '${DELETE_PROJECT_COMMAND}' AND g.scope = 'project' AND g.key = ${doc}.project_id)))`;
+}
+
 interface OperationRow extends Omit<OperationRecord, 'outcome'> {
   outcome: string | null;
 }
@@ -211,6 +230,20 @@ export class OperationsRepo {
       if (guard) return guard;
     }
     return undefined;
+  }
+
+  /** Whether a pending project deletion covers `projectId`. */
+  isProjectPendingDeletion(projectId: string): boolean {
+    return (
+      this.db
+        .prepare<[string], { n: number }>(
+          `SELECT COUNT(*) AS n FROM operation_guards g
+           JOIN operations o ON o.operation_id = g.operation_id
+           WHERE o.state = 'pending' AND o.command = '${DELETE_PROJECT_COMMAND}'
+             AND g.scope = 'project' AND g.key = ?`,
+        )
+        .get(projectId)!.n > 0
+    );
   }
 
   /** The first guard of any scope living in `projectId`, or undefined. */

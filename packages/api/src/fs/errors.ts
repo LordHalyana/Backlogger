@@ -6,7 +6,8 @@ export type FsRepoErrorCode =
   | 'SYMLINK_NOT_ALLOWED'
   | 'DOCUMENT_NOT_FOUND'
   | 'PROJECT_NOT_FOUND'
-  | 'NOT_UTF8';
+  | 'NOT_UTF8'
+  | 'NOT_A_FILE';
 
 export class FsRepoError extends Error {
   override readonly name = 'FsRepoError';
@@ -63,5 +64,12 @@ export class ProjectNotFoundError extends FsRepoError {
 export class NotUtf8Error extends FsRepoError {
   constructor(value: string) {
     super('NOT_UTF8', `Not valid UTF-8 text: ${value}`);
+  }
+}
+
+/** A path that was expected to be a regular file is a folder (or another kind of entry). */
+export class NotAFileError extends FsRepoError {
+  constructor(value: string) {
+    super('NOT_A_FILE', `Not a regular file: ${value}`);
   }
 }

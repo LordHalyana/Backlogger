@@ -113,7 +113,9 @@ describe('Inbox: protection', () => {
   afterEach(() => teardown(h));
 
   it('refuses deleting the Inbox with 409 INBOX_PROTECTED and keeps its folder', async () => {
-    const res = await request(h.app).delete('/api/projects/inbox');
+    const res = await request(h.app)
+      .delete('/api/projects/inbox')
+      .set('Idempotency-Key', randomUUID());
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe('INBOX_PROTECTED');
     expect((await fs.stat(path.join(h.dataDir, 'projects', 'inbox'))).isDirectory()).toBe(true);
@@ -547,6 +549,7 @@ describe('Filing: POST /api/documents/:id/file', () => {
       .then((res) => res);
     const del = request(h.app)
       .delete(`/api/documents/${UUID.a}`)
+      .set('Idempotency-Key', randomUUID())
       .then((res) => res);
     await settle();
     release();

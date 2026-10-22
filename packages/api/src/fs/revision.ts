@@ -12,6 +12,14 @@ export function contentRevision(content: string): string {
   return createHash('sha256').update(content, 'utf8').digest('hex').slice(0, 32);
 }
 
+/**
+ * Revision of a file's raw bytes: equal to `contentRevision` of its text for
+ * any valid UTF-8 file, and exact for files that are not.
+ */
+export function bytesRevision(bytes: Uint8Array): string {
+  return createHash('sha256').update(bytes).digest('hex').slice(0, 32);
+}
+
 /** Revision of a sidecar-backed document: its file plus its sidecar entry. */
 export function sidecarRevision(fileRevision: string, entry: SidecarEntry): string {
   const canonical = JSON.stringify(SidecarEntrySchema.parse(entry));

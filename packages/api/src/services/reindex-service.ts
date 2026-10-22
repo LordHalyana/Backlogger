@@ -238,7 +238,7 @@ export class ReindexService {
 
     // Snapshot what we already have on disk-of-record.
     const existing = new Map(
-      this.documentsRepo.listByProject(projectId).map((d) => [d.id, d] as const),
+      this.documentsRepo.listIndexedByProject(projectId).map((d) => [d.id, d] as const),
     );
     const sidecar = await this.sidecarStore.load(projectId);
     // Manifests before the duplicate-winner rule (see `rebuildHeld`). A task

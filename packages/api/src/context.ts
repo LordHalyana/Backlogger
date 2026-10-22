@@ -17,6 +17,11 @@ import { ProjectService } from './services/project-service.js';
 import { ProjectQueue } from './services/project-queue.js';
 import { RecoveryService } from './services/recovery-service.js';
 import { TaskTransfer, TRANSFER_COMMAND } from './services/task-transfer.js';
+import {
+  DELETE_DOCUMENT_COMMAND,
+  DELETE_PROJECT_COMMAND,
+  PermanentDeletion,
+} from './services/permanent-deletion.js';
 import { ReindexService } from './services/reindex-service.js';
 import { SearchService } from './services/search-service.js';
 import { GraphService } from './services/graph-service.js';
@@ -89,11 +94,23 @@ export function buildContext(opts: BuildContextOptions): AppContext {
     queue,
     invalidate: (projectIds) => projectIds.forEach((id) => graphService.invalidate(id)),
   });
+  const deletion = new PermanentDeletion({
+    coordinator,
+    documentsRepo,
+    commentsRepo,
+    projectsRepo,
+    linkService,
+    sidecarStore,
+    fs,
+  });
+  coordinator.onRecover(DELETE_DOCUMENT_COMMAND, deletion);
+  coordinator.onRecover(DELETE_PROJECT_COMMAND, deletion);
   const projectService = new ProjectService({
     projectsRepo,
     fs,
     inbox: inboxService,
     coordinator,
+    deletion,
   });
   const transfer = new TaskTransfer({ coordinator, documentsRepo, commentsRepo, fs });
   coordinator.onRecover(TRANSFER_COMMAND, transfer);
@@ -107,6 +124,7 @@ export function buildContext(opts: BuildContextOptions): AppContext {
     sidecarStore,
     coordinator,
     transfer,
+    deletion,
     inbox: inboxService,
   });
   const commentService = new CommentService({

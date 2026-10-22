@@ -1,5 +1,6 @@
 import type { DocumentStatus, DocumentSummary, DocumentType } from '@backlogger/shared';
 import type { Db } from './database.js';
+import { pendingDeletionCovers } from './operations-repo.js';
 
 interface DocumentRow {
   id: string;
@@ -67,10 +68,19 @@ export class DocumentsRepo {
   listByProject(projectId: string): DocumentSummary[] {
     const rows = this.db
       .prepare<[string], DocumentRow>(
-        `SELECT * FROM documents WHERE project_id = ? ORDER BY type, title`,
+        `SELECT * FROM documents d WHERE d.project_id = ? AND NOT ${pendingDeletionCovers('d')}
+         ORDER BY d.type, d.title`,
       )
       .all(projectId);
     return rows.map(rowToSummary);
+  }
+
+  /** Every indexed row of a project, pending deletions included (Reload's snapshot). */
+  listIndexedByProject(projectId: string): DocumentSummary[] {
+    return this.db
+      .prepare<[string], DocumentRow>(`SELECT * FROM documents WHERE project_id = ?`)
+      .all(projectId)
+      .map(rowToSummary);
   }
 
   /** AND-filter: only documents that carry every tag in the array. */
@@ -80,7 +90,7 @@ export class DocumentsRepo {
     const rows = this.db
       .prepare<unknown[], DocumentRow>(
         `SELECT d.* FROM documents d
-         WHERE d.project_id = ?
+         WHERE d.project_id = ? AND NOT ${pendingDeletionCovers('d')}
            AND (
              SELECT COUNT(DISTINCT dt.tag)
              FROM document_tags dt
@@ -96,9 +106,10 @@ export class DocumentsRepo {
   listBoardItems(projectId: string): BoardItem[] {
     const rows = this.db
       .prepare<[string], DocumentRow>(
-        `SELECT * FROM documents
-         WHERE project_id = ? AND type = 'backlog_item' AND status != 'archived'
-         ORDER BY created_at, id`,
+        `SELECT * FROM documents d
+         WHERE d.project_id = ? AND d.type = 'backlog_item' AND d.status != 'archived'
+           AND NOT ${pendingDeletionCovers('d')}
+         ORDER BY d.created_at, d.id`,
       )
       .all(projectId);
     return rows.map((row) => ({ ...rowToSummary(row), task_state: row.task_state }));
@@ -108,9 +119,10 @@ export class DocumentsRepo {
   listInProgressItems(): BoardItem[] {
     const rows = this.db
       .prepare<[], DocumentRow>(
-        `SELECT * FROM documents
-         WHERE type = 'backlog_item' AND status != 'archived' AND task_state = 'in_progress'
-         ORDER BY created_at, id`,
+        `SELECT * FROM documents d
+         WHERE d.type = 'backlog_item' AND d.status != 'archived' AND d.task_state = 'in_progress'
+           AND NOT ${pendingDeletionCovers('d')}
+         ORDER BY d.created_at, d.id`,
       )
       .all();
     return rows.map((row) => ({ ...rowToSummary(row), task_state: row.task_state }));

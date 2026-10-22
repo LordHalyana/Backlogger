@@ -82,6 +82,7 @@ API and services:
 - `packages/api/src/coordinated-writes.test.ts` (write coordinator over HTTP: guards, lock order, gate, protected operational tables)
 - `packages/api/src/comment-recovery.test.ts` (crash injected at each persisted phase of comment create, edit and delete, then `restart()`; task-scoped guards; the recovery API)
 - `packages/api/src/comment-filing.test.ts` (filing a commented task: byte-identical comment moves, blocking files, crash injected at each phase and file change then `restart()`, conflicts, guards, Reload and Reindex during a pending transfer, archive and restore)
+- `packages/api/src/permanent-deletion.test.ts` (deleting a commented task or a whole project: idempotency key and ack, blocking files and symlinks, crash injected at each removal and transaction then `restart()`, changed and added files kept, hidden while pending through Reload and Reindex, guards, orphaned comments reported)
 - `packages/api/src/search.test.ts` (grouped document/comment search: one result per task, strongest snippet, all terms within one record, archived and orphaned comments, pending payloads through Reload and Reindex)
 - `packages/api/src/test-support.ts` (shared `setup()`/`teardown()` harness)
 - `packages/api/src/fs/*.test.ts`

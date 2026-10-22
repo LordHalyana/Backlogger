@@ -48,6 +48,7 @@ Common codes include:
 - `PROJECT_READ_ONLY`
 - `DOCUMENT_NOT_FOUND`
 - `DOCUMENT_VERSION_MISMATCH`
+- `DELETION_BLOCKED` (a permanent deletion whose scope holds files it must not judge on its own; `details: { paths }`)
 - `REVISION_CONFLICT` (filing, and an update, move or delete whose document was filed into another project while it waited; `details: { currentRevision, currentProjectId }`)
 - `RECOVERY_REQUIRED` (a write blocked by an unfinished operation; `details: { operationId, inspect }`, where `inspect` is the operation's `/api/recovery/:operationId` link)
 - `CAPTURE_ID_CONFLICT`
@@ -174,11 +175,20 @@ While any operation is pending in the project, changing `readOnly` or `metadataM
 
 ### `DELETE /api/projects/:id`
 
-Deletes the project and attempts to remove its folder.
+Permanently deletes the project: every file and folder in its project folder, including all its documents, tasks and their comments, then its index rows. Requires an `Idempotency-Key` header holding a client-generated UUID; without a valid one the request is `400 INVALID_COMMAND` and nothing changes.
 
-Returns `204`.
+```json
+{ "operation_id": "<key>", "command": "project.delete", "project_id": "work", "outcome": "deleted" }
+```
 
-Returns `409 PROJECT_READ_ONLY` while read-only mode is enabled, and `409 RECOVERY_REQUIRED` while any operation is pending in the project.
+Returns `200` with this acknowledgement. Retrying with the same key returns it again, even though the project is gone; the same key with another project is `409 OPERATION_ID_CONFLICT`.
+
+The deletion is resumable, like a document deletion (see [`DELETE /api/documents/:id`](#delete-apidocumentsid)). While it is pending, the project is left out of `GET /api/projects`, its documents are hidden from lists, the board, Current work and search, and every write into the project, every setting and reuse of the project ID is `409 RECOVERY_REQUIRED`.
+
+- `409 INBOX_PROTECTED` for the designated Inbox.
+- `409 PROJECT_READ_ONLY` while read-only mode is enabled.
+- `409 RECOVERY_REQUIRED` while any operation is pending in the project, a filing into or out of it included.
+- `409 DELETION_BLOCKED` with `details.paths`, changing nothing, when the project folder is a symlink or holds one (or another special file). Backlogger never follows or deletes through a symlink; remove it by hand first.
 
 ## Documents
 
@@ -274,9 +284,25 @@ If the document was indexed from plain Markdown without Backlogger frontmatter a
 
 ### `DELETE /api/documents/:id`
 
-Deletes a document.
+Permanently deletes a document and, for a backlog item, every comment on it and its `tickets/<task-id>/` folder. Requires an `Idempotency-Key` header holding a client-generated UUID; without a valid one the request is `400 INVALID_COMMAND` and nothing changes.
 
-Returns `204`.
+```json
+{
+  "operation_id": "<key>",
+  "command": "document.delete",
+  "document_id": "<uuid>",
+  "project_id": "work",
+  "outcome": "deleted",
+  "result_revision": null
+}
+```
+
+Returns `200` with this acknowledgement. Retrying with the same key returns it again, even though the document is gone; the same key with another document is `409 OPERATION_ID_CONFLICT`.
+
+The deletion is resumable. Before removing anything it records an inventory of the paths it covers and their fingerprints, never their content. From then on the document is hidden from lists, the board, Current work and search, while the operation is listed by `GET /api/recovery`. It removes only files that still match the inventory (one already gone counts as done), the task file after its comments, and folders only once they are empty. It never follows a symlink. If a covered file has changed, or a file it does not cover appears in scope, that file is kept and the deletion stops for review: the request is `409 RECOVERY_REQUIRED` and the operation stays pending. A deletion cannot be cancelled once it has started; startup and Recheck finish it, and Reload and Reindex never bring the document back meanwhile.
+
+- `409 DELETION_BLOCKED` with `details.paths`, changing nothing, when the task's comment folder holds anything but its own comment files (an unknown or malformed file, a folder, a symlink). Move or repair those first.
+- `409 RECOVERY_REQUIRED` while an operation is pending on the task, a filing or a comment write included.
 
 Returns `409 PROJECT_READ_ONLY` while the project is in read-only mode.
 
@@ -590,6 +616,16 @@ A filing always moves forward. Matching copies are reused, and the copies are
 verified again before the checkpoint. Cleanup continues after it, where a
 source that is already gone counts as done. Anything else stops recovery.
 
+A permanent deletion (`document.delete`, `project.delete`) also only moves
+forward: files that still match its inventory are removed, files already gone
+count as done, and once everything is gone one transaction removes the index
+rows and records completion. A changed file (`content_conflict`), or a file in
+scope the inventory does not list (`structural`, `unexpected_file`), is kept
+and stops it. Its `paths` list each inventoried file
+(`after_revision: null`) and each unexpected one (both known revisions
+`null`). Move the unexpected file out of the deletion's folder, or restore
+the changed one, then Recheck. There is no abandon and no undo.
+
 ### `GET /api/recovery`
 
 Summaries of the pending operations, oldest first. They never include
@@ -623,7 +659,8 @@ content:
     [Backup and Restore](operations/backup-restore.md#manual-structural-repair).
 - `reason` is one of `interrupted`, `content_changed`, `file_missing`,
   `parent_missing`, `owner_changed`, `ambiguous_path`, `unexpected_file` (a
-  file a filing does not cover sits in a comment directory it moves) or
+  file a filing or deletion does not cover sits in a folder it moves or
+  removes) or
   `unsupported`. An operation this version cannot inspect reports
   `unsupported`.
 - `in_progress` is true while a request for the operation is running in
@@ -642,7 +679,7 @@ The summary plus:
   `["recheck"]` for everything else, filings included.
 - `review_token`: changes whenever the reviewed state changes.
 - `pending_content`: the exact Markdown the operation meant to write. It is
-  `null` for a delete and a filing. A filing's `paths` list each source
+  `null` for a delete, a filing and a permanent deletion. A filing's `paths` list each source
   (`after_revision: null`) and each copy (`before_revision: null`).
 - `current_content`: the file as it is now, or `null` when it is absent.
 
@@ -782,8 +819,8 @@ record is the document itself (title, tags and body) or one comment on a
 backlog item; every query term (prefix-matched) must occur within the same
 record. Grouping happens before `limit`, so many matching comments on one task
 take one slot. Archived documents are included (`status: "archived"`);
-comments of deleted tasks, invalid or orphaned comment files and recovery
-payloads never appear.
+tasks and projects pending deletion, comments of deleted tasks, invalid or
+orphaned comment files and recovery payloads never appear.
 
 ```json
 [

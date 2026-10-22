@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -243,7 +244,13 @@ describe('GET /api/search over tasks and their comments', () => {
 
   it('drops comments of a deleted task', async () => {
     await comment(h, task.id, uuid(1), 'Notes about a gecko.\n');
-    expect((await request(h.app).delete(`/api/documents/${task.id}`)).status).toBe(204);
+    expect(
+      (
+        await request(h.app)
+          .delete(`/api/documents/${task.id}`)
+          .set('Idempotency-Key', randomUUID())
+      ).status,
+    ).toBe(200);
     expect(await search(h, 'gecko')).toEqual([]);
   });
 

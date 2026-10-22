@@ -4,6 +4,7 @@ import matter from 'gray-matter';
 import {
   DocumentNotFoundError,
   FsRepoError,
+  NotAFileError,
   NotUtf8Error,
   ProjectNotFoundError,
 } from './errors.js';
@@ -15,7 +16,7 @@ import {
   SIDECAR_DIR,
   TICKETS_SEGMENT,
 } from '@backlogger/shared';
-import { contentRevision } from './revision.js';
+import { bytesRevision, contentRevision } from './revision.js';
 import {
   createNoOverwrite,
   deleteChecked,
@@ -94,17 +95,6 @@ export class FsRepository {
         fs.mkdir(this.resolver.projectSubdir(projectId, sub), { recursive: true }),
       ),
     );
-  }
-
-  /** Remove a project's folder and everything under it. */
-  async removeProject(projectId: string): Promise<void> {
-    const projectDir = this.resolver.projectDir(projectId);
-    try {
-      await fs.rm(projectDir, { recursive: true, force: true });
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
-      throw err;
-    }
   }
 
   /** True iff the project folder exists. */
@@ -268,7 +258,7 @@ export class FsRepository {
 
   /** The entries of one directory, sorted by name; `[]` when it does not exist. */
   async listDir(relativeDir: string): Promise<DirEntry[]> {
-    const absolute = await this.resolveDirSafe(relativeDir);
+    const absolute = await this.resolver.resolveEntrySafe(relativeDir);
     return (await readDirSorted(absolute)).map((entry) => ({
       path: `${toForwardSlash(relativeDir)}/${entry.name}`,
       kind: entry.isSymbolicLink()
@@ -282,11 +272,64 @@ export class FsRepository {
   }
 
   /**
+   * Every entry below a directory, depth first and sorted by path, never
+   * descending into symlinks (they are listed, not followed); `[]` when it
+   * does not exist.
+   */
+  async listTree(relativeDir: string): Promise<DirEntry[]> {
+    const out: DirEntry[] = [];
+    for (const entry of await this.listDir(relativeDir)) {
+      out.push(entry);
+      if (entry.kind === 'directory') out.push(...(await this.listTree(entry.path)));
+    }
+    return out;
+  }
+
+  /** Whether the project's own folder is a symlink (an allowed mount). */
+  async isProjectSymlink(projectId: string): Promise<boolean> {
+    try {
+      return (await fs.lstat(this.resolver.projectDir(projectId))).isSymbolicLink();
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return false;
+      throw err;
+    }
+  }
+
+  /**
+   * The revision of a file's raw bytes (see `bytesRevision`), or `null` when
+   * it is absent. Never follows a symlink below the project folder (that is
+   * `SymlinkNotAllowedError`); a folder there is `NotAFileError`.
+   */
+  async fileRevision(relativePath: string): Promise<string | null> {
+    const absolute = await this.resolver.resolveEntrySafe(relativePath);
+    try {
+      return bytesRevision(await fs.readFile(absolute));
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') return null;
+      if (code === 'EISDIR') throw new NotAFileError(relativePath);
+      throw err;
+    }
+  }
+
+  /** Whether anything (a symlink included, never followed) exists at a path. */
+  async entryExists(relativePath: string): Promise<boolean> {
+    const absolute = this.resolver.resolveEntry(relativePath);
+    try {
+      await fs.lstat(absolute);
+      return true;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return false;
+      throw err;
+    }
+  }
+
+  /**
    * Remove a directory only when it is empty (never recursively), durably.
    * Returns whether it was removed.
    */
   async removeEmptyDir(relativeDir: string): Promise<boolean> {
-    const absolute = await this.resolveDirSafe(relativeDir);
+    const absolute = await this.resolver.resolveEntrySafe(relativeDir);
     return removeEmptyDirDurable(absolute);
   }
 
@@ -357,14 +400,14 @@ export class FsRepository {
 
   /**
    * Delete a file only while its bytes still have `expectedRevision`
-   * (see `deleteChecked`): a missing file is `'missing'`, a changed one is
+   * (see `deleteChecked`; never through a symlink): a missing file is `'missing'`, a changed one is
    * kept and reported as `'changed'`.
    */
   async deleteIfUnchanged(
     relativePath: string,
     expectedRevision: string,
   ): Promise<CheckedDeleteResult> {
-    const absolute = await this.resolver.resolveRelativeSafe(relativePath);
+    const absolute = await this.resolver.resolveEntrySafe(relativePath);
     return deleteChecked(absolute, expectedRevision);
   }
 

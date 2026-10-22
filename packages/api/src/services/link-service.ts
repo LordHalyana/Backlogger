@@ -1,5 +1,6 @@
 import { normalizeWikiTitle, parseWikiLinks, type WikiLink } from '@backlogger/shared';
 import type { Db } from '../db/database.js';
+import { pendingDeletionCovers } from '../db/operations-repo.js';
 
 export interface BacklinkRow {
   id: string;
@@ -57,17 +58,19 @@ export class LinkService {
               l.position    AS position
          FROM links l
          JOIN documents d ON d.id = l.source_id
-        WHERE l.target_id = ?
+        WHERE l.target_id = ? AND NOT ${pendingDeletionCovers('d')}
         ORDER BY d.title`,
     );
     this.listTitles = db.prepare<[], { id: string; project_id: string; title: string }>(
-      `SELECT id, project_id, title FROM documents ORDER BY title`,
+      `SELECT id, project_id, title FROM documents d
+        WHERE NOT ${pendingDeletionCovers('d')} ORDER BY title`,
     );
     this.listTitlesByProject = db.prepare<
       [string],
       { id: string; project_id: string; title: string }
     >(
-      `SELECT id, project_id, title FROM documents WHERE project_id = ? ORDER BY title`,
+      `SELECT id, project_id, title FROM documents d
+        WHERE project_id = ? AND NOT ${pendingDeletionCovers('d')} ORDER BY title`,
     );
     this.clearForId = db.prepare(
       `UPDATE links SET target_id = NULL WHERE target_id = ?`,

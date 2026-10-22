@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { test, expect } from '@playwright/test';
 import { createProject } from './helpers.js';
 
@@ -57,10 +58,13 @@ test('user can create a folder, place a doc in it, and delete it once empty', as
   }, projectId);
   expect(docPaths.length).toBe(1);
   await page.evaluate(
-    async ({ id }) => {
-      await fetch(`/api/documents/${id}`, { method: 'DELETE' });
+    async ({ id, key }) => {
+      await fetch(`/api/documents/${id}`, {
+        method: 'DELETE',
+        headers: { 'Idempotency-Key': key },
+      });
     },
-    { id: docPaths[0].id },
+    { id: docPaths[0].id, key: randomUUID() },
   );
 
   // Force a reload of the project so the tree sees the deletion.

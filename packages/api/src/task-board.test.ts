@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -187,11 +188,11 @@ describe('Write safety: overlapping mutations', () => {
     const doc = await createDoc(h, { title: 'Doomed' });
     const restore = barrierAfter(2, h.ctx.fs, 'read');
     const [del, edit] = await Promise.all([
-      request(h.app).delete(`/api/documents/${doc.id}`),
+      request(h.app).delete(`/api/documents/${doc.id}`).set('Idempotency-Key', randomUUID()),
       request(h.app).put(`/api/documents/${doc.id}`).send({ body: 'Too late' }),
     ]);
     restore();
-    expect(del.status).toBe(204);
+    expect(del.status).toBe(200);
     expect([200, 404]).toContain(edit.status);
 
     expect(await h.ctx.fs.listProjectFiles(PROJECT)).toEqual([]);

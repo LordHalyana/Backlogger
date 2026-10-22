@@ -32,7 +32,7 @@ describe('FsRepository', () => {
     await fs.rm(dataDir, { recursive: true, force: true });
   });
 
-  describe('ensureProjectSkeleton / removeProject', () => {
+  describe('ensureProjectSkeleton', () => {
     it('creates exactly the five expected subfolders', async () => {
       await repo.ensureProjectSkeleton('home-system');
       const entries = await fs.readdir(path.join(dataDir, 'projects', 'home-system'));
@@ -42,16 +42,6 @@ describe('FsRepository', () => {
     it('is idempotent', async () => {
       await repo.ensureProjectSkeleton('home-system');
       await expect(repo.ensureProjectSkeleton('home-system')).resolves.toBeUndefined();
-    });
-
-    it('removeProject deletes the folder', async () => {
-      await repo.ensureProjectSkeleton('home-system');
-      await repo.removeProject('home-system');
-      expect(await repo.projectExists('home-system')).toBe(false);
-    });
-
-    it('removeProject on missing project is a no-op', async () => {
-      await expect(repo.removeProject('ghost-proj')).resolves.toBeUndefined();
     });
   });
 

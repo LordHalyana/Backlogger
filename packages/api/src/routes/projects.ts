@@ -41,8 +41,7 @@ export function projectsRouter(service: ProjectService): Router {
     '/:id',
     asyncRoute(async (req, res) => {
       const id = parseProjectId(req.params.id);
-      await service.delete(id);
-      res.status(204).send();
+      res.json(await service.delete({ operationId: req.header('Idempotency-Key'), projectId: id }));
     }),
   );
 

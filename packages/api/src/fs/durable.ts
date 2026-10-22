@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { randomBytes } from 'node:crypto';
-import { contentRevision } from './revision.js';
+import { bytesRevision } from './revision.js';
 
 /**
  * Durable file helpers for the write coordinator. A rename, unlink or mkdir
@@ -101,7 +101,8 @@ export async function createNoOverwrite(target: string, content: string): Promis
 export type CheckedDeleteResult = 'deleted' | 'missing' | 'changed';
 
 /**
- * Remove `target` only while its bytes still have `expectedRevision`. A
+ * Remove `target` only while its bytes still have `expectedRevision` (see
+ * `bytesRevision`). A
  * missing file counts as already removed; a changed one is kept and reported.
  * Single-process: nothing else in Backlogger writes between the check and the
  * unlink, because the caller holds the file's project queue.
@@ -110,14 +111,14 @@ export async function deleteChecked(
   target: string,
   expectedRevision: string,
 ): Promise<CheckedDeleteResult> {
-  let text: string;
+  let bytes: Buffer;
   try {
-    text = await fs.readFile(target, 'utf8');
+    bytes = await fs.readFile(target);
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return 'missing';
     throw err;
   }
-  if (contentRevision(text) !== expectedRevision) return 'changed';
+  if (bytesRevision(bytes) !== expectedRevision) return 'changed';
   await unlinkDurable(target);
   return 'deleted';
 }
