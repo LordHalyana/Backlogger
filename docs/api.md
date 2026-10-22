@@ -56,6 +56,7 @@ Common codes include:
 - `PROJECT_NOT_WRITABLE`
 - `NOT_A_BACKLOG_ITEM`
 - `TARGET_PATH_TAKEN`
+- `COMMENTS_NOT_TRANSFERABLE` (see [filing](#post-apidocumentsidfile))
 - `INBOX_PROTECTED`
 - `INBOX_UNAVAILABLE` (`500`)
 - `DERIVED_DOCUMENT_READ_ONLY`
@@ -316,24 +317,64 @@ Returns documents that link to this document.
 
 ### `POST /api/documents/:id/file`
 
-Files a backlog item into another writable, frontmatter-mode project, keeping
-its id.
+Files a backlog item, with all of its comments, into another writable,
+frontmatter-mode project. The item keeps its id. The request needs an
+`Idempotency-Key` header holding a client-generated UUID:
 
 ```json
 { "target_project_id": "work", "revision": "<current revision>" }
 ```
 
-- Only the frontmatter `project:` value changes; every other byte of the file
-  is kept, and the file keeps its project-relative path.
-- Already in the target project: `200` with the current document, no write,
-  revision not checked (so a resend after a lost reply is safe).
+It answers `200` with an acknowledgement and no document content. Fetch the
+document afterwards for its current state:
+
+```json
+{
+  "operation_id": "<Idempotency-Key>",
+  "command": "document.file",
+  "document_id": "<uuid>",
+  "source_project_id": "inbox",
+  "target_project_id": "work",
+  "outcome": "filed",
+  "result_revision": "<revision of the filed task file>"
+}
+```
+
+- Only the frontmatter `project:` value changes; every other byte of the task
+  file is kept, and it keeps its project-relative path. Each comment file
+  moves byte for byte to `<target>/tickets/<task-id>/comments/`. Neither
+  project is left with a duplicate.
+- Missing or invalid `Idempotency-Key`: `400 INVALID_COMMAND`, before anything
+  changes. Retrying with the same key returns the original acknowledgement,
+  even if the item changed since. The same key with different input:
+  `409 OPERATION_ID_CONFLICT`.
+- Already in the target project: `200` with `outcome: "already_filed"`, no
+  write, revision not checked.
+- Anything in the comment directory that is not a valid comment of this task
+  (an unknown file, a malformed comment, a subfolder): `409
+  COMMENTS_NOT_TRANSFERABLE` with `details.paths`; nothing moves.
+- A file already at the task's path or in its comment directory in the
+  target: `409 TARGET_PATH_TAKEN` with `details.paths`. An unexpected file is
+  never overwritten.
 - Stale revision: `409 REVISION_CONFLICT` with
   `details: { currentRevision, currentProjectId }`; no files change.
 - Read-only or sidecar source or target: `409 PROJECT_NOT_WRITABLE`; unknown
   target: `404 PROJECT_NOT_FOUND`; not a backlog item: `400 NOT_A_BACKLOG_ITEM`.
-- The target is written first, then the source deleted, then the index
-  updated. If the process stops in between, reindex resolves the two copies
-  (see `duplicates` in [Operations](api/operations.md)).
+- The filing holds both projects' queues. Until it completes, the task, its
+  comments and the paths it writes are guarded (`409 RECOVERY_REQUIRED`).
+  Unrelated tasks in both projects stay writable.
+
+Filing is a recoverable transfer. It lists the task and its comments into a
+manifest of paths and expected revisions, copies every file, verifies the
+copies and the unchanged sources, and records `destination_verified`. Then it
+removes each source file that still matches, after checking its copy, and
+completes in one transaction. A stop at any point, a crash included, leaves
+the operation pending. Startup and Recheck finish it forward from the last
+recorded phase (see [Recovery](#recovery)). There is no rollback and no
+abandon. A source or copy changed by hand, or a file added to either comment
+directory, stops it as a conflict, and every file is kept.
+
+Archiving and restoring never move comment files.
 
 ## Comments
 
@@ -525,7 +566,12 @@ a comment operation, abandoned. While it is pending:
   or `metadataMode` changes are refused. A pending project deletion blocks
   every write into or out of the project, every setting, and reuse of the
   project ID.
-- Reload and Reindex never apply a payload or drop a pending row.
+- A pending filing (transfer) blocks the task, its comments and the paths it
+  writes in both projects. Unrelated tasks in both projects stay writable.
+- Reload and Reindex never apply a payload or drop a pending row. For a
+  pending filing they follow its manifest instead of the duplicate rule. Until
+  the copies are verified, the source copies are indexed. After that, the
+  target copies are. The task is never shown twice.
 
 On startup, before serving requests, the server tries to finish every pending
 operation from what it knows:
@@ -539,6 +585,10 @@ operation from what it knows:
 A missing parent, a changed owner or an ambiguous path stops recovery. A
 missing file is expected before a create and after a delete. During an edit,
 a missing file is a conflict, and the file is never recreated.
+
+A filing always moves forward. Matching copies are reused, and the copies are
+verified again before the checkpoint. Cleanup continues after it, where a
+source that is already gone counts as done. Anything else stops recovery.
 
 ### `GET /api/recovery`
 
@@ -572,8 +622,10 @@ content:
   - `structural`: something must be repaired by hand first. See
     [Backup and Restore](operations/backup-restore.md#manual-structural-repair).
 - `reason` is one of `interrupted`, `content_changed`, `file_missing`,
-  `parent_missing`, `owner_changed`, `ambiguous_path` or `unsupported`. An
-  operation this version cannot inspect reports `unsupported`.
+  `parent_missing`, `owner_changed`, `ambiguous_path`, `unexpected_file` (a
+  file a filing does not cover sits in a comment directory it moves) or
+  `unsupported`. An operation this version cannot inspect reports
+  `unsupported`.
 - `in_progress` is true while a request for the operation is running in
   the server.
 
@@ -587,10 +639,11 @@ The summary plus:
   Paths are relative to `<dataDir>/projects/`, and a `null` revision means
   the file is absent.
 - `actions`: `["recheck", "abandon"]` for comment operations,
-  `["recheck"]` for everything else.
+  `["recheck"]` for everything else, filings included.
 - `review_token`: changes whenever the reviewed state changes.
 - `pending_content`: the exact Markdown the operation meant to write. It is
-  `null` for a delete.
+  `null` for a delete and a filing. A filing's `paths` list each source
+  (`after_revision: null`) and each copy (`before_revision: null`).
 - `current_content`: the file as it is now, or `null` when it is absent.
 
 An unknown operation, or one that is no longer pending, gets

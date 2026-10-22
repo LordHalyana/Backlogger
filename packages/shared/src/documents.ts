@@ -182,3 +182,20 @@ export const FileDocumentRequestSchema = z.object({
   revision: z.string().min(1),
 });
 export type FileDocumentRequest = z.infer<typeof FileDocumentRequestSchema>;
+
+/**
+ * The acknowledgement of `POST /api/documents/:id/file` (sent with an
+ * `Idempotency-Key`). It carries no document content; fetch the document for
+ * its current state.
+ */
+export interface FileDocumentAck {
+  operation_id: string;
+  command: 'document.file';
+  document_id: string;
+  source_project_id: string;
+  target_project_id: string;
+  /** `already_filed` when the item already lived in the target project. */
+  outcome: 'filed' | 'already_filed';
+  /** Revision of the task file the filing left. */
+  result_revision: string;
+}

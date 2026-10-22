@@ -149,6 +149,9 @@ lexicographically first path), and `path` is the leftover to delete. A project
 reload only sees a copy in another project once that project is indexed too;
 a full reindex sees all of them.
 
+A task with a pending filing is never reported here. Its manifest decides
+which copy is indexed (see [Recovery](../api.md#recovery)).
+
 `comments` reports the project's comment index, rebuilt from the files under
 `tickets/<task-id>/comments/` (see [Comments](../api.md#comments)). Comment
 files are never indexed as documents. A file that cannot be indexed is listed

@@ -4,6 +4,7 @@ import matter from 'gray-matter';
 import {
   DocumentNotFoundError,
   FsRepoError,
+  NotUtf8Error,
   ProjectNotFoundError,
 } from './errors.js';
 import { PathResolver, PROJECT_SUBDIRS } from './path-resolver.js';
@@ -18,6 +19,7 @@ import { contentRevision } from './revision.js';
 import {
   createNoOverwrite,
   deleteChecked,
+  removeEmptyDirDurable,
   replaceDurable,
   unlinkDurable,
   type CheckedDeleteResult,
@@ -33,6 +35,13 @@ export interface RawDocument {
   revision: string;
   createdAt?: string;
   updatedAt?: string;
+}
+
+/** One entry of a directory listing (`listDir`). */
+export interface DirEntry {
+  /** Relative to `<dataDir>/projects/`. */
+  path: string;
+  kind: 'file' | 'directory' | 'symlink' | 'other';
 }
 
 /** One file found in a task's comment directory, read but not yet validated. */
@@ -231,6 +240,61 @@ export class FsRepository {
       }
       throw err;
     }
+  }
+
+  /**
+   * A file's text, only when its bytes are valid UTF-8 (a BOM included), so
+   * writing the text back reproduces the file byte for byte. Throws
+   * `NotUtf8Error` otherwise.
+   */
+  async readExactText(relativePath: string): Promise<string> {
+    const absolute = await this.resolver.resolveRelativeSafe(relativePath);
+    let bytes: Buffer;
+    try {
+      bytes = await fs.readFile(absolute);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new DocumentNotFoundError(relativePath);
+      }
+      throw err;
+    }
+    try {
+      return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+    } catch {
+      throw new NotUtf8Error(relativePath);
+    }
+  }
+
+  /** The entries of one directory, sorted by name; `[]` when it does not exist. */
+  async listDir(relativeDir: string): Promise<DirEntry[]> {
+    const absolute = await this.resolveDirSafe(relativeDir);
+    return (await readDirSorted(absolute)).map((entry) => ({
+      path: `${toForwardSlash(relativeDir)}/${entry.name}`,
+      kind: entry.isSymbolicLink()
+        ? 'symlink'
+        : entry.isDirectory()
+          ? 'directory'
+          : entry.isFile()
+            ? 'file'
+            : 'other',
+    }));
+  }
+
+  /**
+   * Remove a directory only when it is empty (never recursively), durably.
+   * Returns whether it was removed.
+   */
+  async removeEmptyDir(relativeDir: string): Promise<boolean> {
+    const absolute = await this.resolveDirSafe(relativeDir);
+    return removeEmptyDirDurable(absolute);
+  }
+
+  /** A project folder (project id first), validated and free of symlinks below the project. */
+  private async resolveDirSafe(relativeDir: string): Promise<string> {
+    const [projectId = '', ...folder] = toForwardSlash(relativeDir).split('/');
+    const absolute = this.resolver.projectFolderPath(projectId, folder.join('/'));
+    await this.resolver.assertNoSymlinks(absolute);
+    return absolute;
   }
 
   /**

@@ -474,6 +474,7 @@ describe('Task-scoped recovery guards', () => {
       .send({ status: 'archived' });
     const filing = await request(h.app)
       .post(`/api/documents/${task.id}/file`)
+      .set('Idempotency-Key', uuid(105))
       .send({ target_project_id: 'inbox', revision: task.revision });
     const deletion = await request(h.app).delete(`/api/documents/${task.id}`);
     const create = await post(h, task.id, uuid(102), { id: uuid(4), body: 'More' });

@@ -116,3 +116,20 @@ export async function unlinkDurable(target: string): Promise<void> {
   await fs.unlink(target);
   await fsyncDir(path.dirname(target));
 }
+
+/**
+ * Remove `dir` only when it is empty, and fsync its parent. Returns whether
+ * it was removed; a missing directory or one with entries left is kept as is.
+ * Never recursive.
+ */
+export async function removeEmptyDirDurable(dir: string): Promise<boolean> {
+  try {
+    await fs.rmdir(dir);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT' || code === 'ENOTEMPTY' || code === 'EEXIST') return false;
+    throw err;
+  }
+  await fsyncDir(path.dirname(dir));
+  return true;
+}

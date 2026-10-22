@@ -24,6 +24,7 @@ import type { TagsService } from './tags-service.js';
 import type { GraphService } from './graph-service.js';
 import type { WriteCoordinator } from './write-coordinator.js';
 import type { InboxService } from './inbox-service.js';
+import type { TaskTransfer, TransferIndexRules } from './task-transfer.js';
 
 export interface ReindexReport {
   scanned: number;
@@ -64,6 +65,8 @@ export interface ReindexServiceDeps {
   sidecarStore: SidecarStore;
   /** Reloads run as coordinated commands, full reindexes exclusively. */
   coordinator: WriteCoordinator;
+  /** Pending transfers' manifests decide which copies are indexed. */
+  transfer: TaskTransfer;
   inbox: InboxService;
 }
 
@@ -83,6 +86,7 @@ export class ReindexService {
   private readonly graphService: GraphService;
   private readonly sidecarStore: SidecarStore;
   private readonly coordinator: WriteCoordinator;
+  private readonly transfer: TaskTransfer;
   private readonly inbox: InboxService;
   private readonly inFlight = new Set<string>();
 
@@ -96,6 +100,7 @@ export class ReindexService {
     this.graphService = deps.graphService;
     this.sidecarStore = deps.sidecarStore;
     this.coordinator = deps.coordinator;
+    this.transfer = deps.transfer;
     this.inbox = deps.inbox;
   }
 
@@ -123,10 +128,14 @@ export class ReindexService {
       { doc: RawDocument; projectId: string; indexed: IndexedMetadata }
     >();
     const leftOut: Array<{ id: string; path: string }> = [];
+    // Manifests before the duplicate-winner rule: a pending transfer's
+    // non-authoritative copies are not indexed at all.
+    const rules = this.transfer.indexRules();
 
     // Read everything first; the index is rewritten in one transaction below.
     const sidecars = new Map<string, SidecarIndex>();
     for await (const doc of this.fs.walk()) {
+      if (rules.skipPaths.has(doc.path)) continue;
       report.scanned += 1;
       const projectId = doc.path.split('/')[0] ?? '';
       if (!this.ensureProjectForIndex(projectId)) {
@@ -162,6 +171,7 @@ export class ReindexService {
           return parent && { project_id: parent.projectId, type: parent.indexed.frontmatter.type };
         },
         seenComments,
+        rules,
       );
       comments.push(...found.rows);
       report.comments.problems.push(...found.problems);
@@ -231,16 +241,21 @@ export class ReindexService {
       this.documentsRepo.listByProject(projectId).map((d) => [d.id, d] as const),
     );
     const sidecar = await this.sidecarStore.load(projectId);
+    // Manifests before the duplicate-winner rule (see `rebuildHeld`). A task
+    // mid-transfer may be authoritative in the other project, so its rows
+    // here are never purged.
+    const rules = this.transfer.indexRules();
 
     // Read the project first; the index changes are applied in one
     // transaction below. `chosen` is the copy picked so far for each id.
     const chosen = new Map<string, { doc: RawDocument; indexed: IndexedMetadata }>();
     for await (const doc of this.fs.walkProject(projectId)) {
+      if (rules.skipPaths.has(doc.path)) continue;
       const indexed = metadataForIndex(doc, projectId, sidecar);
       const id = indexed.frontmatter.id;
       const wasPresent = existing.has(id);
       existing.delete(id);
-      const other = chosen.get(id)?.doc.path ?? (await this.otherIndexedCopy(id, doc.path));
+      const other = chosen.get(id)?.doc.path ?? (await this.otherIndexedCopy(id, doc.path, rules));
       if (other !== null) {
         if (this.preferredCopy(other, doc.path) === other) {
           report.duplicates.push({ id, path: doc.path, keptPath: other });
@@ -262,19 +277,23 @@ export class ReindexService {
         return parent && { project_id: projectId, type: parent.indexed.frontmatter.type };
       },
       seenComments,
+      rules,
       (id) => {
         const row = this.commentsRepo.find(id);
-        return row && row.project_id !== projectId ? row.path : undefined;
+        return row && row.project_id !== projectId && !rules.skipPaths.has(row.path)
+          ? row.path
+          : undefined;
       },
     );
     report.comments = { indexed: comments.rows.length, problems: comments.problems };
 
     this.coordinator.transaction(() => {
       for (const { doc, indexed } of chosen.values()) this.indexDocument(doc, projectId, indexed);
-      this.commentsRepo.deleteByProject(projectId);
+      this.commentsRepo.deleteByProject(projectId, rules.tasks);
       for (const row of comments.rows) this.commentsRepo.upsert(row);
       // Anything still in `existing` lost its backing file → purge.
       for (const [id] of existing) {
+        if (rules.tasks.has(id)) continue;
         this.documentsRepo.delete(id);
         this.linkService.onDocumentDeleted(id);
         report.removedIds.push(id);
@@ -297,17 +316,20 @@ export class ReindexService {
    * unsupported schema versions, comments whose parent is not a backlog item
    * of this project and second copies of an id are reported instead, and
    * never changed. Of two copies, the first by path (`seen`, shared across
-   * calls) or one indexed elsewhere (`indexedElsewhere`) is kept.
+   * calls) or one indexed elsewhere (`indexedElsewhere`) is kept. Copies a
+   * pending transfer does not count as authoritative are skipped.
    */
   private async scanComments(
     projectId: string,
     parentOf: (taskId: string) => { project_id: string; type: string } | undefined,
     seen: Map<string, string>,
+    rules: TransferIndexRules,
     indexedElsewhere: (id: string) => string | undefined = () => undefined,
   ): Promise<{ rows: CommentRow[]; problems: CommentProblem[] }> {
     const rows: CommentRow[] = [];
     const problems: CommentProblem[] = [];
     for await (const entry of this.fs.walkComments(projectId)) {
+      if (rules.skipPaths.has(entry.path)) continue;
       if (entry.text === null) {
         problems.push({ path: entry.path, reason: 'malformed', message: entry.problem });
         continue;
@@ -378,11 +400,16 @@ export class ReindexService {
   /**
    * The path of a different file already indexed under `id` that still exists
    * and still carries that id, or `null`. A row whose file is gone or changed
-   * is simply superseded.
+   * is simply superseded, and so is a copy a pending transfer no longer (or
+   * not yet) counts as authoritative.
    */
-  private async otherIndexedCopy(id: string, docPath: string): Promise<string | null> {
+  private async otherIndexedCopy(
+    id: string,
+    docPath: string,
+    rules: TransferIndexRules,
+  ): Promise<string | null> {
     const row = this.documentsRepo.find(id);
-    if (!row || row.path === docPath) return null;
+    if (!row || row.path === docPath || rules.skipPaths.has(row.path)) return null;
     try {
       const raw = await this.fs.read(row.path);
       return raw.frontmatter.id === id ? row.path : null;

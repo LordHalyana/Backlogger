@@ -114,6 +114,11 @@ export interface CommandScope {
    */
   complete<A>(outcome: A, write?: () => void): A;
   /**
+   * Inside step 9, after `intent`: durably record how far a multi-phase
+   * operation (a transfer) got, by replacing its payload in one transaction.
+   */
+  checkpoint(payload: string): void;
+  /**
    * Steps 8 and 11 of a recovery abandon, in one transaction and without
    * file writes: claim this command's operation ID straight into a completed
    * receipt, mark `targetOperationId` abandoned (never replayed) and remove
@@ -153,6 +158,9 @@ export interface RecoveryAssessment {
 /** The completion transaction of a resumed operation (see `CommandScope.complete`). */
 export type CompleteRecovered = (outcome: unknown, write?: () => void) => void;
 
+/** The checkpoint transaction of a resumed operation (see `CommandScope.checkpoint`). */
+export type CheckpointRecovered = (payload: string) => void;
+
 /** How one command's pending operations are inspected and finished after a crash. */
 export interface Recoverer {
   /** Whether the user may abandon this command's pending operations. */
@@ -162,9 +170,14 @@ export interface Recoverer {
   /**
    * With the operation's locks held: finish it from a known state, calling
    * `complete` once the files are in the known after state, and leave
-   * anything else pending, files and payload untouched.
+   * anything else pending, files and payload untouched. A multi-phase
+   * operation records each phase it passes with `checkpoint`.
    */
-  resume(operation: PendingOperation, complete: CompleteRecovered): Promise<void>;
+  resume(
+    operation: PendingOperation,
+    complete: CompleteRecovered,
+    checkpoint: CheckpointRecovered,
+  ): Promise<void>;
 }
 
 /** Step 1: an Idempotency-Key must be a client-generated UUID. Returns it normalized. */
@@ -296,6 +309,11 @@ export class WriteCoordinator {
       .map((op) => ({ ...op, payload: this.operations.getPayload(op.operation_id) }));
   }
 
+  /** The paths and expected fingerprints a transfer or deletion recorded. */
+  manifestOf(operationId: string): ManifestEntry[] {
+    return this.operations.getManifest(operationId);
+  }
+
   /** The projects whose queues a recovery action on `operationId` holds. */
   guardedProjects(operationId: string): string[] {
     return this.operations.guardedProjects(operationId);
@@ -332,7 +350,11 @@ export class WriteCoordinator {
     const op = this.findOperation(operationId);
     const recoverer = op && this.recoverers.get(op.command);
     if (!op || op.state !== 'pending' || !recoverer) return;
-    await recoverer.resume(op, (outcome, write) => this.settle(operationId, outcome, write));
+    await recoverer.resume(
+      op,
+      (outcome, write) => this.settle(operationId, outcome, write),
+      (payload) => this.checkpoint(operationId, payload),
+    );
   }
 
   /**
@@ -426,6 +448,11 @@ export class WriteCoordinator {
         this.settle(id, outcome, write);
         return outcome;
       },
+      checkpoint: (payload) => {
+        const { id } = requireOp();
+        if (!intended) throw new Error('checkpoint() needs a recorded intent.');
+        this.checkpoint(id, payload);
+      },
       abandon: (targetOperationId, outcome) => {
         const claimed = requireOp();
         if (intended) throw new Error('abandon() is for commands without an intent.');
@@ -442,6 +469,7 @@ export class WriteCoordinator {
           });
           this.operations.markAbandoned(targetOperationId, { abandoned_by: claimed.id }, now);
           this.operations.removePayload(targetOperationId);
+          this.operations.removeManifest(targetOperationId);
           this.operations.releaseGuards(targetOperationId);
         });
         return outcome;
@@ -449,13 +477,27 @@ export class WriteCoordinator {
     };
   }
 
-  /** Step 11: index writes, the receipt, payload removal and guard release, atomically. */
+  /**
+   * Step 11: index writes, the receipt, and removal of the payload, manifest
+   * and guards, atomically.
+   */
   private settle(operationId: string, outcome: unknown, write?: () => void): void {
     this.transaction(() => {
       write?.();
       this.operations.markCompleted(operationId, outcome, this.now());
       this.operations.removePayload(operationId);
+      this.operations.removeManifest(operationId);
       this.operations.releaseGuards(operationId);
+    });
+  }
+
+  /** A checkpoint transaction: the pending operation's payload, replaced. */
+  private checkpoint(operationId: string, payload: string): void {
+    this.transaction(() => {
+      if (this.operations.find(operationId)?.state !== 'pending') {
+        throw new Error(`Operation ${operationId} is not pending.`);
+      }
+      this.operations.replacePayload(operationId, payload);
     });
   }
 

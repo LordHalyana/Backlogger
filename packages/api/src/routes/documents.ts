@@ -110,7 +110,14 @@ export function documentsRouter(
     asyncRoute(async (req, res) => {
       const id = parseDocumentId(req.params.id);
       const { target_project_id, revision } = validateBody(FileDocumentRequestSchema, req.body);
-      res.json(await service.file(id, target_project_id, revision));
+      res.json(
+        await service.file({
+          operationId: req.header('Idempotency-Key'),
+          documentId: id,
+          targetProjectId: target_project_id,
+          revision,
+        }),
+      );
     }),
   );
 

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { openDatabase } from './db/database.js';
 import { MIGRATIONS_DIR, setup, teardown, type Harness } from './test-support.js';
@@ -151,6 +152,7 @@ describe('Durable guards on project settings and deletion', () => {
     const item = await createItem(h, 'inbox', 'Stay out');
     const filed = await request(h.app)
       .post(`/api/documents/${item.id}/file`)
+      .set('Idempotency-Key', randomUUID())
       .send({ target_project_id: 'work', revision: item.revision });
     expectRecoveryRequired(filed, OP.b);
     expect(await readDisk(h, item.path)).toContain('project: inbox');
@@ -229,6 +231,7 @@ describe('Durable guards on imports, folders, create and capture', () => {
     const before = await readDisk(h, item.path);
     const filed = await request(h.app)
       .post(`/api/documents/${item.id}/file`)
+      .set('Idempotency-Key', randomUUID())
       .send({ target_project_id: 'other', revision: item.revision });
     const deleted = await request(h.app).delete(`/api/documents/${item.id}`);
     for (const res of [filed, deleted]) expectRecoveryRequired(res, OP.b);
@@ -380,10 +383,12 @@ describe('Lock order', () => {
     const held = Promise.all(['inbox', 'work'].map((p) => h.ctx.queue.run(p, () => gate)));
     const toWork = request(h.app)
       .post(`/api/documents/${a.id}/file`)
+      .set('Idempotency-Key', randomUUID())
       .send({ target_project_id: 'work', revision: a.revision })
       .then((res) => res);
     const toInbox = request(h.app)
       .post(`/api/documents/${b.id}/file`)
+      .set('Idempotency-Key', randomUUID())
       .send({ target_project_id: 'inbox', revision: b.revision })
       .then((res) => res);
     await settle();
@@ -392,9 +397,9 @@ describe('Lock order', () => {
 
     const [first, second] = await Promise.all([toWork, toInbox]);
     expect(first.status).toBe(200);
-    expect(first.body.project_id).toBe('work');
+    expect(first.body.target_project_id).toBe('work');
     expect(second.status).toBe(200);
-    expect(second.body.project_id).toBe('inbox');
+    expect(second.body.target_project_id).toBe('inbox');
   });
 
   it('a full Reindex holds the workspace gate exclusively: commands wait for it', async () => {
