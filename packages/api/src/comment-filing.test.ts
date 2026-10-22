@@ -339,6 +339,23 @@ describe('Filing a commented task', () => {
     });
   }
 
+  it('a temp file a killed copy left behind does not stop recovery, and is removed', async () => {
+    crashOn(h.ctx.fs, 'createNew', 2, 'before');
+    expect(
+      (await file(h, task.id, KEY, { target_project_id: 'work', revision: task.revision })).status,
+    ).toBe(500);
+    vi.restoreAllMocks();
+    // What a process killed between the temp write and the link leaves.
+    const leftover = `work/tickets/${task.id}/comments/${uuid(1)}.md.tmp.4242.0123456789ab`;
+    await fs.mkdir(path.dirname(abs(h, leftover)), { recursive: true });
+    await fs.writeFile(abs(h, leftover), 'partial');
+
+    h = await restart(h);
+
+    await expectFiled();
+    expectSettled(h, KEY);
+  });
+
   it('recheck finishes a stopped transfer, which offers only inspect and recheck; abandon is refused', async () => {
     crashOn(h.ctx.fs, 'deleteIfUnchanged', 1, 'before');
     expect(

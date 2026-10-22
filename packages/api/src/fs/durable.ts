@@ -38,6 +38,17 @@ export async function ensureDirDurable(dir: string): Promise<void> {
   }
 }
 
+/**
+ * Whether `name` is a temp file `writeTemp` made for a target named
+ * `targetName`: what a process killed mid-write leaves beside the target.
+ */
+export function isWriteLeftover(name: string, targetName: string): boolean {
+  return (
+    name.startsWith(`${targetName}.tmp.`) &&
+    /^\d+\.[0-9a-f]{12}$/.test(name.slice(targetName.length + 5))
+  );
+}
+
 /** Write `content` to a fresh temp file beside `target` and fsync it. */
 async function writeTemp(target: string, content: string): Promise<string> {
   const tmp = path.join(
@@ -132,4 +143,26 @@ export async function removeEmptyDirDurable(dir: string): Promise<boolean> {
   }
   await fsyncDir(path.dirname(dir));
   return true;
+}
+
+/**
+ * Remove the temp files `writeTemp` left in `dir` for any of `targetNames`
+ * (see `isWriteLeftover`), never following symlinks, then fsync `dir`.
+ */
+export async function removeWriteLeftoversDurable(
+  dir: string,
+  targetNames: readonly string[],
+): Promise<void> {
+  let entries: import('node:fs').Dirent[];
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
+    throw err;
+  }
+  const leftovers = entries.filter(
+    (e) => e.isFile() && targetNames.some((t) => isWriteLeftover(e.name, t)),
+  );
+  for (const e of leftovers) await fs.rm(path.join(dir, e.name), { force: true });
+  if (leftovers.length > 0) await fsyncDir(dir);
 }

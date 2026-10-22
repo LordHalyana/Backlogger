@@ -20,6 +20,7 @@ import {
   createNoOverwrite,
   deleteChecked,
   removeEmptyDirDurable,
+  removeWriteLeftoversDurable,
   replaceDurable,
   unlinkDurable,
   type CheckedDeleteResult,
@@ -287,6 +288,21 @@ export class FsRepository {
   async removeEmptyDir(relativeDir: string): Promise<boolean> {
     const absolute = await this.resolveDirSafe(relativeDir);
     return removeEmptyDirDurable(absolute);
+  }
+
+  /**
+   * Remove the temp files an interrupted durable write left beside the given
+   * files (see `isWriteLeftover`); nothing else is touched.
+   */
+  async removeWriteLeftovers(relativePaths: readonly string[]): Promise<void> {
+    const byDir = new Map<string, string[]>();
+    for (const p of relativePaths) {
+      const at = p.lastIndexOf('/');
+      byDir.set(p.slice(0, at), [...(byDir.get(p.slice(0, at)) ?? []), p.slice(at + 1)]);
+    }
+    for (const [dir, names] of byDir) {
+      await removeWriteLeftoversDurable(await this.resolveDirSafe(dir), names);
+    }
   }
 
   /** A project folder (project id first), validated and free of symlinks below the project. */

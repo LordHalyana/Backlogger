@@ -18,6 +18,7 @@ import {
   type FsRepository,
 } from '../fs/index.js';
 import { parseCommentFile } from '../fs/comment-file.js';
+import { isWriteLeftover } from '../fs/durable.js';
 import type { CommentRow, CommentsRepo } from '../db/comments-repo.js';
 import type { DocumentsRepo } from '../db/documents-repo.js';
 import type { ManifestEntry } from '../db/operations-repo.js';
@@ -118,7 +119,12 @@ export function commentDir(projectId: string, taskId: string): string {
 
 /** A task's path once filed into `targetProjectId`: the same project-relative path. */
 export function filedPath(summary: DocumentSummary, targetProjectId: string): string {
-  return `${targetProjectId}/${summary.path.slice(summary.project_id.length + 1)}`;
+  return rehome(summary.path, summary.project_id, targetProjectId);
+}
+
+/** The same project-relative path (project id first) in another project. */
+function rehome(relPath: string, fromProjectId: string, toProjectId: string): string {
+  return `${toProjectId}/${relPath.slice(fromProjectId.length + 1)}`;
 }
 
 /**
@@ -202,7 +208,7 @@ export class TaskTransfer implements Recoverer {
       files.push({
         kind: 'comment',
         source: entry.path,
-        target: `${targetProjectId}/${entry.path.slice(sourceProjectId.length + 1)}`,
+        target: rehome(entry.path, sourceProjectId, targetProjectId),
         sourceRevision: revision,
         targetRevision: revision,
       });
@@ -261,6 +267,9 @@ export class TaskTransfer implements Recoverer {
    * the acknowledgement once complete, or where it stopped, every file kept.
    */
   async advance(plan: TransferPlan, tx: TransferTransactions): Promise<AdvanceResult> {
+    // A copy killed mid-write leaves a temp file beside its target; it is
+    // ours, so it never stops the transfer.
+    await this.fs.removeWriteLeftovers(plan.files.map((f) => f.target));
     let stop = this.judge(plan, await this.observe(plan));
     if (stop) return { done: false, stop };
 
@@ -397,7 +406,7 @@ export class TaskTransfer implements Recoverer {
     for (const kind of ['task', 'comment'] as const) {
       for (const source of byRole(`${kind}_source`)) {
         if (!source.path.startsWith(`${from}/`)) return undefined;
-        const target = targets.get(`${to}/${source.path.slice(from.length + 1)}`);
+        const target = targets.get(rehome(source.path, from, to));
         if (!target || source.fingerprint === null || target.fingerprint === null) {
           return undefined;
         }
@@ -435,7 +444,10 @@ export class TaskTransfer implements Recoverer {
     const unexpected: string[] = [];
     for (const projectId of [plan.sourceProjectId, plan.targetProjectId]) {
       for (const entry of await this.fs.listDir(commentDir(projectId, plan.taskId))) {
-        if (entry.kind !== 'file' || !listed.has(entry.path)) unexpected.push(entry.path);
+        if (entry.kind === 'file' && (listed.has(entry.path) || isLeftoverOf(entry.path, listed))) {
+          continue;
+        }
+        unexpected.push(entry.path);
       }
     }
     return { revisions, unexpected };
@@ -458,32 +470,28 @@ export class TaskTransfer implements Recoverer {
     }
     const verified = plan.phase === 'destination_verified';
     for (const f of plan.files) {
-      const source = seen.revisions.get(f.source) ?? null;
-      const target = seen.revisions.get(f.target) ?? null;
-      // The side that must already be in place: the source before the
-      // checkpoint, the copy after it.
-      const [held, heldRevision, other, otherRevision, otherPath, heldPath] = verified
-        ? [target, f.targetRevision, source, f.sourceRevision, f.source, f.target]
-        : [source, f.sourceRevision, target, f.targetRevision, f.target, f.source];
-      if (held !== heldRevision) {
-        return held === null
+      const source = side(f.source, f.sourceRevision, seen, sourceChanged);
+      const copy = side(f.target, f.targetRevision, seen, copyChanged);
+      // `required` must already be in place: the source before the
+      // checkpoint, the copy after it. `optional` may be absent.
+      const [required, optional] = verified ? [copy, source] : [source, copy];
+      if (required.observed !== required.expected) {
+        return required.observed === null
           ? {
               kind: 'structural',
               reason: 'file_missing',
-              message: `${heldPath} is missing; restore it, then Recheck.`,
+              message: `${required.path} is missing; restore it, then Recheck.`,
             }
-          : verified
-            ? copyChanged(heldPath)
-            : sourceChanged(heldPath);
+          : required.changed(required.path);
       }
-      if (other !== null && other !== otherRevision) {
-        return verified ? sourceChanged(otherPath) : copyChanged(otherPath);
+      if (optional.observed !== null && optional.observed !== optional.expected) {
+        return optional.changed(optional.path);
       }
-      if (copied && !verified && other === null) {
+      if (copied && !verified && copy.observed === null) {
         return {
           kind: 'structural',
           reason: 'file_missing',
-          message: `${otherPath} was not written; Recheck tries again.`,
+          message: `${copy.path} was not written; Recheck tries again.`,
         };
       }
     }
@@ -559,6 +567,16 @@ export class TaskTransfer implements Recoverer {
   }
 }
 
+/** A temp file an interrupted write of one of the `listed` files left beside it. */
+function isLeftoverOf(relPath: string, listed: ReadonlySet<string>): boolean {
+  const at = relPath.lastIndexOf('/');
+  const dir = relPath.slice(0, at);
+  const name = relPath.slice(at + 1);
+  return [...listed].some(
+    (p) => p.slice(0, p.lastIndexOf('/')) === dir && isWriteLeftover(name, p.slice(p.lastIndexOf('/') + 1)),
+  );
+}
+
 function serializePayload(plan: TransferPlan): string {
   const payload: TransferPayload = {
     task_id: plan.taskId,
@@ -569,15 +587,44 @@ function serializePayload(plan: TransferPlan): string {
   return JSON.stringify(payload);
 }
 
+/** One side of a transferred file: where it is, what it must hold, what it holds now. */
+function side(
+  path: string,
+  expected: string,
+  seen: Observation,
+  changed: (path: string) => Stop,
+): { path: string; expected: string; observed: string | null; changed: (path: string) => Stop } {
+  return { path, expected, observed: seen.revisions.get(path) ?? null, changed };
+}
+
 function acknowledgement(plan: TransferPlan): FileDocumentAck {
-  return {
-    operation_id: plan.operationId,
-    command: TRANSFER_COMMAND,
-    document_id: plan.taskId,
-    source_project_id: plan.sourceProjectId,
-    target_project_id: plan.targetProjectId,
+  return filingAck({
+    operationId: plan.operationId,
+    taskId: plan.taskId,
+    sourceProjectId: plan.sourceProjectId,
+    targetProjectId: plan.targetProjectId,
     outcome: 'filed',
-    result_revision: plan.files[0]!.targetRevision,
+    resultRevision: plan.files[0]!.targetRevision,
+  });
+}
+
+/** The acknowledgement of a filing, whether it moved the task or found it in place. */
+export function filingAck(f: {
+  operationId: string;
+  taskId: string;
+  sourceProjectId: string;
+  targetProjectId: string;
+  outcome: FileDocumentAck['outcome'];
+  resultRevision: string;
+}): FileDocumentAck {
+  return {
+    operation_id: f.operationId,
+    command: TRANSFER_COMMAND,
+    document_id: f.taskId,
+    source_project_id: f.sourceProjectId,
+    target_project_id: f.targetProjectId,
+    outcome: f.outcome,
+    result_revision: f.resultRevision,
   };
 }
 

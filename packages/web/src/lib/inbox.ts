@@ -15,6 +15,7 @@ import {
 import { apiFetch } from './api.js';
 import {
   invalidateComments,
+  invalidateDocument,
   invalidateDocumentDerived,
   queryKeys,
   setDocumentCache,
@@ -70,8 +71,8 @@ export interface FileItemArgs {
   from: string;
   to: string;
   /**
-   * The Idempotency-Key, generated when the user acts (`newUuid`); resending
-   * the same filing reuses it.
+   * The Idempotency-Key, generated when the user acts (`newUuid`). Resending
+   * the same request must reuse it to get the original acknowledgement.
    */
   operationId: string;
 }
@@ -91,7 +92,7 @@ export function useFileItem(): UseMutationResult<FileDocumentAck, Error, FileIte
         body: JSON.stringify({ target_project_id: to, revision }),
       }),
     onSettled: (_ack, _err, { id, from, to }) => {
-      void qc.invalidateQueries({ queryKey: queryKeys.document(id) });
+      invalidateDocument(qc, id);
       void invalidateComments(qc, id);
       invalidateDocumentDerived(qc, from);
       invalidateDocumentDerived(qc, to);

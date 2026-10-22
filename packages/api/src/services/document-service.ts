@@ -43,6 +43,7 @@ import {
 import {
   commentDir,
   filedPath,
+  filingAck,
   frontmatterNotRewritable,
   rewriteProjectLine,
   TRANSFER_COMMAND,
@@ -724,15 +725,16 @@ export class DocumentService {
     const sourceId = summary.project_id;
     if (sourceId === targetProjectId) {
       scope.intent({ guards: [] });
-      return scope.complete({
-        operation_id: operationId,
-        command: TRANSFER_COMMAND,
-        document_id: id,
-        source_project_id: sourceId,
-        target_project_id: targetProjectId,
-        outcome: 'already_filed',
-        result_revision: summary.revision,
-      });
+      return scope.complete(
+        filingAck({
+          operationId,
+          taskId: id,
+          sourceProjectId: sourceId,
+          targetProjectId,
+          outcome: 'already_filed',
+          resultRevision: summary.revision,
+        }),
+      );
     }
     if (summary.type !== 'backlog_item') {
       throw new BadRequestError(
