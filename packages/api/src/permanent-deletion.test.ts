@@ -409,6 +409,7 @@ describe('Permanently deleting a commented task', () => {
       kind: 'content_conflict',
       reason: 'content_changed',
       task_id: task.id,
+      task_title: 'Quokka gate',
       actions: ['recheck'],
     });
     expect(detail.body.paths).toContainEqual({

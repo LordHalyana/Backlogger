@@ -28,20 +28,29 @@ export type RecoveryReason =
   | 'unexpected_file'
   | 'unsupported';
 
-/** One entry of `GET /api/recovery`. */
+/**
+ * One entry of `GET /api/recovery`: a pending operation, or an abandoned one
+ * whose final state stays listed until the user dismisses it on the task.
+ */
 export interface RecoverySummary {
   operation_id: string;
   command: string;
-  state: 'pending';
+  state: 'pending' | 'abandoned';
   created_at: string;
   kind: RecoveryKind;
   reason: RecoveryReason;
   message: string;
   project_id: string | null;
   task_id: string | null;
+  /** The task's title as last indexed; `null` once it is gone from the index. */
+  task_title: string | null;
+  /** Where a filing is taking the task; `null` for other operations. */
+  target_project_id: string | null;
   comment_id: string | null;
   /** The operation is running in this process right now, not stopped. */
   in_progress: boolean;
+  /** When the user abandoned it; `null` while it is pending. */
+  abandoned_at: string | null;
 }
 
 /** A file the operation covers. Revisions are `null` for an absent file. */
@@ -86,6 +95,12 @@ export interface RecheckResult {
 /** `POST /api/recovery/:operationId/abandon`, with its own `Idempotency-Key`. */
 export interface AbandonRecoveryRequest {
   review_token: string;
+}
+
+/** `POST /api/recovery/:operationId/dismiss`: an abandoned operation leaves the list. */
+export interface DismissRecoveryAck {
+  operation_id: string;
+  dismissed: true;
 }
 
 export interface AbandonRecoveryAck {

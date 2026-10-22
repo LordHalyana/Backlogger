@@ -136,7 +136,7 @@ export function buildContext(opts: BuildContextOptions): AppContext {
   });
   const commentRecovery = new CommentRecovery({ commentsRepo, documentsRepo, fs });
   for (const command of COMMENT_COMMANDS) coordinator.onRecover(command, commentRecovery);
-  const recoveryService = new RecoveryService({ coordinator });
+  const recoveryService = new RecoveryService({ coordinator, documentsRepo });
   const reindexService = new ReindexService({
     documentsRepo,
     commentsRepo,

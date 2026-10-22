@@ -28,6 +28,13 @@ export function recoveryRouter(service: RecoveryService): Router {
   );
 
   router.post(
+    '/:operationId/dismiss',
+    asyncRoute(async (req, res) => {
+      res.json(service.dismiss(req.params.operationId ?? ''));
+    }),
+  );
+
+  router.post(
     '/:operationId/abandon',
     asyncRoute(async (req, res) => {
       const input = (req.body ?? {}) as { review_token?: unknown };

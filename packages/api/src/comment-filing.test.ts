@@ -371,6 +371,7 @@ describe('Filing a commented task', () => {
       kind: 'resumable',
       task_id: task.id,
       project_id: 'inbox',
+      target_project_id: 'work',
       actions: ['recheck'],
     });
     expect(detail.body.paths).toContainEqual({

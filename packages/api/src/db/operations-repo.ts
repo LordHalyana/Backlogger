@@ -19,6 +19,8 @@ export interface OperationRecord {
   outcome: unknown;
   created_at: string;
   completed_at: string | null;
+  /** When the user dismissed an abandoned operation's final state; `null` until then. */
+  dismissed_at?: string | null;
 }
 
 export interface GuardRow {
@@ -85,6 +87,31 @@ export class OperationsRepo {
       >(`SELECT * FROM operations WHERE state = 'pending' ORDER BY created_at, operation_id`)
       .all()
       .map(rowToOperation);
+  }
+
+  /**
+   * What the Recovery page lists, oldest first: every pending operation, and
+   * every abandoned one whose final state the user has not dismissed yet.
+   */
+  listReviewable(): OperationRecord[] {
+    return this.db
+      .prepare<[], OperationRow>(
+        `SELECT * FROM operations
+         WHERE state = 'pending' OR (state = 'abandoned' AND dismissed_at IS NULL)
+         ORDER BY created_at, operation_id`,
+      )
+      .all()
+      .map(rowToOperation);
+  }
+
+  /** Take an abandoned operation off the Recovery page; a second dismissal keeps the first time. */
+  markDismissed(operationId: string, dismissedAt: string): void {
+    this.db
+      .prepare(
+        `UPDATE operations SET dismissed_at = ?
+         WHERE operation_id = ? AND state = 'abandoned' AND dismissed_at IS NULL`,
+      )
+      .run(dismissedAt, operationId);
   }
 
   /** Throws a SQLite constraint error when the ID is already taken. */

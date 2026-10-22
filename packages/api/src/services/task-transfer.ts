@@ -335,6 +335,7 @@ export class TaskTransfer implements Recoverer {
       project_id: plan.sourceProjectId,
       task_id: plan.taskId,
       comment_id: null,
+      target_project_id: plan.targetProjectId,
       paths: plan.files.flatMap((f): RecoveryPath[] => [
         {
           path: f.source,
