@@ -384,8 +384,9 @@ export class DocumentService {
       const current = await this.currentRevision(summary, existing);
       if (ifMatch !== current) {
         throw new ConflictError(
-          'DOCUMENT_VERSION_MISMATCH',
+          'REVISION_CONFLICT',
           `Document was modified since If-Match=${ifMatch}; current revision=${current}`,
+          { currentRevision: current, currentProjectId: summary.project_id },
         );
       }
     }

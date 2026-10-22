@@ -75,17 +75,19 @@ test('settings dialog lists templates with source badges', async ({ page }) => {
   await page.goto('/');
 
   await page.getByRole('button', { name: 'Settings' }).click();
-  await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
+  const settings = page.getByRole('dialog', { name: 'Settings' });
+  await expect(settings).toBeVisible();
 
   // Reload templates to ensure the table reflects the current filesystem
   // (the previous spec may have left a now-deleted user template in the
-  // server-side cache).
-  await page.getByRole('button', { name: /Reload/i }).click();
+  // server-side cache). Scoped to the dialog: the workspace rail also lists
+  // other specs' "Reload …" projects.
+  await settings.getByRole('button', { name: /Reload/i }).click();
   await expect(page.getByText(/Templates reloaded/)).toBeVisible({ timeout: 10000 });
 
-  // The template table should show exactly the five built-in templates.
+  // The template table should show exactly the six built-in templates.
   const rows = page.locator('.settings-template-table tbody tr');
-  await expect(rows).toHaveCount(5, { timeout: 3000 });
+  await expect(rows).toHaveCount(6, { timeout: 3000 });
 
   // All visible badges should say "built-in".
   const badges = page.locator('.template-source-badge');

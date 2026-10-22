@@ -22,7 +22,13 @@ export async function createProject(
   await page.getByRole('button', { name: '+ New Project' }).click();
   await page.getByLabel('ID').fill(opts.id);
   await page.getByLabel('Name', { exact: true }).fill(opts.name ?? opts.id);
+  // Wait for the server to create the project, so callers can write into its
+  // folder on disk straight away.
+  const created = page.waitForResponse(
+    (r) => r.request().method() === 'POST' && new URL(r.url()).pathname === '/api/projects',
+  );
   await page.getByRole('button', { name: 'Create' }).click();
+  expect((await created).ok()).toBe(true);
 }
 
 export interface CreateDocumentOptions {

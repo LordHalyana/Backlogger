@@ -25,6 +25,7 @@
     "test:e2e": "playwright test",
     "bench": "tsx scripts/bench-search.ts",
     "bench:graph": "tsx scripts/bench-graph.ts",
+    "bench:writes": "tsx scripts/bench-writes.ts",
     "register-docs": "tsx scripts/register-docs-project.ts",
     "bundle-audit": "tsx scripts/bundle-audit.ts"
   },

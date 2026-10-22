@@ -47,9 +47,8 @@ Common codes include:
 - `PROJECT_NOT_FOUND`
 - `PROJECT_READ_ONLY`
 - `DOCUMENT_NOT_FOUND`
-- `DOCUMENT_VERSION_MISMATCH`
 - `DELETION_BLOCKED` (a permanent deletion whose scope holds files it must not judge on its own; `details: { paths }`)
-- `REVISION_CONFLICT` (filing, and an update, move or delete whose document was filed into another project while it waited; `details: { currentRevision, currentProjectId }`)
+- `REVISION_CONFLICT` (a stale `If-Match` on an update, a stale filing `revision`, and an update, move or delete whose document was filed into another project while it waited; `details: { currentRevision, currentProjectId }`)
 - `RECOVERY_REQUIRED` (a write blocked by an unfinished operation; `details: { operationId, inspect }`, where `inspect` is the Recovery page link `/recovery/:operationId`; its review is `GET /api/recovery/:operationId`)
 - `CAPTURE_ID_CONFLICT`
 - `INVALID_COMMAND`, `REVISION_REQUIRED` (`428`), `OPERATION_ID_CONFLICT`, `OPERATION_IN_PROGRESS`, `OPERATION_ABANDONED`, `COMMENT_NOT_WRITABLE`, `COMMENT_ID_CONFLICT`, `COMMENT_NOT_PRESERVABLE`, `PARENT_NOT_FOUND`, `COMMENT_NOT_FOUND` (see [Comments](#comments))
@@ -133,8 +132,9 @@ points at (see [`DELETE /api/projects/:id`](#delete-apiprojectsid)).
 in `<dataDir>/workspace.json` (`{ "inbox_project_id": "inbox" }`); the server
 creates the Inbox at start when that file is missing (`inbox`, or `inbox-2`, …
 if the id is taken) and never adopts an existing project because of its id or
-name. Deleting the Inbox or making it read-only returns `409 INBOX_PROTECTED`;
-renaming it is allowed.
+name. Deleting the Inbox, making it read-only or switching it to sidecar mode
+returns `409 INBOX_PROTECTED` and changes no setting, even when the request
+carries other changes; renaming it is allowed.
 
 ### `POST /api/projects`
 
@@ -177,6 +177,8 @@ All fields are optional, but at least one field is required. Use `readOnly` to p
 Returns the updated project.
 
 While any operation is pending in the project, changing `readOnly` or `metadataMode` returns `409 RECOVERY_REQUIRED`; a request that mixes those with allowed changes is refused as a whole. While a project deletion is pending, every setting is refused.
+
+For the designated Inbox, `readOnly: true` or `metadataMode: "sidecar"` returns `409 INBOX_PROTECTED` and changes no setting, even when the request carries other changes. Global capture writes into the Inbox, so it must stay writable and frontmatter-backed.
 
 ### `DELETE /api/projects/:id`
 
@@ -277,7 +279,7 @@ If-Match: <revision value>
 
 `revision` is an opaque fingerprint of the persisted document (the `.md` file, plus its sidecar entry for sidecar-backed documents). Every summary and full document response carries it, and it changes with every successful write and with any out-of-band edit of the file on disk. `updated_at` is for display only and is not a valid `If-Match` value.
 
-The check runs inside the project's mutation queue against the file as it is on disk at that moment. If the header does not match the current revision, the API returns `409 DOCUMENT_VERSION_MISMATCH` and leaves the file unchanged. Of two overlapping updates sent with the same revision, exactly one succeeds and the other gets `409`.
+The check runs inside the project's mutation queue against the file as it is on disk at that moment. If the header does not match the current revision, the API returns `409 REVISION_CONFLICT` with `details: { currentRevision, currentProjectId }` and leaves the file unchanged. Of two overlapping updates sent with the same revision, exactly one succeeds and the other gets `409`.
 
 A missing `If-Match` header is accepted: the update is applied unconditionally, as before. The web editor (and the board) always send it.
 

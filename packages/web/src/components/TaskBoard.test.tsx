@@ -189,7 +189,7 @@ describe('TaskBoard', () => {
 
   const conflict = {
     status: 409,
-    body: { error: { code: 'DOCUMENT_VERSION_MISMATCH', message: 'Document was modified' } },
+    body: { error: { code: 'REVISION_CONFLICT', message: 'Document was modified' } },
   };
 
   it('puts a card back and shows a conflict banner when its move is rejected', async () => {

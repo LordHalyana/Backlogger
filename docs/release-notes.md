@@ -34,8 +34,19 @@ tags: ['docs']
 4. **Refresh open browser tabs after upgrading.** Tabs loaded before the
    upgrade file and delete items without a key, and the server refuses those
    requests.
+5. **A stale document edit returns `REVISION_CONFLICT`.** `PUT
+   /api/documents/:id` with an `If-Match` that no longer matches now answers
+   `409 REVISION_CONFLICT` with `details: { currentRevision, currentProjectId }`,
+   the same code and details as a stale filing. It used to answer
+   `409 DOCUMENT_VERSION_MISMATCH` with no details. A missing `If-Match` is
+   still accepted.
 
 ### Changes
+
+- Switching the designated Inbox to sidecar mode through
+  `PUT /api/projects/:id` returns `409 INBOX_PROTECTED` and changes no
+  setting, so global capture keeps working. See
+  [`PUT /api/projects/:id`](api.md#put-apiprojectsid).
 
 - Filing a backlog item carries all of its comments into the target project,
   byte for byte, with no duplicates at either end. Filing is recoverable: a
