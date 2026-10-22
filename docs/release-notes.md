@@ -54,3 +54,15 @@ tags: ['docs']
   and the deletion stops for review on the Recovery API. Restart, Reload and
   Reindex never bring back an item whose deletion is unfinished. See
   [`DELETE /api/documents/:id`](api.md#delete-apidocumentsid).
+- Deleting a project whose folder is a symlink (a mount) removes the link and
+  the project's index rows, dangling link or not; the files the link points at
+  are never touched. Projects now report `linked`, and the delete dialog says
+  which kind of deletion it is. See
+  [`DELETE /api/projects/:id`](api.md#delete-apiprojectsid).
+- In a sidecar project, a document's sidecar entry is fingerprinted with the
+  rest of the deletion: an entry edited by hand while the deletion runs is kept
+  and the deletion stops for review, like a changed file.
+- When a delete request gets no answer or a server error, the web app no
+  longer just says it failed: the toast says the deletion may still be in
+  progress and offers Open Recovery on that operation, and the Recovery list
+  and banner refresh straight away.

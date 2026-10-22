@@ -19,6 +19,7 @@ import {
   invalidateDocumentDerived,
   invalidateProjectList,
   invalidateProjectReload,
+  invalidateRecovery,
 } from './query-keys.js';
 
 const PROJECTS_KEY = queryKeys.projects();
@@ -67,8 +68,8 @@ export interface DeleteProjectArgs {
 
 /**
  * Permanently delete a project with every task, comment and file in it. The
- * project list is refetched either way: a failed delete may have left a
- * pending deletion, which hides the project.
+ * project list and Recovery are refetched either way: a failed delete may
+ * have left a pending deletion, which hides the project.
  */
 export function useDeleteProject(): UseMutationResult<DeleteProjectAck, Error, DeleteProjectArgs> {
   const qc = useQueryClient();
@@ -78,7 +79,10 @@ export function useDeleteProject(): UseMutationResult<DeleteProjectAck, Error, D
         method: 'DELETE',
         headers: { 'Idempotency-Key': operationId },
       }),
-    onSettled: () => invalidateProjectList(qc),
+    onSettled: () => {
+      invalidateProjectList(qc);
+      void invalidateRecovery(qc);
+    },
   });
 }
 

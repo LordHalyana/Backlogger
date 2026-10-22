@@ -19,6 +19,7 @@ import {
   queryKeys,
   invalidateDocumentDerived,
   invalidateProjectStructure,
+  invalidateRecovery,
   removeDocumentCache,
   setDocumentCache,
 } from './query-keys.js';
@@ -95,9 +96,9 @@ export interface DeleteDocumentArgs {
 
 /**
  * Permanently delete a document and, for a backlog item, all its comments.
- * The server answers with an acknowledgement only. The lists are refetched
- * either way: a failed delete may have left a pending deletion, which hides
- * the item.
+ * The server answers with an acknowledgement only. The lists and Recovery
+ * are refetched either way: a failed delete may have left a pending
+ * deletion, which hides the item.
  */
 export function useDeleteDocument(
   projectId: string,
@@ -110,7 +111,10 @@ export function useDeleteDocument(
         headers: { 'Idempotency-Key': operationId },
       }),
     onSuccess: (_ack, { id }) => removeDocumentCache(qc, id),
-    onSettled: () => invalidateDocumentDerived(qc, projectId),
+    onSettled: () => {
+      invalidateDocumentDerived(qc, projectId);
+      void invalidateRecovery(qc);
+    },
   });
 }
 

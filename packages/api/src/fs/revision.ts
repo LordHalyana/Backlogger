@@ -20,6 +20,11 @@ export function bytesRevision(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex').slice(0, 32);
 }
 
+/** Revision of a sidecar entry alone, as the sidecar store reads it back. */
+export function sidecarEntryRevision(entry: SidecarEntry): string {
+  return contentRevision(JSON.stringify(SidecarEntrySchema.parse(entry)));
+}
+
 /** Revision of a sidecar-backed document: its file plus its sidecar entry. */
 export function sidecarRevision(fileRevision: string, entry: SidecarEntry): string {
   const canonical = JSON.stringify(SidecarEntrySchema.parse(entry));

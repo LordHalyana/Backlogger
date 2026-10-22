@@ -119,10 +119,15 @@ Project objects include:
   "readOnly": false,
   "metadataMode": "frontmatter",
   "isInbox": false,
+  "linked": false,
   "created_at": "2026-06-04T10:00:00.000Z",
   "updated_at": "2026-06-04T10:00:00.000Z"
 }
 ```
+
+`linked` is `true` when the project folder is a symlink (a mount, for example a
+Docker volume). Deleting a linked project removes the link, never the files it
+points at (see [`DELETE /api/projects/:id`](#delete-apiprojectsid)).
 
 `isInbox` is `true` for the one designated Inbox. The designation is stored only
 in `<dataDir>/workspace.json` (`{ "inbox_project_id": "inbox" }`); the server
@@ -183,12 +188,14 @@ Permanently deletes the project: every file and folder in its project folder, in
 
 Returns `200` with this acknowledgement. Retrying with the same key returns it again, even though the project is gone; the same key with another project is `409 OPERATION_ID_CONFLICT`.
 
+For a linked project (`linked: true`, the project folder is a symlink) only the link is removed, then the index rows: the files at its target, comments included, are never read, followed or touched. A dangling link is removed the same way. The inventory is the link and its target; if the link points elsewhere by the time it would be removed, it is kept and the deletion stops for review.
+
 The deletion is resumable, like a document deletion (see [`DELETE /api/documents/:id`](#delete-apidocumentsid)). While it is pending, the project is left out of `GET /api/projects`, its documents are hidden from lists, the board, Current work and search, and every write into the project, every setting and reuse of the project ID is `409 RECOVERY_REQUIRED`.
 
 - `409 INBOX_PROTECTED` for the designated Inbox.
 - `409 PROJECT_READ_ONLY` while read-only mode is enabled.
 - `409 RECOVERY_REQUIRED` while any operation is pending in the project, a filing into or out of it included.
-- `409 DELETION_BLOCKED` with `details.paths`, changing nothing, when the project folder is a symlink or holds one (or another special file). Backlogger never follows or deletes through a symlink; remove it by hand first.
+- `409 DELETION_BLOCKED` with `details.paths`, changing nothing, when the project folder holds a symlink (or another special file). Backlogger never follows or deletes through a symlink; remove it by hand first.
 
 ## Documents
 
@@ -284,7 +291,7 @@ If the document was indexed from plain Markdown without Backlogger frontmatter a
 
 ### `DELETE /api/documents/:id`
 
-Permanently deletes a document and, for a backlog item, every comment on it and its `tickets/<task-id>/` folder. Requires an `Idempotency-Key` header holding a client-generated UUID; without a valid one the request is `400 INVALID_COMMAND` and nothing changes.
+Permanently deletes a document and, for a backlog item, every comment on it and its `tickets/<task-id>/` folder. Requires an `Idempotency-Key` header holding a client-generated UUID for every document type, including those that cannot have comments; without a valid one the request is `400 INVALID_COMMAND` and nothing changes.
 
 ```json
 {
@@ -299,7 +306,7 @@ Permanently deletes a document and, for a backlog item, every comment on it and 
 
 Returns `200` with this acknowledgement. Retrying with the same key returns it again, even though the document is gone; the same key with another document is `409 OPERATION_ID_CONFLICT`.
 
-The deletion is resumable. Before removing anything it records an inventory of the paths it covers and their fingerprints, never their content. From then on the document is hidden from lists, the board, Current work and search, while the operation is listed by `GET /api/recovery`. It removes only files that still match the inventory (one already gone counts as done), the task file after its comments, and folders only once they are empty. It never follows a symlink. If a covered file has changed, or a file it does not cover appears in scope, that file is kept and the deletion stops for review: the request is `409 RECOVERY_REQUIRED` and the operation stays pending. A deletion cannot be cancelled once it has started; startup and Recheck finish it, and Reload and Reindex never bring the document back meanwhile.
+The deletion is resumable. Before removing anything it records an inventory of the paths it covers and their fingerprints, never their content. From then on the document is hidden from lists, the board, Current work and search, while the operation is listed by `GET /api/recovery`. It removes only files that still match the inventory (one already gone counts as done), the task file after its comments, and folders only once they are empty. In a sidecar project the document's sidecar entry is part of the inventory too: it is removed after the file only while it still matches, and an entry written only after the deletion started is left alone. It never follows a symlink. If a covered file has changed, or a file it does not cover appears in scope, that file is kept and the deletion stops for review: the request is `409 RECOVERY_REQUIRED` and the operation stays pending. A deletion cannot be cancelled once it has started; startup and Recheck finish it, and Reload and Reindex never bring the document back meanwhile.
 
 - `409 DELETION_BLOCKED` with `details.paths`, changing nothing, when the task's comment folder holds anything but its own comment files (an unknown or malformed file, a folder, a symlink). Move or repair those first.
 - `409 RECOVERY_REQUIRED` while an operation is pending on the task, a filing or a comment write included.

@@ -1,4 +1,5 @@
 import * as fs from 'node:fs/promises';
+import { lstatSync } from 'node:fs';
 import * as path from 'node:path';
 import matter from 'gray-matter';
 import {
@@ -293,6 +294,52 @@ export class FsRepository {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') return false;
       throw err;
     }
+  }
+
+  /** `isProjectSymlink` without awaiting, for building a project's view. */
+  isProjectSymlinkSync(projectId: string): boolean {
+    try {
+      return lstatSync(this.resolver.projectDir(projectId)).isSymbolicLink();
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return false;
+      throw err;
+    }
+  }
+
+  /** What the project's own folder links to, or `null` when it is not a symlink (or absent). */
+  async projectLinkTarget(projectId: string): Promise<string | null> {
+    try {
+      return await fs.readlink(this.resolver.projectDir(projectId));
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT' || code === 'EINVAL') return null;
+      throw err;
+    }
+  }
+
+  /**
+   * Remove the project's own folder link only while it still points at
+   * `expectedTarget`. The link itself goes; nothing at its target is read,
+   * followed or touched. A missing link is `'missing'`; one that now points
+   * elsewhere, or is no longer a link, is kept and reported as `'changed'`.
+   */
+  async unlinkProjectIfUnchanged(
+    projectId: string,
+    expectedTarget: string,
+  ): Promise<CheckedDeleteResult> {
+    const link = this.resolver.projectDir(projectId);
+    let target: string;
+    try {
+      target = await fs.readlink(link);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') return 'missing';
+      if (code === 'EINVAL') return 'changed';
+      throw err;
+    }
+    if (target !== expectedTarget) return 'changed';
+    await unlinkDurable(link);
+    return 'deleted';
   }
 
   /**

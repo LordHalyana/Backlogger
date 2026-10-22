@@ -200,6 +200,43 @@ export function useDismissRecovery(): UseMutationResult<DismissRecoveryAck, Erro
 }
 
 /**
+ * Whether a failed request may still have reached the server and left its
+ * operation pending: no answer at all, or a 5xx. A 4xx refusal changed nothing.
+ */
+export function mayStillBePending(err: unknown): boolean {
+  return !(err instanceof ApiError) || err.status >= 500;
+}
+
+/**
+ * Reports a permanent deletion whose outcome is unknown (see
+ * `mayStillBePending`): a toast saying it may still be in progress, with
+ * Open Recovery on its operation, instead of inviting a second delete under
+ * a new key. Returns false for any other error, which the caller reports.
+ */
+export function useDeletionUnconfirmedToast(
+  openRecovery: (operationId: string) => void,
+): (operationId: string, err: unknown) => boolean {
+  const qc = useQueryClient();
+  const dialog = useDialog();
+  return useCallback(
+    (operationId, err) => {
+      if (!mayStillBePending(err)) return false;
+      void invalidateRecovery(qc);
+      dialog.toast(
+        "Couldn't confirm the deletion. It may still be in progress; check Recovery before trying again.",
+        {
+          kind: 'error',
+          durationMs: 10_000,
+          action: { label: 'Open Recovery', onClick: () => openRecovery(operationId) },
+        },
+      );
+      return true;
+    },
+    [dialog, openRecovery, qc],
+  );
+}
+
+/**
  * Reports a command refused with `RECOVERY_REQUIRED`: a toast saying what
  * could not be done, with Review recovery (focused), or no link while the
  * task is moving. Returns false for any other error, which the caller reports.

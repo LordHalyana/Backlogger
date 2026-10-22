@@ -668,3 +668,201 @@ describe('Permanently deleting a project', () => {
     expect(projects.body.map((p: { id: string }) => p.id)).not.toContain('work');
   });
 });
+
+describe('Permanently deleting a linked project', () => {
+  let h: Harness;
+  let outside: string;
+  let task: DocBody;
+  let kept: Record<string, string>;
+
+  /** Every file's bytes under the link's target, keyed by path relative to it. */
+  async function targetBytes(): Promise<Record<string, string>> {
+    const out: Record<string, string> = {};
+    async function walk(dir: string): Promise<void> {
+      for (const e of await fs.readdir(path.join(outside, dir), { withFileTypes: true })) {
+        const child = path.join(dir, e.name);
+        if (e.isDirectory()) await walk(child);
+        else out[child] = await fs.readFile(path.join(outside, child), 'utf8');
+      }
+    }
+    await walk('');
+    return out;
+  }
+
+  beforeEach(async () => {
+    h = await setup();
+    outside = await fs.mkdtemp(path.join(os.tmpdir(), 'backlogger-mount-'));
+    await fs.symlink(outside, abs(h, 'mounted'));
+    h = await restart(h); // startup discovers the linked folder, read-only
+    const writable = await request(h.app).put('/api/projects/mounted').send({ readOnly: false });
+    expect(writable.status).toBe(200);
+    task = await createItem(h, 'mounted', 'Numbat task', { tags: ['numbat'] });
+    await comment(h, task.id, 1, 'Numbat comment');
+    kept = await targetBytes();
+  });
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await teardown(h);
+    await fs.rm(outside, { recursive: true, force: true });
+  });
+
+  /** The link and every row are gone; the files it pointed at are kept, byte for byte. */
+  async function expectLinkDeleted(): Promise<void> {
+    expect(await exists(h, 'mounted')).toBe(false);
+    expect(rowsWhere(h, 'projects', 'id = ?', 'mounted')).toBe(0);
+    expect(rowsWhere(h, 'documents', 'project_id = ?', 'mounted')).toBe(0);
+    expect(rowsWhere(h, 'comments', 'project_id = ?', 'mounted')).toBe(0);
+    expect((await request(h.app).get('/api/search').query({ q: 'numbat' })).body).toEqual([]);
+  }
+
+  it('is reported as linked', async () => {
+    const projects = (await request(h.app).get('/api/projects')).body as Array<{
+      id: string;
+      linked: boolean;
+    }>;
+    expect(projects.find((p) => p.id === 'mounted')?.linked).toBe(true);
+    expect(projects.find((p) => p.id === 'inbox')?.linked).toBe(false);
+  });
+
+  it('removes the link and every row, keeps the files it points at, and stays gone', async () => {
+    expect(Object.keys(kept)).toContain(path.relative('mounted', task.path));
+    const res = await deleteProject(h, 'mounted', KEY);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body).toEqual({
+      operation_id: KEY,
+      command: 'project.delete',
+      project_id: 'mounted',
+      outcome: 'deleted',
+    });
+    await expectLinkDeleted();
+    expect(await targetBytes()).toEqual(kept);
+    expectSettled(h, KEY);
+
+    h = await restart(h);
+    await expectLinkDeleted();
+  });
+
+  it('removes a dangling link', async () => {
+    await fs.rm(outside, { recursive: true, force: true });
+    const res = await deleteProject(h, 'mounted', KEY);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    await expectLinkDeleted();
+    expectSettled(h, KEY);
+  });
+
+  it('a crash before the unlink hides the project, and restart finishes the deletion', async () => {
+    crashOn(h.ctx.fs, 'unlinkProjectIfUnchanged', 1, 'before');
+    expect((await deleteProject(h, 'mounted', KEY)).status).toBe(500);
+    vi.restoreAllMocks();
+    const projects = await request(h.app).get('/api/projects');
+    expect(projects.body.map((p: { id: string }) => p.id)).not.toContain('mounted');
+
+    h = await restart(h);
+
+    await expectLinkDeleted();
+    expect(await targetBytes()).toEqual(kept);
+    expectSettled(h, KEY);
+  });
+
+  it('a link pointed elsewhere mid-deletion is kept and reported', async () => {
+    crashOn(h.ctx.fs, 'unlinkProjectIfUnchanged', 1, 'before');
+    expect((await deleteProject(h, 'mounted', KEY)).status).toBe(500);
+    vi.restoreAllMocks();
+    const elsewhere = await fs.mkdtemp(path.join(os.tmpdir(), 'backlogger-elsewhere-'));
+    await fs.rm(abs(h, 'mounted'));
+    await fs.symlink(elsewhere, abs(h, 'mounted'));
+
+    h = await restart(h);
+
+    expect(operation(h, KEY)?.state).toBe('pending');
+    expect(await fs.readlink(abs(h, 'mounted'))).toBe(elsewhere);
+    const detail = await request(h.app).get(`/api/recovery/${KEY}`);
+    expect(detail.body).toMatchObject({
+      command: 'project.delete',
+      kind: 'content_conflict',
+      reason: 'content_changed',
+      project_id: 'mounted',
+      actions: ['recheck'],
+    });
+    expect(detail.body.paths).toContainEqual({
+      path: 'mounted',
+      before_revision: outside,
+      after_revision: null,
+      observed_revision: elsewhere,
+    });
+    await fs.rm(elsewhere, { recursive: true, force: true });
+  });
+});
+
+describe('Permanently deleting a sidecar-backed document', () => {
+  let h: Harness;
+  let note: DocBody;
+  let key: string;
+  const index = 'work/.backlogger/index.json';
+
+  async function sidecarEntries(): Promise<Record<string, { title?: string }>> {
+    return JSON.parse(await fs.readFile(abs(h, index), 'utf8')).entries;
+  }
+
+  beforeEach(async () => {
+    h = await setup();
+    await createProject(h, 'work');
+    const mode = await request(h.app).put('/api/projects/work').send({ metadataMode: 'sidecar' });
+    expect(mode.status).toBe(200);
+    const res = await request(h.app)
+      .post('/api/projects/work/documents')
+      .send({ type: 'note', title: 'Bilby note' });
+    expect(res.status).toBe(201);
+    note = res.body as DocBody;
+    key = path.posix.relative('work', note.path);
+    expect(Object.keys(await sidecarEntries())).toContain(key);
+  });
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await teardown(h);
+  });
+
+  it('removes the file and its sidecar entry', async () => {
+    const res = await deleteDoc(h, note.id, KEY);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(await exists(h, note.path)).toBe(false);
+    expect(Object.keys(await sidecarEntries())).not.toContain(key);
+    expectSettled(h, KEY);
+  });
+
+  it('a sidecar entry edited mid-deletion is kept and reported; recheck finishes once it is removed', async () => {
+    crashOn(h.ctx.fs, 'deleteIfUnchanged', 1, 'before');
+    expect((await deleteDoc(h, note.id, KEY)).status).toBe(500);
+    vi.restoreAllMocks();
+    const raw = JSON.parse(await fs.readFile(abs(h, index), 'utf8'));
+    raw.entries[key].title = 'Edited by hand';
+    await fs.writeFile(abs(h, index), JSON.stringify(raw, null, 2));
+
+    h = await restart(h);
+
+    expect(operation(h, KEY)?.state).toBe('pending');
+    expect((await sidecarEntries())[key]?.title).toBe('Edited by hand');
+    expect(await exists(h, note.path)).toBe(true);
+    const detail = await request(h.app).get(`/api/recovery/${KEY}`);
+    expect(detail.body).toMatchObject({
+      command: 'document.delete',
+      kind: 'content_conflict',
+      reason: 'content_changed',
+      actions: ['recheck'],
+    });
+    expect(detail.body.paths).toContainEqual({
+      path: `${index}#${key}`,
+      before_revision: expect.any(String),
+      after_revision: null,
+      observed_revision: expect.any(String),
+    });
+
+    const edited = JSON.parse(await fs.readFile(abs(h, index), 'utf8'));
+    delete edited.entries[key];
+    await fs.writeFile(abs(h, index), JSON.stringify(edited, null, 2));
+    const recheck = await request(h.app).post(`/api/recovery/${KEY}/recheck`);
+    expect(recheck.body.state).toBe('completed');
+    expect(await exists(h, note.path)).toBe(false);
+    expectSettled(h, KEY);
+  });
+});

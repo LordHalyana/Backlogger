@@ -10,6 +10,7 @@ import { ApiError } from '../lib/api.js';
 import { newUuid } from '../lib/comments.js';
 import { toastError, useDialog } from '../lib/dialog.js';
 import { orderProjects } from '../lib/inbox.js';
+import { useDeletionUnconfirmedToast } from '../lib/recovery.js';
 import { useMediaQuery } from '../hooks/useMediaQuery.js';
 import { Modal } from './Modal.js';
 import { Icon } from './Icon.js';
@@ -21,6 +22,8 @@ interface ProjectSwitcherProps {
   onCapture?: () => void;
   onOpenTriage?: () => void;
   onToggleCurrentWork?: () => void;
+  /** Open the Recovery page on an operation, e.g. a deletion whose outcome is unknown. */
+  onOpenRecovery?: (operationId: string) => void;
 }
 
 /** Below this width the workspace rail is hidden and its entries live here. */
@@ -30,12 +33,15 @@ const CAPTURE_ENTRY = '__capture';
 const TRIAGE_ENTRY = '__triage';
 const CURRENT_WORK_ENTRY = '__current-work';
 
+const noop = (): void => undefined;
+
 export function ProjectSwitcher({
   selectedId,
   onSelect,
   onCapture,
   onOpenTriage,
   onToggleCurrentWork,
+  onOpenRecovery = noop,
 }: ProjectSwitcherProps): JSX.Element {
   const projects = useProjects();
   const narrow = useMediaQuery(NARROW_QUERY);
@@ -94,7 +100,9 @@ export function ProjectSwitcher({
         projectName={selectedProject?.name ?? selectedId ?? ''}
         readOnly={selectedProject?.readOnly ?? false}
         isInbox={selectedProject?.isInbox ?? false}
+        linked={selectedProject?.linked ?? false}
         onDeleted={() => onSelect(null)}
+        onOpenRecovery={onOpenRecovery}
       />
       {showNew && (
         <NewProjectDialog
@@ -255,7 +263,10 @@ interface ProjectMenuProps {
   readOnly: boolean;
   /** The designated Inbox cannot be deleted. */
   isInbox: boolean;
+  /** The project folder is a symlink: deleting removes the link, not its files. */
+  linked: boolean;
   onDeleted: () => void;
+  onOpenRecovery: (operationId: string) => void;
 }
 
 /** Overflow (⋮) menu for less-common, destructive project actions. */
@@ -264,12 +275,15 @@ function ProjectMenu({
   projectName,
   readOnly,
   isInbox,
+  linked,
   onDeleted,
+  onOpenRecovery,
 }: ProjectMenuProps): JSX.Element {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const del = useDeleteProject();
   const dialog = useDialog();
+  const deletionUnconfirmed = useDeletionUnconfirmedToast(onOpenRecovery);
 
   useEffect(() => {
     if (!open) return;
@@ -293,16 +307,23 @@ function ProjectMenu({
     void dialog
       .prompt({
         title: `Delete project "${projectName}"`,
-        message: `This permanently removes the project folder and everything in it: all its documents, tasks and their comments. Type the project id (${projectId}) to confirm.`,
+        message: linked
+          ? `This removes the project from Backlogger and deletes the link to its folder. The files at the link's target are kept. Type the project id (${projectId}) to confirm.`
+          : `This permanently removes the project folder and everything in it: all its documents, tasks and their comments. Type the project id (${projectId}) to confirm.`,
         placeholder: projectId,
         confirmLabel: 'Delete',
         validate: (v) => (v === projectId ? null : `Type "${projectId}" to confirm.`),
       })
       .then((typed) => {
         if (typed !== projectId) return;
-        del.mutate({ id: projectId, operationId: newUuid() }, {
+        const operationId = newUuid();
+        del.mutate({ id: projectId, operationId }, {
           onSuccess: onDeleted,
-          onError: (e) => toastError(dialog, 'Failed to delete project', e),
+          onError: (e) => {
+            if (!deletionUnconfirmed(operationId, e)) {
+              toastError(dialog, 'Failed to delete project', e);
+            }
+          },
         });
       });
   };

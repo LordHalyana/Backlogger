@@ -28,6 +28,7 @@ import {
   isTransfer,
   operationForTask,
   useDismissRecovery,
+  useDeletionUnconfirmedToast,
   useRecoveryBlockedToast,
   useRecoveryList,
 } from '../lib/recovery.js';
@@ -98,6 +99,7 @@ export function DocumentWorkspace({
   // Every write to the task waits while an operation on it is pending.
   const paused = taskOperation?.state === 'pending';
   const recoveryBlocked = useRecoveryBlockedToast(onOpenRecovery);
+  const deletionUnconfirmed = useDeletionUnconfirmedToast(onOpenRecovery);
 
   const {
     buffer,
@@ -188,17 +190,19 @@ export function DocumentWorkspace({
       })
       .then((ok) => {
         if (!ok) return;
+        const operationId = newUuid();
         del.mutate(
-          { id: doc.id, operationId: newUuid() },
+          { id: doc.id, operationId },
           {
             onSuccess: onDeleted,
             onError: (e) => {
-              if (!recoveryBlocked('delete', e)) toastError(dialog, 'Failed to delete', e);
+              if (recoveryBlocked('delete', e) || deletionUnconfirmed(operationId, e)) return;
+              toastError(dialog, 'Failed to delete', e);
             },
           },
         );
       });
-  }, [del, dialog, doc, onDeleted, recoveryBlocked]);
+  }, [del, deletionUnconfirmed, dialog, doc, onDeleted, recoveryBlocked]);
 
   const handleMove = useCallback(() => {
     if (!doc) return;

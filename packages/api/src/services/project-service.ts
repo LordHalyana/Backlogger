@@ -134,9 +134,10 @@ export class ProjectService {
 
   /**
    * Permanently delete a project with every task, comment and file in its
-   * folder, as a resumable deletion (see `PermanentDeletion`), never while
-   * anything is pending in the project. Retry-safe: a resent request with
-   * the same Idempotency-Key gets the original acknowledgement.
+   * folder (for a linked project: the link and the project's rows, never the
+   * files it points at), as a resumable deletion (see `PermanentDeletion`),
+   * never while anything is pending in the project. Retry-safe: a resent
+   * request with the same Idempotency-Key gets the original acknowledgement.
    */
   async delete(command: DeleteProjectCommand): Promise<DeleteProjectAck> {
     const operationId = parseOperationId(command.operationId);
@@ -174,7 +175,11 @@ export class ProjectService {
   }
 
   private view(project: ProjectRecord): Project {
-    return { ...project, isInbox: this.inbox.isInbox(project.id) };
+    return {
+      ...project,
+      isInbox: this.inbox.isInbox(project.id),
+      linked: this.fs.isProjectSymlinkSync(project.id),
+    };
   }
 }
 
