@@ -129,6 +129,32 @@ describe('Inbox: protection', () => {
     expect((await listProjects(h))[0]).toMatchObject({ readOnly: false });
   });
 
+  it('refuses switching the Inbox to sidecar mode with 409 INBOX_PROTECTED; capture still works', async () => {
+    const before = await listProjects(h);
+    const res = await request(h.app)
+      .put('/api/projects/inbox')
+      .send({ metadataMode: 'sidecar', name: 'Renamed', description: 'Changed' });
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('INBOX_PROTECTED');
+    expect(await listProjects(h)).toEqual(before);
+
+    const captured = await capture(h, { id: UUID.a, title: 'Still captured' });
+    expect(captured.status).toBe(201);
+    expect(captured.body.project_id).toBe('inbox');
+  });
+
+  it('still lets an ordinary project switch to sidecar mode and back', async () => {
+    await createProject(h, 'work');
+    const side = await request(h.app).put('/api/projects/work').send({ metadataMode: 'sidecar' });
+    expect(side.status).toBe(200);
+    expect(side.body.metadataMode).toBe('sidecar');
+    const back = await request(h.app)
+      .put('/api/projects/work')
+      .send({ metadataMode: 'frontmatter' });
+    expect(back.status).toBe(200);
+    expect(back.body.metadataMode).toBe('frontmatter');
+  });
+
   it('allows renaming the Inbox; its id is unchanged', async () => {
     const res = await request(h.app).put('/api/projects/inbox').send({ name: 'Capture' });
     expect(res.status).toBe(200);

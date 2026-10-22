@@ -133,8 +133,9 @@ points at (see [`DELETE /api/projects/:id`](#delete-apiprojectsid)).
 in `<dataDir>/workspace.json` (`{ "inbox_project_id": "inbox" }`); the server
 creates the Inbox at start when that file is missing (`inbox`, or `inbox-2`, …
 if the id is taken) and never adopts an existing project because of its id or
-name. Deleting the Inbox or making it read-only returns `409 INBOX_PROTECTED`;
-renaming it is allowed.
+name. Deleting the Inbox, making it read-only or switching it to sidecar mode
+returns `409 INBOX_PROTECTED` and changes no setting, even when the request
+carries other changes; renaming it is allowed.
 
 ### `POST /api/projects`
 
@@ -177,6 +178,8 @@ All fields are optional, but at least one field is required. Use `readOnly` to p
 Returns the updated project.
 
 While any operation is pending in the project, changing `readOnly` or `metadataMode` returns `409 RECOVERY_REQUIRED`; a request that mixes those with allowed changes is refused as a whole. While a project deletion is pending, every setting is refused.
+
+For the designated Inbox, `readOnly: true` or `metadataMode: "sidecar"` returns `409 INBOX_PROTECTED` and changes no setting, even when the request carries other changes. Global capture writes into the Inbox, so it must stay writable and frontmatter-backed.
 
 ### `DELETE /api/projects/:id`
 

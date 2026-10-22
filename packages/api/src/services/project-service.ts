@@ -120,6 +120,9 @@ export class ProjectService {
         if (input.readOnly === true && this.inbox.isInbox(id)) {
           throw inboxProtected('The Inbox cannot be made read-only.');
         }
+        if (input.metadataMode === 'sidecar' && this.inbox.isInbox(id)) {
+          throw inboxProtected('The Inbox cannot use sidecar mode.');
+        }
         const updated = this.projectsRepo.update(id, {
           name: input.name,
           description: input.description,
