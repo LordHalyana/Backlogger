@@ -45,9 +45,7 @@ test('topbar Reload picks up an out-of-band edit on disk', async ({ page }) => {
 
   // Click Reload and wait for the toast.
   await page.getByRole('button', { name: 'Reload', exact: true }).click();
-  const toast = page.locator('.app-toast.ok');
-  await expect(toast).toBeVisible();
-  await expect(toast).toContainText(`Reloaded ${projectId}`);
+  await expect(page.locator('.toast-info', { hasText: `Reloaded ${projectId}` })).toBeVisible();
 
   // The document query is invalidated → editor rebases on the new body.
   await expect(editor).toContainText(newBodyToken);

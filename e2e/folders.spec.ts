@@ -21,13 +21,18 @@ test('user can create a folder, place a doc in it, and delete it once empty', as
   // ── Create the project ─────────────────────────────────────────────
   await createProject(page, { id: projectId, name: projectName });
 
-  // ── Add a folder via the sidebar toolbar (window.prompt) ────────────
-  page.once('dialog', (d) => d.accept(folderName));
+  // ── Add a folder via the sidebar toolbar (in-app prompt) ────────────
   await page.getByRole('button', { name: 'Add folder', exact: true }).click();
+  const prompt = page.getByRole('dialog', { name: 'New Folder' });
+  await prompt.getByRole('textbox').fill(folderName);
+  await prompt.getByRole('button', { name: 'Submit' }).click();
 
-  // The folder shows up in the tree as a group header.
+  // The folder shows up in the tree as a group header. The header shows only
+  // the last path segment; the full path is its title.
   const tree = page.locator('.project-tree');
-  await expect(tree.locator('.folder-name', { hasText: folderName })).toBeVisible();
+  const folderHeaderSelector = `.folder-name[title="${folderName}"]`;
+  const folderHeader = tree.locator(folderHeaderSelector);
+  await expect(folderHeader).toBeVisible();
 
   // ── Create a doc inside that folder via NewDocumentDialog ──────────
   await page.getByRole('button', { name: '+ New', exact: true }).click();
@@ -41,7 +46,7 @@ test('user can create a folder, place a doc in it, and delete it once empty', as
   await expect(page.locator('.cm-content')).toBeVisible();
   const folderRow = tree
     .locator('.tree-group')
-    .filter({ has: page.locator('.folder-name', { hasText: folderName }) });
+    .filter({ has: page.locator(folderHeaderSelector) });
   await expect(folderRow.getByRole('button', { name: new RegExp(docTitle) })).toBeVisible();
 
   // ── Manage mode shows × buttons; deleting non-empty is disabled ────
@@ -69,7 +74,7 @@ test('user can create a folder, place a doc in it, and delete it once empty', as
 
   // Force a reload of the project so the tree sees the deletion.
   await page.getByRole('button', { name: 'Reload', exact: true }).click();
-  await expect(page.locator('.app-toast.ok')).toBeVisible();
+  await expect(page.locator('.toast-info', { hasText: `Reloaded ${projectId}` })).toBeVisible();
 
   // Re-enter manage mode (UI may have re-rendered) and delete the empty folder.
   const manageBtn = page.getByRole('button', { name: /Manage|Done/, exact: true });
@@ -78,12 +83,12 @@ test('user can create a folder, place a doc in it, and delete it once empty', as
     await manageBtn.click();
   }
 
-  page.once('dialog', (d) => d.accept());
-  const folderRow2 = tree
-    .locator('.tree-group')
-    .filter({ has: page.locator('.folder-name', { hasText: folderName }) });
-  await folderRow2.getByRole('button', { name: `Delete folder ${folderName}` }).click();
+  await folderRow.getByRole('button', { name: `Delete folder ${folderName}` }).click();
+  await page
+    .getByRole('dialog', { name: 'Delete folder' })
+    .getByRole('button', { name: 'Delete' })
+    .click();
 
   // The folder is gone from the tree.
-  await expect(tree.locator('.folder-name', { hasText: folderName })).toHaveCount(0);
+  await expect(folderHeader).toHaveCount(0);
 });

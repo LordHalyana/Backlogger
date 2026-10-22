@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { lazy, Suspense, useCallback, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { HealthStatus } from '@backlogger/shared';
 import { ProjectSwitcher } from './components/ProjectSwitcher.js';
@@ -10,7 +10,6 @@ import { CommandPalette } from './components/CommandPalette.js';
 import { ImportDialog } from './components/ImportDialog.js';
 import { SettingsDialog } from './components/SettingsDialog.js';
 import { HelpDrawer } from './components/HelpDrawer.js';
-import { KnowledgeGraph } from './components/KnowledgeGraph.js';
 import { TopbarAction } from './components/TopbarAction.js';
 import { TagExplorer } from './components/TagExplorer.js';
 import { Icon } from './components/Icon.js';
@@ -29,6 +28,10 @@ import { useGlobalShortcuts } from './hooks/useGlobalShortcuts.js';
 import { useReloadToast } from './hooks/useReloadToast.js';
 import { useWorkspaceSelection } from './hooks/useWorkspaceSelection.js';
 import { useShellOverlays } from './hooks/useShellOverlays.js';
+
+const KnowledgeGraph = lazy(() =>
+  import('./components/KnowledgeGraph.js').then((m) => ({ default: m.KnowledgeGraph })),
+);
 
 const PROJECT_VIEW_OPTIONS = [
   { value: 'documents', label: 'Documents' },
@@ -375,11 +378,13 @@ export function App(): JSX.Element {
         />
       )}
       {overlays.graphOpen && selectedProjectId && (
-        <KnowledgeGraph
-          projectId={selectedProjectId}
-          onOpenDocument={openDocument}
-          onClose={overlays.closeGraph}
-        />
+        <Suspense fallback={null}>
+          <KnowledgeGraph
+            projectId={selectedProjectId}
+            onOpenDocument={openDocument}
+            onClose={overlays.closeGraph}
+          />
+        </Suspense>
       )}
     </div>
   );

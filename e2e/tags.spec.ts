@@ -43,8 +43,9 @@ test('clicking a tag in the explorer filters the document tree', async ({ page }
   await expect(filterBar).toBeVisible();
   await expect(filterBar).toContainText(tag);
 
-  // The filtered document list should still contain our doc.
-  await expect(page.getByText(docTitle)).toBeVisible();
+  // The filtered document list should still contain our doc. Scoped to the
+  // tree: the editor header shows the open document's title too.
+  await expect(page.locator('.project-tree').getByText(docTitle)).toBeVisible();
 });
 
 test('clearing the tag filter restores the full document list', async ({ page }) => {
@@ -73,10 +74,12 @@ test('clearing the tag filter restores the full document list', async ({ page })
   const tagChip = page.locator('.tag-explorer').locator('.tag-chip', { hasText: tag });
   await expect(tagChip).toBeVisible({ timeout: 8000 });
   await tagChip.click();
-  await expect(page.getByText(docB)).not.toBeVisible();
+  // Scoped to the tree: doc B stays open in the editor while filtered out.
+  const tree = page.locator('.project-tree');
+  await expect(tree.getByText(docB)).not.toBeVisible();
 
   // Clear filter — doc B reappears.
   await page.getByRole('button', { name: 'Clear', exact: true }).click();
   await expect(page.locator('.tag-filter-bar')).not.toBeVisible();
-  await expect(page.getByText(docB)).toBeVisible();
+  await expect(tree.getByText(docB)).toBeVisible();
 });

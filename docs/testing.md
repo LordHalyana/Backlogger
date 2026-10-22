@@ -67,6 +67,12 @@ Run graph benchmark:
 npm run bench:graph
 ```
 
+Run coordinated-write benchmark (measures the `synchronous=FULL` cost):
+
+```bash
+npm run bench:writes
+```
+
 Run bundle audit:
 
 ```bash
@@ -166,6 +172,13 @@ Search or graph change:
 npm test
 npm run bench
 npm run bench:graph
+```
+
+Write-coordinator or durability change:
+
+```bash
+npm test
+npm run bench:writes
 ```
 
 Frontend dependency or lazy-loading change:

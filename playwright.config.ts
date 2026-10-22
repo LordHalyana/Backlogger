@@ -20,10 +20,12 @@ import { defineConfig, devices } from '@playwright/test';
 const E2E_DATA_DIR = path.resolve(process.cwd(), '.e2e-data');
 process.env.BACKLOGGER_DATA_DIR = E2E_DATA_DIR;
 
+const INBOX_SPECS = ['**/daily-work.spec.ts', '**/comment-filing.spec.ts'];
+
 export default defineConfig({
   testDir: 'e2e',
   timeout: 30_000,
-  reporter: process.env.CI ? 'github' : 'list',
+  reporter: process.env.CI ? [['github'], ['html', { open: 'never' }]] : 'list',
   use: {
     baseURL: 'http://127.0.0.1:5173',
     headless: true,
@@ -32,6 +34,15 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
+      testIgnore: INBOX_SPECS,
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      // These specs empty the one shared Inbox and then expect only their own
+      // items in triage, so they must not run alongside each other.
+      name: 'chromium-inbox',
+      testMatch: INBOX_SPECS,
+      workers: 1,
       use: { ...devices['Desktop Chrome'] },
     },
   ],

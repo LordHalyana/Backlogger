@@ -112,4 +112,18 @@ Use before release or after search/index changes.
 
 Runs graph latency benchmark.
 
-Use after grap
+Use after graph changes.
+
+### `npm run bench:writes`
+
+Runs a coordinated-write latency benchmark: comment posts through the write
+coordinator, once with the shipped `synchronous=FULL` and once with
+`synchronous=NORMAL`, and prints the p95 cost of FULL. The budget applies to
+FULL.
+
+The data dir lives under `os.tmpdir()`. Set `TMPDIR` to a directory on the
+disk you deploy on, because fsync is nearly free on tmpfs. A comment post is a
+single-file write, so the measured cost is a lower bound for filing and
+deletion.
+
+Use before release or after write-coordinator or durability changes.

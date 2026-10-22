@@ -15,7 +15,8 @@ test('topbar Import ingests a .md file via the file picker', async ({ page }) =>
   await createProject(page, { id: projectId, name: projectName });
 
   // Open the import dialog.
-  await page.getByRole('button', { name: 'Import' }).click();
+  // exact: the workspace rail also lists other specs' "Import …" projects.
+  await page.getByRole('button', { name: 'Import', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Import Markdown' });
   await expect(dialog).toBeVisible();
 
@@ -38,7 +39,8 @@ test('topbar Import ingests a .md file via the file picker', async ({ page }) =>
   await expect(result).toBeVisible();
   await expect(result).toContainText('Imported: 1');
 
-  await dialog.getByRole('button', { name: 'Close' }).click();
+  // The modal has a header × and a footer button, both named Close.
+  await dialog.getByRole('button', { name: 'Close' }).first().click();
 
   // The imported doc should appear in the project tree under Notes.
   await expect(
