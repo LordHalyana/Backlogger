@@ -334,7 +334,8 @@ describe('Task workspace', () => {
       writes: [],
     });
     const notice = await screen.findByRole('note', { name: 'Recovery' });
-    expect(notice.textContent).toContain('Moving to Backlogger…');
+    // The notice can render before the projects load, naming the id at first.
+    await waitFor(() => expect(notice.textContent).toContain('Moving to Backlogger…'));
     expect(notice.textContent).toContain('editing is paused until the move finishes');
     expect(within(notice).queryByRole('button')).toBeNull();
   });
