@@ -1,6 +1,7 @@
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type { MouseEvent } from 'react';
 import { renderMarkdown, type DocumentSummary } from '@backlogger/shared';
+import { findMatchingBlock, markTerms, type Landing } from '../lib/landing.js';
 
 interface DocumentPreviewProps {
   body: string;
@@ -8,6 +9,8 @@ interface DocumentPreviewProps {
   currentPath?: string;
   docs?: readonly DocumentSummary[];
   onOpenDocument?: (projectId: string, documentId: string) => void;
+  /** A Description match: mark and focus the matching paragraph. */
+  landing?: Extract<Landing, { kind: 'description' }> | null;
 }
 
 /** Resolve a relative POSIX-style path against a base file's directory. */
@@ -36,8 +39,23 @@ export function DocumentPreview({
   currentPath,
   docs,
   onOpenDocument,
+  landing = null,
 }: DocumentPreviewProps): JSX.Element {
   const html = useMemo(() => renderMarkdown(body), [body]);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const markedLanding = useRef<number | null>(null);
+  useEffect(() => {
+    if (!landing || markedLanding.current === landing.key || !rootRef.current) return;
+    markedLanding.current = landing.key;
+    rootRef.current.querySelector('.is-search-match')?.classList.remove('is-search-match');
+    const block = findMatchingBlock(rootRef.current, landing.terms);
+    if (!block) return;
+    markTerms(block, landing.terms);
+    block.classList.add('is-search-match');
+    block.tabIndex = -1;
+    block.focus({ preventScroll: true });
+    block.scrollIntoView?.({ block: 'center' });
+  }, [landing, html]);
   const ctxRef = useRef({ projectId, currentPath, docs, onOpenDocument });
   ctxRef.current = { projectId, currentPath, docs, onOpenDocument };
 
@@ -80,6 +98,7 @@ export function DocumentPreview({
 
   return (
     <div
+      ref={rootRef}
       className="document-preview markdown-body"
       onClick={handleClick}
       // eslint-disable-next-line react/no-danger

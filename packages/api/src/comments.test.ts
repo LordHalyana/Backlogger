@@ -42,6 +42,9 @@ interface CommentBody {
 interface PageBody {
   comments: CommentBody[];
   next_cursor: string | null;
+  newer_cursor: string | null;
+  older_count: number;
+  newer_count: number;
   total: number;
 }
 
@@ -489,6 +492,87 @@ describe('GET /api/documents/:taskId/comments', () => {
     const missing = await request(h.app).get(`/api/documents/${uuid(999)}/comments`);
     expect(missing.status).toBe(404);
     expect(missing.body.error.code).toBe('PARENT_NOT_FOUND');
+  });
+
+  function list(query: Record<string, string | number | undefined>) {
+    return request(h.app).get(`/api/documents/${task.id}/comments`).query(query);
+  }
+
+  it('around a comment returns it with two neighbours either side, and counts both ways', async () => {
+    const ids = await seedMany(120);
+    const res = await list({ around: ids[10]! });
+    expect(res.status).toBe(200);
+    const page = res.body as PageBody;
+    expect(page.comments.map((c) => c.id)).toEqual(ids.slice(8, 13));
+    expect(page).toMatchObject({ total: 120, older_count: 8, newer_count: 107 });
+    expect(page.next_cursor).toEqual(expect.any(String));
+    expect(page.newer_cursor).toEqual(expect.any(String));
+
+    const older = (await list({ cursor: page.next_cursor! })).body as PageBody;
+    expect(older.comments.map((c) => c.id)).toEqual(ids.slice(0, 8));
+    expect(older).toMatchObject({ next_cursor: null, older_count: 0, newer_count: 112 });
+
+    const newer = (await list({ after: page.newer_cursor! })).body as PageBody;
+    expect(newer.comments.map((c) => c.id)).toEqual(ids.slice(13, 63));
+    expect(newer).toMatchObject({ older_count: 13, newer_count: 57 });
+    const newest = (await list({ after: newer.newer_cursor! })).body as PageBody;
+    expect(newest.comments.map((c) => c.id)).toEqual(ids.slice(63, 113));
+    const last = (await list({ after: newest.newer_cursor! })).body as PageBody;
+    expect(last.comments.map((c) => c.id)).toEqual(ids.slice(113));
+    expect(last).toMatchObject({ newer_cursor: null, newer_count: 0 });
+  });
+
+  it('around a comment near either end returns what neighbours exist; limit sets the neighbours', async () => {
+    const ids = await seedMany(6);
+    const first = (await list({ around: ids[0]! })).body as PageBody;
+    expect(first.comments.map((c) => c.id)).toEqual(ids.slice(0, 3));
+    expect(first).toMatchObject({ next_cursor: null, older_count: 0, newer_count: 3 });
+
+    const last = (await list({ around: ids[5]! })).body as PageBody;
+    expect(last.comments.map((c) => c.id)).toEqual(ids.slice(3));
+    expect(last).toMatchObject({ newer_cursor: null, newer_count: 0, older_count: 3 });
+
+    const wide = (await list({ around: ids[3]!, limit: 1 })).body as PageBody;
+    expect(wide.comments.map((c) => c.id)).toEqual(ids.slice(2, 5));
+
+    // Never more than the 200-comment page maximum: 99 either side.
+    expect((await list({ around: ids[3]!, limit: 99 })).status).toBe(200);
+    const tooWide = await list({ around: ids[3]!, limit: 100 });
+    expect(tooWide.status).toBe(400);
+    expect(tooWide.body.error.code).toBe('INVALID_COMMAND');
+  });
+
+  it('the newest page has no newer cursor; an older page has one', async () => {
+    await seedMany(60);
+    const p1 = (await list({})).body as PageBody;
+    expect(p1).toMatchObject({ newer_cursor: null, newer_count: 0, older_count: 10 });
+    const p2 = (await list({ cursor: p1.next_cursor! })).body as PageBody;
+    expect(p2).toMatchObject({ older_count: 0, newer_count: 50 });
+    const back = (await list({ after: p2.newer_cursor! })).body as PageBody;
+    expect(back.comments.map((c) => c.id)).toEqual(p1.comments.map((c) => c.id));
+  });
+
+  it('around a deleted comment, or one on another task, is COMMENT_NOT_FOUND; mixed paging is refused', async () => {
+    const ids = await seedMany(3);
+    const other = await createDoc(h, 'work', 'Other task');
+    await post(h, other.id, uuid(100), { id: uuid(50), body: 'elsewhere' });
+
+    for (const around of [uuid(51), uuid(50)]) {
+      const res = await list({ around });
+      expect(res.status).toBe(404);
+      expect(res.body.error.code).toBe('COMMENT_NOT_FOUND');
+    }
+    const page = (await list({ around: ids[1]! })).body as PageBody;
+    for (const query of [
+      { around: ids[1]!, cursor: page.next_cursor! },
+      { after: page.newer_cursor!, cursor: page.next_cursor! },
+      { around: 'not-a-uuid' },
+      { after: 'garbage' },
+    ]) {
+      const res = await list(query);
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('INVALID_COMMAND');
+    }
   });
 });
 

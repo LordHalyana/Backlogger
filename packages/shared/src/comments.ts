@@ -10,6 +10,8 @@ export const COMMENT_SCHEMA_VERSION = 1;
 /** Default and maximum page size of `GET /api/documents/:taskId/comments`. */
 export const COMMENT_PAGE_DEFAULT = 50;
 export const COMMENT_PAGE_MAX = 200;
+/** Default neighbours either side of the comment an `around` page opens on. */
+export const COMMENT_AROUND_DEFAULT = 2;
 
 /** `POST /api/documents/:taskId/comments`. The operation ID travels as `Idempotency-Key`. */
 export interface CreateCommentRequest {
@@ -43,11 +45,22 @@ export interface Comment {
   writable: boolean;
 }
 
-/** One page of a task's comments, oldest first within the page. */
+/**
+ * One page of a task's comments, oldest first within the page. Without a
+ * position the list returns the newest page; `?cursor=` the next older page,
+ * `?after=` the next newer page, and `?around=<commentId>` that comment with up
+ * to `limit` (default 2) neighbours either side.
+ */
 export interface CommentPage {
   comments: Comment[];
-  /** Fetches the next older page; `null` when this page holds the oldest comment. */
+  /** `?cursor=` fetches the next older page; `null` when this page holds the oldest comment. */
   next_cursor: string | null;
+  /** `?after=` fetches the next newer page; `null` when this page holds the newest comment. */
+  newer_cursor: string | null;
+  /** Comments older than this page. */
+  older_count: number;
+  /** Comments newer than this page. */
+  newer_count: number;
   /** All comments on the task. */
   total: number;
 }

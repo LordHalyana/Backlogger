@@ -31,8 +31,33 @@ export function useCommentHistory(
   });
 }
 
+/**
+ * A task's comment history opened on one comment beyond the newest page: that
+ * comment with two either side, then further pages outwards. As in
+ * `useCommentHistory`, the first page is the newest one loaded; newer pages
+ * are fetched as previous pages, older ones as next pages. Disabled without a
+ * comment.
+ */
+export function useCommentsAround(
+  taskId: string,
+  commentId: string | null,
+): UseInfiniteQueryResult<InfiniteData<CommentPage, string>> {
+  return useInfiniteQuery({
+    queryKey: queryKeys.commentsAround(taskId, commentId ?? ''),
+    // Each page param is the list's query string.
+    queryFn: ({ pageParam }) =>
+      apiFetch<CommentPage>(`/api/documents/${taskId}/comments?${pageParam}`),
+    initialPageParam: `around=${encodeURIComponent(commentId ?? '')}`,
+    getNextPageParam: (last) =>
+      last.next_cursor ? `cursor=${encodeURIComponent(last.next_cursor)}` : null,
+    getPreviousPageParam: (first) =>
+      first.newer_cursor ? `after=${encodeURIComponent(first.newer_cursor)}` : null,
+    enabled: commentId !== null,
+  });
+}
+
 /** The loaded comments oldest to newest, and the task's total. */
-export function flattenHistory(data: InfiniteData<CommentPage, string | null> | undefined): {
+export function flattenHistory(data: InfiniteData<CommentPage, unknown> | undefined): {
   comments: Comment[];
   total: number;
 } {

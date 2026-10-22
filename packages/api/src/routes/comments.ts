@@ -11,7 +11,8 @@ export function taskCommentsRouter(service: CommentService): Router {
     '/:taskId/comments',
     asyncRoute(async (req, res) => {
       const taskId = parseDocumentId(req.params.taskId);
-      res.json(service.list(taskId, { cursor: req.query.cursor, limit: req.query.limit }));
+      const { cursor, after, around, limit } = req.query;
+      res.json(service.list(taskId, { cursor, after, around, limit }));
     }),
   );
 

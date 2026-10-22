@@ -187,6 +187,9 @@ Central caches currently include:
 - `['comments', taskId]` (a backlog item's comment history, newest page first;
   refetched after every comment create, edit or delete on that task, and for
   every task after a project reload or full reindex)
+- `['comments', taskId, 'around', commentId]` (the history opened on one
+  comment beyond the newest page; under the `['comments', taskId]` prefix, so
+  the same invalidations refetch it)
 - `['search', query, projectId, limit]` (grouped document/comment results;
   every search query is invalidated by `invalidateSearch`, which the
   document-derived, project-list and comment helpers call, so saves, filing,

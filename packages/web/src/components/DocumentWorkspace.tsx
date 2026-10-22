@@ -18,6 +18,8 @@ import { StatusMessage } from './StatusMessage.js';
 import { DOCUMENT_STATUS_LABELS } from '../lib/display.js';
 import { flattenHistory, useCommentHistory } from '../lib/comments.js';
 import { CommentsTab, type CommentWritability, type TabPanelIds } from './CommentsTab.js';
+import { ApiError } from '../lib/api.js';
+import type { Landing } from '../lib/landing.js';
 
 const DocumentEditor = lazy(() =>
   import('./DocumentEditor.js').then((m) => ({ default: m.DocumentEditor })),
@@ -44,6 +46,12 @@ interface DocumentWorkspaceProps {
   onBackToBoard?: () => void;
   /** The back link's text; defaults to "Back to board". */
   backLabel?: string;
+  /** Land on a comment or on the description's matching paragraph. */
+  landing?: Landing | null;
+  /** The document lives in another project than `projectId` (a link from before filing). */
+  onProjectMoved?: (projectId: string) => void;
+  /** Open search, from the page shown when the document no longer exists. */
+  onOpenSearch?: () => void;
 }
 
 export function DocumentWorkspace({
@@ -54,6 +62,9 @@ export function DocumentWorkspace({
   onOpenDocument,
   onBackToBoard,
   backLabel = 'Back to board',
+  landing = null,
+  onProjectMoved,
+  onOpenSearch,
 }: DocumentWorkspaceProps): JSX.Element {
   const { data: doc, isLoading, isError, error, refetch } = useDocument(documentId);
   const del = useDeleteDocument(projectId);
@@ -80,15 +91,25 @@ export function DocumentWorkspace({
 
   const isBacklogItem = doc?.type === 'backlog_item';
   // The tab belongs to the document it was chosen on: opening another one starts on Description.
-  const [tabChoice, setTabChoice] = useState<{ documentId: string; tab: WorkspaceTab }>({
-    documentId,
-    tab: 'description',
-  });
-  const tab: WorkspaceTab =
-    isBacklogItem && tabChoice.documentId === documentId ? tabChoice.tab : 'description';
+  // A new landing picks its own tab until the user chooses one.
+  const [tabChoice, setTabChoice] = useState<{
+    documentId: string;
+    tab: WorkspaceTab;
+    landingKey: number | null;
+  }>({ documentId, tab: 'description', landingKey: null });
+  const landingTab: WorkspaceTab | null =
+    landing && landing.key !== tabChoice.landingKey
+      ? landing.kind === 'comment'
+        ? 'comments'
+        : 'description'
+      : null;
+  const tab: WorkspaceTab = !isBacklogItem
+    ? 'description'
+    : (landingTab ?? (tabChoice.documentId === documentId ? tabChoice.tab : 'description'));
   const selectTab = useCallback(
-    (next: WorkspaceTab) => setTabChoice({ documentId, tab: next }),
-    [documentId],
+    (next: WorkspaceTab) =>
+      setTabChoice({ documentId, tab: next, landingKey: landing?.key ?? null }),
+    [documentId, landing],
   );
   const commentHistory = useCommentHistory(documentId, isBacklogItem);
   const commentTotal = flattenHistory(commentHistory.data).total;
@@ -118,6 +139,12 @@ export function DocumentWorkspace({
     window.addEventListener('beforeunload', handler);
     return () => window.removeEventListener('beforeunload', handler);
   }, [dirty]);
+
+  // A link from before the task was filed names its old project: follow the task.
+  const movedTo = doc && doc.project_id !== projectId ? doc.project_id : null;
+  useEffect(() => {
+    if (movedTo) onProjectMoved?.(movedTo);
+  }, [movedTo, onProjectMoved]);
 
   const reload = useCallback(() => {
     resetConflictToDocument();
@@ -177,6 +204,20 @@ export function DocumentWorkspace({
         );
       });
   }, [doc, dirty, isSaving, dialog, projectId, moveDoc]);
+
+  if (isError && error instanceof ApiError && error.status === 404) {
+    return (
+      <div className="workspace-empty item-unavailable">
+        <h2>This item is no longer available</h2>
+        <p>It may have been deleted. Nothing was recreated.</p>
+        {onOpenSearch && (
+          <button type="button" className="btn btn--sm" onClick={onOpenSearch}>
+            Search
+          </button>
+        )}
+      </div>
+    );
+  }
 
   if (isLoading || !doc || !buffer) {
     return (
@@ -310,6 +351,7 @@ export function DocumentWorkspace({
             {viewMode !== 'edit' && (
               <DocumentPreview
                 body={buffer.body}
+                landing={landing?.kind === 'description' ? landing : null}
                 projectId={projectId}
                 currentPath={doc.path}
                 docs={docsQuery.data}
@@ -322,6 +364,8 @@ export function DocumentWorkspace({
           <CommentsTab
             key={doc.id}
             taskId={doc.id}
+            taskTitle={doc.title}
+            landing={landing?.kind === 'comment' ? landing : null}
             writability={commentWritability(doc.readOnly, doc.status)}
             hidden={tab !== 'comments'}
             panel={tabPanelIds(doc.id, 'comments')}

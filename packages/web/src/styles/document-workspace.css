@@ -360,3 +360,26 @@
   flex: 1;
   min-width: 0;
 }
+
+/* Search landing on the description (#71). */
+.document-preview mark {
+  background: color-mix(in srgb, var(--warning) 35%, transparent);
+  color: inherit;
+}
+
+/* A description match's paragraph. */
+.document-preview .is-search-match {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.item-unavailable {
+  flex-direction: column;
+  gap: 8px;
+}
+
+.item-unavailable h2 {
+  margin: 0;
+  font-size: 16px;
+}

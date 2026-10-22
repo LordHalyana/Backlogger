@@ -8,6 +8,7 @@
 //   /projects/:projectId/documents/:documentId           → project + open document
 //   /projects/:projectId/board                           → project, Board view
 //   /projects/:projectId/board/documents/:documentId     → document opened from the board
+//   …/documents/:documentId/comments/:commentId          → landing on one of its comments
 //   /inbox                                               → ⌂ Inbox triage mode
 //
 // Only path-based selection lives here; the `?help=` query param (help-link.ts)
@@ -39,6 +40,17 @@ export function readWorkspaceFromUrl(): WorkspaceUrlState {
   return { projectId, documentId, view };
 }
 
+/** The comment a `…/documents/:documentId/comments/:commentId` link lands on, if any. */
+export function readCommentFromUrl(): string | null {
+  if (typeof window === 'undefined') return null;
+  const parts = window.location.pathname.split('/').filter(Boolean);
+  if (parts[0] !== 'projects' || !parts[1]) return null;
+  const rest = parts[2] === 'board' ? parts.slice(3) : parts.slice(2);
+  return rest[0] === 'documents' && rest[1] && rest[2] === 'comments' && rest[3]
+    ? decodeURIComponent(rest[3])
+    : null;
+}
+
 /** The path of ⌂ Inbox triage mode. */
 export const TRIAGE_PATHNAME = '/inbox';
 
@@ -53,30 +65,41 @@ export function workspacePathname(
   projectId: string | null,
   documentId: string | null,
   view: WorkspaceView = 'documents',
+  commentId: string | null = null,
 ): string {
   if (!projectId) return '/';
   const project = `/projects/${encodeURIComponent(projectId)}`;
   const base = view === 'board' ? `${project}/board` : project;
-  return documentId ? `${base}/documents/${encodeURIComponent(documentId)}` : base;
+  if (!documentId) return base;
+  const document = `${base}/documents/${encodeURIComponent(documentId)}`;
+  return commentId ? `${document}/comments/${encodeURIComponent(commentId)}` : document;
 }
 
 /**
  * Push the selection into the browser history, but only when it differs from
  * the current path — so refreshes and back/forward restores do not create
  * redundant history entries. `search` (e.g. `?help=`) and `hash` are preserved.
+ * `replace` rewrites the current entry instead, for a redirect.
  */
 export function syncWorkspaceUrl(
   projectId: string | null,
   documentId: string | null,
   view: WorkspaceView = 'documents',
   triage = false,
+  options: { commentId?: string | null; replace?: boolean } = {},
 ): void {
   if (typeof window === 'undefined') return;
-  const target = triage ? TRIAGE_PATHNAME : workspacePathname(projectId, documentId, view);
+  const target = triage
+    ? TRIAGE_PATHNAME
+    : workspacePathname(projectId, documentId, view, options.commentId ?? null);
   if (window.location.pathname === target) return;
   const u = new URL(window.location.href);
   u.pathname = target;
-  window.history.pushState(withHistoryIndex(historyIndex() + 1), '', u.toString());
+  if (options.replace) {
+    window.history.replaceState(withHistoryIndex(historyIndex()), '', u.toString());
+  } else {
+    window.history.pushState(withHistoryIndex(historyIndex() + 1), '', u.toString());
+  }
 }
 
 /** Key in `history.state` holding the entry's position in this tab's history. */

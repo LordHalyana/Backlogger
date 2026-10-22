@@ -8,6 +8,7 @@ import {
   flattenHistory,
   newUuid,
   useCommentHistory,
+  useCommentsAround,
   useCreateComment,
   useDeleteComment,
   useEditComment,
@@ -15,6 +16,8 @@ import {
 } from '../lib/comments.js';
 import { useDialog, type DialogApi } from '../lib/dialog.js';
 import { useBlockLeave } from '../lib/leave-guard.js';
+import { markTerms, type Landing } from '../lib/landing.js';
+import { useMediaQuery } from '../hooks/useMediaQuery.js';
 import { queryKeys } from '../lib/query-keys.js';
 import { CommentMarkdown, CommentMeta, firstLine } from './CommentBody.js';
 import { CommentComposer, type ComposerError } from './CommentComposer.js';
@@ -30,8 +33,18 @@ export interface TabPanelIds {
   labelledBy: string;
 }
 
+/** How long a landed comment stays tinted. */
+export const LANDING_TINT_MS = 3000;
+
+/** A landing on one comment of this task. */
+export type CommentLanding = Extract<Landing, { kind: 'comment' }>;
+
 interface CommentsTabProps {
   taskId: string;
+  /** For the landing announcement. */
+  taskTitle: string;
+  /** Land on this comment (search result or direct link). */
+  landing: CommentLanding | null;
   writability: CommentWritability;
   hidden: boolean;
   panel: TabPanelIds;
@@ -44,8 +57,8 @@ interface CommentsTabProps {
 }
 
 type FocusTarget =
-  | { kind: 'comment'; id: string }
-  | { kind: 'reader' | 'edit' | 'delete' | 'keep' | 'add' | 'composer' | 'editor' };
+  | { kind: 'comment'; id: string; center?: boolean }
+  | { kind: 'reader' | 'edit' | 'delete' | 'keep' | 'add' | 'composer' | 'editor' | 'notice' };
 
 function focusSelector(target: FocusTarget): string {
   switch (target.kind) {
@@ -75,8 +88,18 @@ function isTaskChanged(err: unknown): boolean {
   return hasCode(err, 'REVISION_CONFLICT', 'COMMENT_NOT_WRITABLE', 'PARENT_NOT_FOUND');
 }
 
+function formatDay(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, { dateStyle: 'medium' });
+}
+
 function plural(n: number): string {
   return `${n} ${n === 1 ? 'comment' : 'comments'}`;
+}
+
+/** The landed comment's classes: its accent edge, and its tint while that lasts. */
+function landedClass(tinted: boolean, reduceMotion: boolean): string {
+  if (!tinted) return ' is-landed';
+  return reduceMotion ? ' is-landed is-tinted-static' : ' is-landed is-tinted';
 }
 
 /** Ask before throwing away unsaved text; resolves true to discard. */
@@ -94,6 +117,8 @@ function confirmDiscard(
  */
 export function CommentsTab({
   taskId,
+  taskTitle,
+  landing,
   writability,
   hidden,
   panel,
@@ -103,7 +128,11 @@ export function CommentsTab({
 }: CommentsTabProps): JSX.Element {
   const dialog = useDialog();
   const qc = useQueryClient();
-  const history = useCommentHistory(taskId);
+  const newest = useCommentHistory(taskId);
+  // Set while the thread shows a window around a comment beyond the newest page.
+  const [aroundId, setAroundId] = useState<string | null>(null);
+  const around = useCommentsAround(taskId, aroundId);
+  const history = aroundId ? around : newest;
   const createComment = useCreateComment(taskId);
   const editComment = useEditComment(taskId);
   const deleteComment = useDeleteComment(taskId);
@@ -124,6 +153,10 @@ export function CommentsTab({
     (text: string) => setAnnouncementState((cur) => ({ text, seq: cur.seq + 1 })),
     [],
   );
+  /** The comment a landing put the From search marker on, and whether its tint still shows. */
+  const [landed, setLanded] = useState<{ id: string; tinted: boolean } | null>(null);
+  const [missingNotice, setMissingNotice] = useState(false);
+  const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
   // Refs guard against a second submit landing before React re-renders.
   const postingRef = useRef(false);
   const savingRef = useRef(false);
@@ -133,23 +166,143 @@ export function CommentsTab({
   useBlockLeave(hasDraft);
   useEffect(() => onDraftChange(hasDraft), [hasDraft, onDraftChange]);
 
-  // Focus moves after an action land once the target element has rendered.
+  // Focus moves after an action land once the target element has rendered,
+  // and not before the render holding the request: a render for another
+  // update (a query refresh) can commit first, without the state that came
+  // with the request, such as the landed comment's marker.
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const pendingFocus = useRef<FocusTarget | null>(null);
-  const [, setFocusRequest] = useState(0);
+  const pendingFocus = useRef<{ target: FocusTarget; request: number } | null>(null);
+  const focusRequests = useRef(0);
+  const [focusRequest, setFocusRequest] = useState(0);
   const focusSoon = useCallback((target: FocusTarget) => {
-    pendingFocus.current = target;
-    setFocusRequest((n) => n + 1);
+    focusRequests.current += 1;
+    pendingFocus.current = { target, request: focusRequests.current };
+    setFocusRequest(focusRequests.current);
   }, []);
   useEffect(() => {
-    const target = pendingFocus.current;
-    if (!target || !rootRef.current) return;
+    const pending = pendingFocus.current;
+    if (!pending || pending.request > focusRequest || !rootRef.current) return;
+    const { target } = pending;
     const el = rootRef.current.querySelector<HTMLElement>(focusSelector(target));
     if (el) {
-      el.focus();
+      if (target.kind === 'comment' && target.center) {
+        el.focus({ preventScroll: true });
+        el.scrollIntoView?.({ block: 'center' });
+      } else {
+        el.focus();
+      }
       pendingFocus.current = null;
     }
   });
+
+  // ---- Landing -------------------------------------------------------------
+
+  // The landing already resolved, so a refetch does not land again.
+  const resolvedLanding = useRef<number | null>(null);
+  const tintTimer = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => () => clearTimeout(tintTimer.current), []);
+
+  const land = useCallback(
+    (target: CommentLanding, comment: Comment) => {
+      resolvedLanding.current = target.key;
+      setMissingNotice(false);
+      setReaderId(null);
+      setLanded({ id: comment.id, tinted: true });
+      clearTimeout(tintTimer.current);
+      tintTimer.current = setTimeout(
+        () => setLanded((cur) => (cur?.id === comment.id ? { ...cur, tinted: false } : cur)),
+        LANDING_TINT_MS,
+      );
+      focusSoon({ kind: 'comment', id: comment.id, center: true });
+      setAnnouncement(
+        `Opened ${taskTitle}, Comments tab, comment from ${formatDay(comment.created_at)}.` +
+          (writability === 'archived' ? ' Task is archived.' : ''),
+      );
+    },
+    [focusSoon, setAnnouncement, taskTitle, writability],
+  );
+
+  // A landing looks in the newest page first, then fetches the comment with
+  // its neighbours; a comment that no longer exists leaves the newest page
+  // with a notice.
+  useEffect(() => {
+    if (!landing || resolvedLanding.current === landing.key || !newest.data) return;
+    const inNewest = flattenHistory(newest.data).comments.find((c) => c.id === landing.commentId);
+    if (inNewest) {
+      setAroundId(null);
+      land(landing, inNewest);
+      return;
+    }
+    if (aroundId !== landing.commentId) {
+      setAroundId(landing.commentId);
+      return;
+    }
+    const found = flattenHistory(around.data).comments.find((c) => c.id === landing.commentId);
+    if (found) {
+      land(landing, found);
+    } else if (around.isError) {
+      resolvedLanding.current = landing.key;
+      if (hasCode(around.error, 'COMMENT_NOT_FOUND')) {
+        setAroundId(null);
+        setLanded(null);
+        setMissingNotice(true);
+        focusSoon({ kind: 'notice' });
+      }
+    }
+  }, [landing, newest.data, around.data, around.isError, around.error, aroundId, land, focusSoon]);
+
+  // The comment a window was opened around went away (deleted here or
+  // elsewhere): back to the newest comments.
+  useEffect(() => {
+    if (
+      aroundId &&
+      resolvedLanding.current === landing?.key &&
+      hasCode(around.error, 'COMMENT_NOT_FOUND')
+    ) {
+      setAroundId(null);
+      qc.removeQueries({ queryKey: queryKeys.commentsAround(taskId, aroundId) });
+    }
+  }, [aroundId, around.error, landing, qc, taskId]);
+
+  const jumpToLatest = (): void => {
+    setAroundId(null);
+    const latest = flattenHistory(newest.data).comments;
+    const last = latest[latest.length - 1];
+    setAnnouncement('Showing the newest comments.');
+    if (last) focusSoon({ kind: 'comment', id: last.id });
+  };
+
+  const showNewer = async (): Promise<void> => {
+    const lastShown = comments[comments.length - 1];
+    const res = await around.fetchPreviousPage();
+    if (res.isError) {
+      setAnnouncement('Newer comments could not be loaded.');
+      return;
+    }
+    const next = flattenHistory(res.data).comments;
+    const firstNew = lastShown ? next[next.findIndex((c) => c.id === lastShown.id) + 1] : undefined;
+    setAnnouncement(`Showing ${next.length} of ${flattenHistory(res.data).total}`);
+    if (firstNew) focusSoon({ kind: 'comment', id: firstNew.id });
+  };
+
+  // Highlight the query terms in the landed comment once it has rendered.
+  const markedLanding = useRef<number | null>(null);
+  useEffect(() => {
+    if (!landed || !landing || markedLanding.current === landing.key) return;
+    const body = rootRef.current?.querySelector<HTMLElement>(
+      `[data-comment-id="${landed.id}"] .comment-body`,
+    );
+    if (!body) return;
+    markedLanding.current = landing.key;
+    markTerms(body, landing.terms);
+  });
+
+  const dismissNotice = (): void => {
+    setMissingNotice(false);
+    const last = comments[comments.length - 1];
+    if (last) focusSoon({ kind: 'comment', id: last.id });
+    else if (writable) focusSoon({ kind: 'add' });
+  };
 
   /** The open edit when it belongs to comment `id`. */
   const editOf = (id: string): EditDraft | null => (edit?.commentId === id ? edit : null);
@@ -159,6 +312,8 @@ export function CommentsTab({
   // ---- Reader --------------------------------------------------------------
 
   const openReader = useCallback((id: string) => {
+    // Opening any comment ends the landing's From search marker.
+    setLanded(null);
     setReaderId(id);
     setConfirmDeleteId(null);
     setDeleteError(null);
@@ -210,6 +365,8 @@ export function CommentsTab({
     setAnnouncement('Posting comment…');
     try {
       await createComment.mutateAsync(attempt);
+      // The new comment is the newest one.
+      setAroundId(null);
       setComposerText('');
       setPostAttempt(null);
       setAnnouncement('Comment posted.');
@@ -441,6 +598,9 @@ export function CommentsTab({
   // ---- Render --------------------------------------------------------------
 
   const reader = readerId ? (comments.find((c) => c.id === readerId) ?? null) : null;
+  const pages = history.data?.pages ?? [];
+  const olderCount = pages[pages.length - 1]?.older_count ?? 0;
+  const newerCount = pages[0]?.newer_count ?? 0;
   const readerOpen = readerId !== null;
 
   return (
@@ -482,6 +642,17 @@ export function CommentsTab({
             <p>This project is read-only. Its comments can be read, but not changed.</p>
           </div>
         )}
+        {missingNotice && (
+          <div className="comments-notice" role="status" tabIndex={-1} data-focus="notice">
+            <p>
+              This comment is no longer available. It may have been deleted. Showing the newest
+              comments.
+            </p>
+            <button type="button" className="btn btn--sm" onClick={dismissNotice}>
+              Dismiss
+            </button>
+          </div>
+        )}
 
         <div className="comments-body">
           <div
@@ -504,14 +675,17 @@ export function CommentsTab({
             ) : (
               <>
                 {history.hasNextPage && (
-                  <button
-                    type="button"
-                    className="btn btn--sm btn--ghost comments-load-older"
-                    disabled={history.isFetchingNextPage}
-                    onClick={() => void loadOlder()}
-                  >
-                    {history.isFetchingNextPage ? 'Loading…' : 'Load older comments'}
-                  </button>
+                  <div className="comments-page-control">
+                    <button
+                      type="button"
+                      className="btn btn--sm btn--ghost comments-load-older"
+                      disabled={history.isFetchingNextPage}
+                      onClick={() => void loadOlder()}
+                    >
+                      {history.isFetchingNextPage ? 'Loading…' : 'Load older comments'}
+                    </button>
+                    {aroundId && <span className="comments-page-count">{olderCount} earlier</span>}
+                  </div>
                 )}
                 {comments.map((c, i) => (
                   <article
@@ -520,12 +694,19 @@ export function CommentsTab({
                     data-comment-id={c.id}
                     tabIndex={0}
                     aria-current={c.id === readerId ? 'true' : undefined}
-                    className={'comment-block' + (c.id === readerId ? ' is-selected' : '')}
+                    className={
+                      'comment-block' +
+                      (c.id === readerId ? ' is-selected' : '') +
+                      (landed?.id === c.id ? landedClass(landed.tinted, reduceMotion) : '')
+                    }
                     onClick={(e) => onThreadClick(e, c.id)}
                     onKeyDown={(e) => onThreadKeyDown(e, i)}
                   >
                     <header className="comment-meta">
                       <CommentMeta comment={c} />
+                      {landed?.id === c.id && (
+                        <span className="comment-landed-marker">From search</span>
+                      )}
                       {writable && !readerOpen && (
                         <button
                           type="button"
@@ -544,6 +725,28 @@ export function CommentsTab({
                     )}
                   </article>
                 ))}
+                {aroundId && (
+                  <div className="comments-page-control">
+                    {around.hasPreviousPage && (
+                      <>
+                        <span className="comments-page-count">
+                          {plural(newerCount).replace(' ', ' newer ')}
+                        </span>
+                        <button
+                          type="button"
+                          className="btn btn--sm btn--ghost"
+                          disabled={around.isFetchingPreviousPage}
+                          onClick={() => void showNewer()}
+                        >
+                          {around.isFetchingPreviousPage ? 'Loading…' : 'Show newer comments'}
+                        </button>
+                      </>
+                    )}
+                    <button type="button" className="btn btn--sm btn--ghost" onClick={jumpToLatest}>
+                      Jump to latest
+                    </button>
+                  </div>
+                )}
               </>
             )}
           </div>

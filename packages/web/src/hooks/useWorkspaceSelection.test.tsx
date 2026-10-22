@@ -123,3 +123,38 @@ describe('leaving a task with an unsaved comment', () => {
     expect(window.location.pathname).toBe('/projects/p/board');
   });
 });
+
+describe('landing on a comment', () => {
+  it('a comment link lands on its comment; leaving the task drops the landing', () => {
+    renderAt('/projects/p/documents/t1/comments/c1', false);
+    expect(selection.landing).toMatchObject({ kind: 'comment', commentId: 'c1', terms: [] });
+    act(() => selection.selectTreeDocument('t2'));
+    expect(selection.landing).toBeNull();
+    expect(window.location.pathname).toBe('/projects/p/documents/t2');
+  });
+
+  it('opening a comment result puts the comment in the URL, with a new landing each time', () => {
+    renderAt('/', false);
+    act(() =>
+      selection.openDocument('q', 't3', { kind: 'comment', commentId: 'c9', terms: ['zebra'] }),
+    );
+    expect(window.location.pathname).toBe('/projects/q/documents/t3/comments/c9');
+    const first = selection.landing;
+    expect(first).toMatchObject({ kind: 'comment', commentId: 'c9', terms: ['zebra'] });
+    act(() =>
+      selection.openDocument('q', 't3', { kind: 'comment', commentId: 'c9', terms: ['zebra'] }),
+    );
+    expect(selection.landing?.key).not.toBe(first?.key);
+  });
+
+  it('relocateProject follows a filed task without a new history entry, keeping the landing', () => {
+    renderAt('/projects/old/documents/t1/comments/c1', false);
+    const landing = selection.landing;
+    const length = window.history.length;
+    act(() => selection.relocateProject('new'));
+    expect(shown()).toBe('new/documents/t1/false');
+    expect(window.location.pathname).toBe('/projects/new/documents/t1/comments/c1');
+    expect(window.history.length).toBe(length);
+    expect(selection.landing).toBe(landing);
+  });
+});
