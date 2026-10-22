@@ -206,7 +206,7 @@ When document body/frontmatter changes, invalidate or update:
 
 Query keys and invalidation are centralized in
 `packages/web/src/lib/query-keys.ts`. The `queryKeys` factory defines the keys
-above, and helpers — `invalidateDocumentDerived`, `invalidateProjectList`,
+above, and helpers — `invalidateDocument`, `invalidateDocumentDerived`, `invalidateProjectList`,
 `invalidateProjectFolders`, `invalidateProjectStructure`, `invalidateComments`, `invalidateSearch`, `setDocumentCache`,
 `removeDocumentCache`, `invalidateProjectReload`, `invalidateGlobalReindex`, and
 `clearDocumentBuffers` — keep mutation paths from missing invalidations. New

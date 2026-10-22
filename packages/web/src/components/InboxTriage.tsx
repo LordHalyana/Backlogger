@@ -3,6 +3,7 @@ import { TASK_STATES, type BoardCard, type Project, type TaskState } from '@back
 import { ApiError } from '../lib/api.js';
 import { isTextField } from '../lib/keyboard.js';
 import { useBoard } from '../lib/board.js';
+import { newUuid } from '../lib/comments.js';
 import {
   filingTargets,
   readRecentTargets,
@@ -91,7 +92,13 @@ function Triage({
     setBusy({ id: item.id, label: `Moving to ${target.name}…` });
     setMessage(null);
     fileItem.mutate(
-      { id: item.id, revision: item.revision, from: inbox.id, to: target.id },
+      {
+        id: item.id,
+        revision: item.revision,
+        from: inbox.id,
+        to: target.id,
+        operationId: newUuid(),
+      },
       {
         onSuccess: () => {
           rememberTarget(target.id);

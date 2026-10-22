@@ -23,6 +23,7 @@ from temporary cleanup artifacts and archived phase plans.
 - [Architecture](design/architecture.md)
 - [Data storage and project mounts](operations/data-storage.md)
 - [API reference](api.md)
+- [Release notes](release-notes.md)
 - [Testing](testing.md)
 
 ## Design Docs

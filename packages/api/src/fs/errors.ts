@@ -5,7 +5,8 @@ export type FsRepoErrorCode =
   | 'INVALID_RELATIVE_PATH'
   | 'SYMLINK_NOT_ALLOWED'
   | 'DOCUMENT_NOT_FOUND'
-  | 'PROJECT_NOT_FOUND';
+  | 'PROJECT_NOT_FOUND'
+  | 'NOT_UTF8';
 
 export class FsRepoError extends Error {
   override readonly name = 'FsRepoError';
@@ -56,5 +57,11 @@ export class DocumentNotFoundError extends FsRepoError {
 export class ProjectNotFoundError extends FsRepoError {
   constructor(value: string) {
     super('PROJECT_NOT_FOUND', `Project not found: ${value}`);
+  }
+}
+
+export class NotUtf8Error extends FsRepoError {
+  constructor(value: string) {
+    super('NOT_UTF8', `Not valid UTF-8 text: ${value}`);
   }
 }

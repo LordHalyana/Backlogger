@@ -8,11 +8,18 @@ import {
   TASK_STATES,
   type Board,
   type Document,
+  type FileDocumentAck,
   type Project,
   type TaskState,
 } from '@backlogger/shared';
 import { apiFetch } from './api.js';
-import { invalidateDocumentDerived, queryKeys, setDocumentCache } from './query-keys.js';
+import {
+  invalidateComments,
+  invalidateDocument,
+  invalidateDocumentDerived,
+  queryKeys,
+  setDocumentCache,
+} from './query-keys.js';
 
 /** Inbox first, then by name. */
 export function orderProjects(projects: readonly Project[]): Project[] {
@@ -63,19 +70,30 @@ export interface FileItemArgs {
   revision: string;
   from: string;
   to: string;
+  /**
+   * The Idempotency-Key, generated when the user acts (`newUuid`). Resending
+   * the same request must reuse it to get the original acknowledgement.
+   */
+  operationId: string;
 }
 
-/** File a backlog item into another project; it keeps its id. */
-export function useFileItem(): UseMutationResult<Document, Error, FileItemArgs> {
+/**
+ * File a backlog item, with its comments, into another project; it keeps its
+ * id. The server answers with an acknowledgement only, so the item and its
+ * comments are refetched afterwards.
+ */
+export function useFileItem(): UseMutationResult<FileDocumentAck, Error, FileItemArgs> {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, revision, to }) =>
-      apiFetch<Document>(`/api/documents/${id}/file`, {
+    mutationFn: ({ id, revision, to, operationId }) =>
+      apiFetch<FileDocumentAck>(`/api/documents/${id}/file`, {
         method: 'POST',
+        headers: { 'Idempotency-Key': operationId },
         body: JSON.stringify({ target_project_id: to, revision }),
       }),
-    onSuccess: (doc) => setDocumentCache(qc, doc),
-    onSettled: (_doc, _err, { from, to }) => {
+    onSettled: (_ack, _err, { id, from, to }) => {
+      invalidateDocument(qc, id);
+      void invalidateComments(qc, id);
       invalidateDocumentDerived(qc, from);
       invalidateDocumentDerived(qc, to);
     },

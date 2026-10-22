@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { setup, teardown, type Harness } from './test-support.js';
 
@@ -321,8 +322,17 @@ describe('Capture: Inbox unavailable', () => {
   });
 });
 
-function file(h: Harness, id: string, body: Record<string, unknown>) {
-  return request(h.app).post(`/api/documents/${id}/file`).send(body);
+/** File an item, with a fresh Idempotency-Key unless one is given. */
+function file(h: Harness, id: string, body: Record<string, unknown>, key: string = randomUUID()) {
+  return request(h.app).post(`/api/documents/${id}/file`).set('Idempotency-Key', key).send(body);
+}
+
+/** File an item, then fetch it where it now lives (filing answers with an ack only). */
+async function fileAndGet(h: Harness, id: string, body: Record<string, unknown>) {
+  const res = await file(h, id, body);
+  expect(res.status, JSON.stringify(res.body)).toBe(200);
+  const doc = await request(h.app).get(`/api/documents/${id}`);
+  return { ack: res.body, doc: doc.body as DocBody & { status: string } };
 }
 
 async function listFiles(h: Harness, projectId: string): Promise<string[]> {
@@ -362,18 +372,24 @@ describe('Filing: POST /api/documents/:id/file', () => {
     const res = await file(h, UUID.a, { target_project_id: 'work', revision: current.body.revision });
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({
-      id: UUID.a,
-      project_id: 'work',
-      path: 'work/backlog/fix-the-gate-0a1b2c3d.md',
+      command: 'document.file',
+      document_id: UUID.a,
+      source_project_id: 'inbox',
+      target_project_id: 'work',
+      outcome: 'filed',
     });
-    expect(res.body.revision).not.toBe(current.body.revision);
+    expect(res.body.result_revision).not.toBe(current.body.revision);
 
     const moved = await readDisk(h, 'work/backlog/fix-the-gate-0a1b2c3d.md');
     expect(moved).toBe(original.replace('project: inbox\n', 'project: work\n'));
     expect(await listFiles(h, 'inbox')).toEqual([]);
 
     const fetched = await request(h.app).get(`/api/documents/${UUID.a}`);
-    expect(fetched.body).toMatchObject({ project_id: 'work', revision: res.body.revision });
+    expect(fetched.body).toMatchObject({
+      project_id: 'work',
+      path: 'work/backlog/fix-the-gate-0a1b2c3d.md',
+      revision: res.body.result_revision,
+    });
     const workBoard = await request(h.app).get('/api/projects/work/board');
     expect(workBoard.body.columns.todo.map((c: { id: string }) => c.id)).toEqual([UUID.a]);
     const inboxBoard = await request(h.app).get('/api/projects/inbox/board');
@@ -405,15 +421,36 @@ describe('Filing: POST /api/documents/:id/file', () => {
     const before = await readDisk(h, item.path);
     const res = await file(h, UUID.a, { target_project_id: 'inbox', revision: 'stale' });
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ project_id: 'inbox', revision: item.revision });
+    expect(res.body).toMatchObject({
+      outcome: 'already_filed',
+      target_project_id: 'inbox',
+      result_revision: item.revision,
+    });
     expect(await readDisk(h, item.path)).toBe(before);
   });
 
   it('S6: a resent filing after a lost response returns the item at its new place', async () => {
-    const first = await file(h, UUID.a, { target_project_id: 'work', revision: item.revision });
-    const again = await file(h, UUID.a, { target_project_id: 'work', revision: item.revision });
+    const key = randomUUID();
+    const first = await file(
+      h,
+      UUID.a,
+      { target_project_id: 'work', revision: item.revision },
+      key,
+    );
+    const again = await file(
+      h,
+      UUID.a,
+      { target_project_id: 'work', revision: item.revision },
+      key,
+    );
     expect(again.status).toBe(200);
-    expect(again.body).toMatchObject({ project_id: 'work', revision: first.body.revision });
+    expect(again.body).toEqual(first.body);
+    // A new key for the same filing finds the item already there.
+    const fresh = await file(h, UUID.a, { target_project_id: 'work', revision: item.revision });
+    expect(fresh.body).toMatchObject({
+      outcome: 'already_filed',
+      result_revision: first.body.result_revision,
+    });
   });
 
   it('S6: a stale revision returns 409 REVISION_CONFLICT with the current revision and changes no files', async () => {
@@ -470,13 +507,23 @@ describe('Filing: POST /api/documents/:id/file', () => {
     const missing = await file(h, UUID.a, { target_project_id: 'work' });
     expect(missing.status).toBe(400);
     expect(missing.body.error.code).toBe('VALIDATION_FAILED');
+
+    const unkeyed = await request(h.app)
+      .post(`/api/documents/${UUID.a}/file`)
+      .send({ target_project_id: 'work', revision: item.revision });
+    expect(unkeyed.status).toBe(400);
+    expect(unkeyed.body.error.code).toBe('INVALID_COMMAND');
+    expect(await listFiles(h, 'work')).toEqual([]);
   });
 
   it('a capture resent after filing returns the item where it now lives', async () => {
-    const filed = await file(h, UUID.a, { target_project_id: 'work', revision: item.revision });
+    const { doc: filed } = await fileAndGet(h, UUID.a, {
+      target_project_id: 'work',
+      revision: item.revision,
+    });
     const res = await capture(h, { id: UUID.a, title: 'Fix the gate' });
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ project_id: 'work', revision: filed.body.revision });
+    expect(res.body).toMatchObject({ project_id: 'work', revision: filed.revision });
     expect(await listFiles(h, 'inbox')).toEqual([]);
   });
 
@@ -505,8 +552,8 @@ describe('Filing: POST /api/documents/:id/file', () => {
     release();
     await held;
 
-    const filed = await filing;
-    expect(filed.status).toBe(200);
+    expect((await filing).status).toBe(200);
+    const filed = await request(h.app).get(`/api/documents/${UUID.a}`);
     for (const res of [await update, await move, await del]) {
       expect(res.status).toBe(409);
       expect(res.body.error).toMatchObject({
@@ -529,10 +576,12 @@ describe('Filing: POST /api/documents/:id/file', () => {
       .set('If-Match', item.revision)
       .send({ status: 'archived' });
     expect(archived.status).toBe(200);
-    const res = await file(h, UUID.a, { target_project_id: 'work', revision: archived.body.revision });
-    expect(res.status).toBe(200);
-    expect(res.body.path).toBe(archived.body.path.replace(/^inbox\//, 'work/'));
-    expect(res.body.status).toBe('archived');
+    const { doc } = await fileAndGet(h, UUID.a, {
+      target_project_id: 'work',
+      revision: archived.body.revision,
+    });
+    expect(doc.path).toBe(archived.body.path.replace(/^inbox\//, 'work/'));
+    expect(doc.status).toBe('archived');
   });
 });
 
@@ -775,8 +824,10 @@ describe('Restart with a rebuilt database (S10)', () => {
       .put(`/api/documents/${moved.id}`)
       .set('If-Match', moved.revision)
       .send({ task_state: 'in_progress' });
-    const filed = await file(h, moved.id, { target_project_id: 'work', revision: started.body.revision });
-    expect(filed.status).toBe(200);
+    const { doc: filed } = await fileAndGet(h, moved.id, {
+      target_project_id: 'work',
+      revision: started.body.revision,
+    });
     const keptStarted = await request(h.app)
       .put(`/api/documents/${kept.id}`)
       .set('If-Match', kept.revision)
@@ -791,8 +842,8 @@ describe('Restart with a rebuilt database (S10)', () => {
       expect.objectContaining({ id: 'inbox', name: 'Inbox', readOnly: false }),
     ]);
     const doc = await request(h.app).get(`/api/documents/${UUID.b}`);
-    expect(doc.body).toMatchObject({ id: UUID.b, project_id: 'work', path: filed.body.path });
-    expect(await readDisk(h, filed.body.path)).toContain('task_state: in_progress\n');
+    expect(doc.body).toMatchObject({ id: UUID.b, project_id: 'work', path: filed.path });
+    expect(await readDisk(h, filed.path)).toContain('task_state: in_progress\n');
     expect(shape(await currentWork(h))).toEqual(shape(before));
     // Writability of other projects after a rebuild is a known limitation; not asserted.
   });

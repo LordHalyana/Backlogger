@@ -110,6 +110,7 @@ test('a comment link still lands on the comment after the task was filed', async
   const link = `/projects/${from}/documents/${task.id}/comments/${target}`;
 
   const filed = await page.request.post(`/api/documents/${task.id}/file`, {
+    headers: { 'Idempotency-Key': randomUUID() },
     data: { target_project_id: to, revision: task.revision },
   });
   expect(filed.ok(), await filed.text()).toBe(true);

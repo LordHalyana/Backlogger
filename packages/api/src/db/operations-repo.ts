@@ -117,6 +117,13 @@ export class OperationsRepo {
       .run(operationId, payload);
   }
 
+  /** A checkpoint: the pending operation's payload, replaced in place. */
+  replacePayload(operationId: string, payload: string): void {
+    this.db
+      .prepare(`UPDATE operation_payloads SET payload = ? WHERE operation_id = ?`)
+      .run(payload, operationId);
+  }
+
   removePayload(operationId: string): void {
     this.db.prepare(`DELETE FROM operation_payloads WHERE operation_id = ?`).run(operationId);
   }
@@ -127,6 +134,21 @@ export class OperationsRepo {
        VALUES (?, ?, ?, ?)`,
     );
     for (const e of entries) insert.run(operationId, e.path, e.role, e.fingerprint);
+  }
+
+  getManifest(operationId: string): ManifestEntry[] {
+    return this.db
+      .prepare<[string], ManifestEntry>(
+        `SELECT path, role, fingerprint FROM operation_manifest_entries
+         WHERE operation_id = ? ORDER BY role, path`,
+      )
+      .all(operationId);
+  }
+
+  removeManifest(operationId: string): void {
+    this.db
+      .prepare(`DELETE FROM operation_manifest_entries WHERE operation_id = ?`)
+      .run(operationId);
   }
 
   addGuards(operationId: string, guards: ReadonlyArray<Omit<GuardRow, 'operation_id'>>): void {

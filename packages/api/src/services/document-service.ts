@@ -13,6 +13,7 @@ import {
   type CreateDocumentRequest,
   type Document,
   type DocumentSummary,
+  type FileDocumentAck,
   type Frontmatter,
   type SidecarEntry,
   type UpdateDocumentRequest,
@@ -20,6 +21,7 @@ import {
 import { BadRequestError, ConflictError, NotFoundError } from '../errors.js';
 import {
   DocumentNotFoundError,
+  NotUtf8Error,
   sidecarRevision,
   type FsRepository,
   type RawDocument,
@@ -31,7 +33,22 @@ import type { TagsService } from './tags-service.js';
 import type { ProjectRecord, ProjectsRepo } from '../db/projects-repo.js';
 import { applyPlaceholders, type TemplateRegistry } from '../templates/registry.js';
 import type { InboxService } from './inbox-service.js';
-import type { CommandScope, WriteCoordinator } from './write-coordinator.js';
+import {
+  operationFingerprint,
+  parseOperationId,
+  recoveryRequired,
+  type CommandScope,
+  type WriteCoordinator,
+} from './write-coordinator.js';
+import {
+  commentDir,
+  filedPath,
+  filingAck,
+  frontmatterNotRewritable,
+  rewriteProjectLine,
+  TRANSFER_COMMAND,
+  type TaskTransfer,
+} from './task-transfer.js';
 
 export interface DocumentServiceDeps {
   documentsRepo: DocumentsRepo;
@@ -43,6 +60,8 @@ export interface DocumentServiceDeps {
   sidecarStore: SidecarStore;
   /** Runs every mutation; it also drops the graph caches afterwards. */
   coordinator: WriteCoordinator;
+  /** Filing's recoverable task-and-comment transfer. */
+  transfer: TaskTransfer;
   inbox: InboxService;
   now?: () => string;
   newId?: () => string;
@@ -68,6 +87,18 @@ export interface CaptureResult {
   created: boolean;
 }
 
+/**
+ * `document.file`, as received: the Idempotency-Key unvalidated, so an HTTP
+ * route and a future MCP adapter hand over the same thing.
+ */
+export interface FileDocumentCommand {
+  operationId: unknown;
+  documentId: string;
+  targetProjectId: string;
+  /** The task's revision the filing was decided on. */
+  revision: string;
+}
+
 /** Internal update options (not exposed over HTTP). */
 export interface UpdateOptions {
   /** Overwrites the stored task state when its value is defined. */
@@ -83,6 +114,7 @@ export class DocumentService {
   private readonly tagsService: TagsService;
   private readonly sidecarStore: SidecarStore;
   private readonly coordinator: WriteCoordinator;
+  private readonly transfer: TaskTransfer;
   private readonly inbox: InboxService;
   private readonly now: () => string;
   private readonly newId: () => string;
@@ -96,6 +128,7 @@ export class DocumentService {
     this.tagsService = deps.tagsService;
     this.sidecarStore = deps.sidecarStore;
     this.coordinator = deps.coordinator;
+    this.transfer = deps.transfer;
     this.inbox = deps.inbox;
     this.now = deps.now ?? (() => new Date().toISOString());
     this.newId = deps.newId ?? (() => uuidv4());
@@ -646,41 +679,69 @@ export class DocumentService {
   }
 
   /**
-   * File a backlog item into another writable native project, keeping its id
-   * and every byte of its file except the frontmatter `project:` value. The
-   * file keeps its project-relative path. Holds both projects' queues. Writes
-   * the target, then deletes the source, then updates the index; a crash in
-   * between leaves two copies that the reindex resolves.
+   * File a backlog item into another writable native project, with its
+   * comments, as a recoverable transfer (see `TaskTransfer`). The item keeps
+   * its id, its project-relative path and every byte of its file except the
+   * frontmatter `project:` value; comments move byte for byte. Holds both
+   * projects' queues. Retry-safe: a resent request with the same
+   * Idempotency-Key gets the original acknowledgement.
    */
-  async file(id: string, targetProjectId: string, revision: string): Promise<Document> {
-    if (this.findOrThrow(id).project_id === targetProjectId) return this.get(id);
+  async file(command: FileDocumentCommand): Promise<FileDocumentAck> {
+    const operationId = parseOperationId(command.operationId);
+    const { documentId: id, targetProjectId, revision } = command;
+    const fingerprint = operationFingerprint(TRANSFER_COMMAND, [id, targetProjectId, revision]);
     return this.coordinator.command({
+      operation: { id: operationId, command: TRANSFER_COMMAND, fingerprint },
       locate: () => {
         const summary = this.findOrThrow(id);
         this.getProject(targetProjectId);
         return { summary, projects: [summary.project_id, targetProjectId] };
       },
       moved: ({ summary }) => movedConflict(summary),
-      guards: () => ({ tasks: [id] }),
-      run: ({ summary }, scope) => this.fileHeld(scope, summary, targetProjectId, revision),
+      // A retry checks for an unfinished transfer (the task guard) before the
+      // already-in-destination shortcut.
+      guards: ({ summary }) => ({
+        tasks: [id],
+        paths: [
+          summary.path,
+          filedPath(summary, targetProjectId),
+          commentDir(summary.project_id, id),
+          commentDir(targetProjectId, id),
+        ],
+      }),
+      run: ({ summary }, scope) =>
+        this.fileHeld(scope, operationId, summary, targetProjectId, revision),
     });
   }
 
   private async fileHeld(
     scope: CommandScope,
+    operationId: string,
     summary: DocumentSummary,
     targetProjectId: string,
     revision: string,
-  ): Promise<Document> {
+  ): Promise<FileDocumentAck> {
     const id = summary.id;
-    if (summary.project_id === targetProjectId) return this.get(id);
+    const sourceId = summary.project_id;
+    if (sourceId === targetProjectId) {
+      scope.intent({ guards: [] });
+      return scope.complete(
+        filingAck({
+          operationId,
+          taskId: id,
+          sourceProjectId: sourceId,
+          targetProjectId,
+          outcome: 'already_filed',
+          resultRevision: summary.revision,
+        }),
+      );
+    }
     if (summary.type !== 'backlog_item') {
       throw new BadRequestError(
         'NOT_A_BACKLOG_ITEM',
         `Only backlog items can be filed; this document is a ${summary.type}.`,
       );
     }
-    const sourceId = summary.project_id;
     this.assertProjectAcceptsBacklogItems(sourceId);
     this.assertProjectAcceptsBacklogItems(targetProjectId);
 
@@ -694,14 +755,17 @@ export class DocumentService {
     }
     assertEditableBackloggerDocument(summary, raw);
 
-    const text = await this.fs.readText(summary.path);
+    const text = await this.fs.readExactText(summary.path).catch((err: unknown) => {
+      if (err instanceof NotUtf8Error) throw frontmatterNotRewritable();
+      throw err;
+    });
     const rewritten = rewriteProjectLine(text, targetProjectId);
     const check = FrontmatterSchema.safeParse(parseFrontmatter(rewritten));
     if (!check.success || check.data.id !== id || check.data.project !== targetProjectId) {
       throw frontmatterNotRewritable();
     }
 
-    const nextPath = `${targetProjectId}/${summary.path.slice(sourceId.length + 1)}`;
+    const nextPath = filedPath(summary, targetProjectId);
     const occupant = this.documentsRepo.findByPath(nextPath);
     if (occupant && occupant.id !== id) {
       throw new ConflictError(
@@ -710,28 +774,20 @@ export class DocumentService {
       );
     }
 
-    const nextRevision = await this.fs.writeRaw(nextPath, rewritten);
-    await this.fs.delete(summary.path);
-
-    const indexed = scope.commit(() =>
-      this.documentsRepo.upsert({
-        id,
-        project_id: targetProjectId,
-        title: summary.title,
-        type: summary.type,
-        status: summary.status,
-        path: nextPath,
-        tags: summary.tags,
-        readOnly: false,
-        body: raw.body,
-        created_at: summary.created_at,
-        updated_at: summary.updated_at,
-        revision: nextRevision,
-        task_state: storedTaskState(raw.frontmatter.task_state),
-      }),
+    const { plan, intent } = await this.transfer.prepare(
+      operationId,
+      summary,
+      targetProjectId,
+      text,
     );
-
-    return { ...indexed, readOnly: false, body: raw.body };
+    scope.intent(intent);
+    const result = await this.transfer.advance(plan, {
+      checkpoint: (payload) => scope.checkpoint(payload),
+      complete: (outcome, write) => scope.complete(outcome, write),
+    });
+    // Stopped by an unexpected change: the transfer stays pending for review.
+    if (!result.done) throw recoveryRequired(operationId);
+    return result.ack;
   }
 
   /**
@@ -877,26 +933,6 @@ function assertEditableBackloggerDocument(summary: DocumentSummary, raw: RawDocu
       'This document has inconsistent archive metadata and cannot be modified until it is reindexed.',
     );
   }
-}
-
-/**
- * Replace the value of the frontmatter's top-level `project:` line, leaving
- * every other byte as it was. Throws unless exactly one such line exists.
- */
-function rewriteProjectLine(text: string, projectId: string): string {
-  const match = /^(---\r?\n)([\s\S]*?\r?\n)(---(?:\r?\n|$))/.exec(text);
-  const lines = match ? match[2]!.match(/^project:[^\r\n]*$/gm) : null;
-  if (!match || !lines || lines.length !== 1) throw frontmatterNotRewritable();
-  const block = match[2]!.replace(/^project:[^\r\n]*$/m, `project: ${projectId}`);
-  return match[1] + block + text.slice(match[1]!.length + match[2]!.length);
-}
-
-/** Frontmatter whose `project:` line Backlogger cannot rewrite without touching other bytes. */
-function frontmatterNotRewritable(): ConflictError {
-  return new ConflictError(
-    'DERIVED_DOCUMENT_READ_ONLY',
-    'This document has frontmatter Backlogger cannot rewrite safely; edit its project line by hand.',
-  );
 }
 
 function parseFrontmatter(text: string): Record<string, unknown> {

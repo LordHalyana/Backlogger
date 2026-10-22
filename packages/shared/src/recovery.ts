@@ -12,8 +12,9 @@ export type RecoveryAction = 'recheck' | 'abandon';
  * - `resumable`: the files are in the known state before or after the
  *   operation; Recheck finishes it.
  * - `content_conflict`: a file holds content the operation did not expect.
- * - `structural`: a missing file, parent or owner, an ambiguous path, or an
- *   operation this version cannot recover; repair by hand, then Recheck.
+ * - `structural`: a missing file, parent or owner, an ambiguous path, a file
+ *   the operation does not cover where it must not be, or an operation this
+ *   version cannot recover; repair by hand, then Recheck.
  */
 export type RecoveryKind = 'resumable' | 'content_conflict' | 'structural';
 
@@ -24,6 +25,7 @@ export type RecoveryReason =
   | 'parent_missing'
   | 'owner_changed'
   | 'ambiguous_path'
+  | 'unexpected_file'
   | 'unsupported';
 
 /** One entry of `GET /api/recovery`. */

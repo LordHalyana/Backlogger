@@ -16,6 +16,7 @@ import { LinkService } from './services/link-service.js';
 import { ProjectService } from './services/project-service.js';
 import { ProjectQueue } from './services/project-queue.js';
 import { RecoveryService } from './services/recovery-service.js';
+import { TaskTransfer, TRANSFER_COMMAND } from './services/task-transfer.js';
 import { ReindexService } from './services/reindex-service.js';
 import { SearchService } from './services/search-service.js';
 import { GraphService } from './services/graph-service.js';
@@ -94,6 +95,8 @@ export function buildContext(opts: BuildContextOptions): AppContext {
     inbox: inboxService,
     coordinator,
   });
+  const transfer = new TaskTransfer({ coordinator, documentsRepo, commentsRepo, fs });
+  coordinator.onRecover(TRANSFER_COMMAND, transfer);
   const documentService = new DocumentService({
     documentsRepo,
     projectsRepo,
@@ -103,6 +106,7 @@ export function buildContext(opts: BuildContextOptions): AppContext {
     tagsService,
     sidecarStore,
     coordinator,
+    transfer,
     inbox: inboxService,
   });
   const commentService = new CommentService({
@@ -125,6 +129,7 @@ export function buildContext(opts: BuildContextOptions): AppContext {
     graphService,
     sidecarStore,
     coordinator,
+    transfer,
     inbox: inboxService,
   });
   const boardService = new BoardService({ documentsRepo, projectsRepo });

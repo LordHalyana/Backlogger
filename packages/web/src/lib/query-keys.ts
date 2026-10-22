@@ -82,6 +82,11 @@ export function invalidateProjectStructure(qc: QueryClient, projectId: string): 
   void qc.invalidateQueries({ queryKey: queryKeys.documents(projectId) });
 }
 
+/** Refetch one document, e.g. after a command that answers with an acknowledgement only. */
+export function invalidateDocument(qc: QueryClient, id: string): void {
+  void qc.invalidateQueries({ queryKey: queryKeys.document(id) });
+}
+
 export function setDocumentCache(qc: QueryClient, doc: Document): void {
   qc.setQueryData(queryKeys.document(doc.id), doc);
 }
