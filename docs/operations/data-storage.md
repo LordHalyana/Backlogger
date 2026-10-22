@@ -54,9 +54,9 @@ The `projects/` directory is the important boundary. Every Backlogger project ma
 
 Markdown files are the source of truth for document content.
 
-SQLite is derived state used for:
+SQLite holds project rows (display name, read-only flag, metadata mode), which
+are not stored in Markdown, and derived state used for:
 
-- project rows
 - document metadata
 - the comment index (comment files are indexed separately from documents)
 - full-text search
@@ -64,9 +64,9 @@ SQLite is derived state used for:
 - tag indexes
 - graph data inputs
 
-If SQLite is missing or stale, Backlogger can rebuild document metadata and indexes from Markdown files with reindexing. The Markdown files matter more than the database for durability.
+If SQLite is stale, Backlogger can rebuild document metadata and indexes from Markdown files with reindexing. If it is missing, rediscovered projects come back read-only under folder-derived names. The Markdown files matter more than the database for durability.
 
-SQLite also holds **operational state** that is not derived from Markdown and cannot be rebuilt from it: the `operations` table (pending operations and completed retry receipts), `operation_payloads`, `operation_manifest_entries` and `operation_guards`. Reload and Reindex never touch these tables, and deleting a document never cascades into them. Losing the database loses retry history and any pending recovery state. Never edit these tables by hand.
+SQLite also holds **operational state** that is not derived from Markdown and cannot be rebuilt from it: the `operations` table (pending operations and completed retry receipts), `operation_payloads`, `operation_manifest_entries` and `operation_guards`. Reload and Reindex never touch these tables, and deleting a document never cascades into them. Losing the database loses retry history and any pending recovery state. Never edit these tables by hand. See [Rebuilding The Index Versus Losing The Database](backup-restore.md#rebuilding-the-index-versus-losing-the-database).
 
 The database runs in WAL mode with `synchronous=FULL`, and Backlogger fsyncs the directory after every file rename, delete and directory creation.
 

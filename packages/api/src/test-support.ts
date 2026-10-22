@@ -38,11 +38,13 @@ export interface Harness {
 export interface SetupOptions extends CreateAppOptions {
   /** Reuse an existing data dir (e.g. a fresh DB over the same files). */
   dataDir?: string;
+  /** An on-disk SQLite file, as `server.ts` opens it; in-memory by default. */
+  dbFile?: string;
 }
 
 export async function setup(opts: SetupOptions = {}): Promise<Harness> {
   const dataDir = opts.dataDir ?? (await fs.mkdtemp(path.join(os.tmpdir(), 'backlogger-api-')));
-  const db = openDatabase({ file: ':memory:', migrationsDir: MIGRATIONS_DIR });
+  const db = openDatabase({ file: opts.dbFile ?? ':memory:', migrationsDir: MIGRATIONS_DIR });
   const templates = new TemplateRegistry();
   const { loaded } = await loadTemplatesFromDir(TEMPLATES_DIR);
   templates.setAll(loaded);

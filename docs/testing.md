@@ -84,7 +84,8 @@ API and services:
 - `packages/api/src/comment-filing.test.ts` (filing a commented task: byte-identical comment moves, blocking files, crash injected at each phase and file change then `restart()`, conflicts, guards, Reload and Reindex during a pending transfer, archive and restore)
 - `packages/api/src/permanent-deletion.test.ts` (deleting a commented task or a whole project: idempotency key and ack, blocking files and symlinks, crash injected at each removal and transaction then `restart()`, changed and added files kept, hidden while pending through Reload and Reindex, guards, orphaned comments reported)
 - `packages/api/src/search.test.ts` (grouped document/comment search: one result per task, strongest snippet, all terms within one record, archived and orphaned comments, pending payloads through Reload and Reindex)
-- `packages/api/src/test-support.ts` (shared `setup()`/`teardown()` harness)
+- `packages/api/src/backup-inventory.test.ts` (a stopped full copy of the data directory replays completed comment acks; a Markdown-only rebuild loses retry history and project names and writability)
+- `packages/api/src/test-support.ts` (shared `setup()`/`teardown()` harness; `dbFile` opens an on-disk SQLite file)
 - `packages/api/src/fs/*.test.ts`
 - `packages/api/src/services/*.test.ts`
 - `packages/api/src/templates/*.test.ts`
