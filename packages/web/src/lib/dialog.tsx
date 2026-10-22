@@ -38,7 +38,14 @@ export interface DialogApi {
   alert: (opts: AlertOptions) => Promise<void>;
   confirm: (opts: ConfirmOptions) => Promise<boolean>;
   prompt: (opts: PromptOptions) => Promise<string | null>;
-  toast: (message: string, opts?: { kind?: 'info' | 'error'; durationMs?: number }) => void;
+  toast: (message: string, opts?: ToastOptions) => void;
+}
+
+export interface ToastOptions {
+  kind?: 'info' | 'error';
+  durationMs?: number;
+  /** A button in the toast; it takes focus when the toast appears. */
+  action?: { label: string; onClick: () => void };
 }
 
 type AlertState = AlertOptions & {
@@ -62,6 +69,7 @@ interface ToastEntry {
   id: number;
   message: string;
   kind: 'info' | 'error';
+  action?: ToastOptions['action'];
 }
 
 const DialogContext = createContext<DialogApi | null>(null);
@@ -113,9 +121,9 @@ export function DialogProvider({ children }: { children: React.ReactNode }): JSX
         new Promise<string | null>((resolve) => {
           setDialog({ kind: 'prompt', ...opts, resolve });
         }),
-      toast: (message, { kind = 'info', durationMs = 3500 } = {}) => {
+      toast: (message, { kind = 'info', durationMs = 3500, action } = {}) => {
         const id = ++toastSeq.current;
-        setToasts((cur) => [...cur, { id, message, kind }]);
+        setToasts((cur) => [...cur, { id, message, kind, action }]);
         window.setTimeout(() => {
           setToasts((cur) => cur.filter((t) => t.id !== id));
         }, durationMs);
@@ -129,7 +137,13 @@ export function DialogProvider({ children }: { children: React.ReactNode }): JSX
       {children}
       {dialog &&
         createPortal(<DialogHost state={dialog} closeWith={closeWith} />, document.body)}
-      {createPortal(<ToastStack toasts={toasts} />, document.body)}
+      {createPortal(
+        <ToastStack
+          toasts={toasts}
+          onAction={(id) => setToasts((cur) => cur.filter((t) => t.id !== id))}
+        />,
+        document.body,
+      )}
     </DialogContext.Provider>
   );
 }
@@ -253,14 +267,39 @@ function DialogHost({ state, closeWith }: DialogHostProps): JSX.Element {
   );
 }
 
-function ToastStack({ toasts }: { toasts: ToastEntry[] }): JSX.Element {
+function ToastStack({
+  toasts,
+  onAction,
+}: {
+  toasts: ToastEntry[];
+  onAction: (id: number) => void;
+}): JSX.Element {
   return (
     <div className="toast-stack" role="status" aria-live="polite">
       {toasts.map((t) => (
         <div key={t.id} className={'toast toast-' + t.kind}>
-          {t.message}
+          <span>{t.message}</span>
+          {t.action && (
+            <ToastAction
+              label={t.action.label}
+              onClick={() => {
+                onAction(t.id);
+                t.action?.onClick();
+              }}
+            />
+          )}
         </div>
       ))}
     </div>
+  );
+}
+
+function ToastAction({ label, onClick }: { label: string; onClick: () => void }): JSX.Element {
+  const ref = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => ref.current?.focus(), []);
+  return (
+    <button ref={ref} type="button" className="btn btn--sm toast-action" onClick={onClick}>
+      {label}
+    </button>
   );
 }

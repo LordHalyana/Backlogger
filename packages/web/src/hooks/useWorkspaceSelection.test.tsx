@@ -18,6 +18,7 @@ function Workspace({ draft }: { draft: boolean }): JSX.Element {
   return (
     <>
       <span data-testid="url">{`${selection.projectId}/${selection.view}/${selection.documentId}/${selection.triage}`}</span>
+      <span data-testid="recovery">{JSON.stringify(selection.recovery)}</span>
       {selection.documentId && <Draft key={selection.documentId} active={draft} />}
     </>
   );
@@ -156,5 +157,32 @@ describe('landing on a comment', () => {
     expect(window.location.pathname).toBe('/projects/new/documents/t1/comments/c1');
     expect(window.history.length).toBe(length);
     expect(selection.landing).toBe(landing);
+  });
+});
+
+describe('the Recovery page', () => {
+  const recovery = (): string => screen.getByTestId('recovery').textContent ?? '';
+
+  it('opens on an operation from the URL, selects others in place, and leaves for a task', () => {
+    renderAt('/recovery/op-1', false);
+    expect(recovery()).toBe('{"operationId":"op-1"}');
+    expect(shown()).toBe('null/documents/null/false');
+    const entry = historyIndex();
+    act(() => selection.selectRecoveryOperation('op-2'));
+    expect(window.location.pathname).toBe('/recovery/op-2');
+    expect(historyIndex()).toBe(entry);
+    act(() => selection.openDocument('p', 't1'));
+    expect(recovery()).toBe('null');
+    expect(window.location.pathname).toBe('/projects/p/documents/t1');
+  });
+
+  it('is reached from a task, and Back returns to it', async () => {
+    renderAt('/projects/p/documents/t1', false);
+    act(() => selection.openRecovery('op-1'));
+    expect(window.location.pathname).toBe('/recovery/op-1');
+    expect(recovery()).toBe('{"operationId":"op-1"}');
+    act(() => window.history.back());
+    await waitFor(() => expect(shown()).toBe('p/documents/t1/false'));
+    expect(recovery()).toBe('null');
   });
 });

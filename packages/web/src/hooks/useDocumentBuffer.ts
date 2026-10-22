@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Document } from '@backlogger/shared';
 import { ApiError } from '../lib/api.js';
+import { blockingOperationId, invalidateRecovery } from '../lib/recovery.js';
 import { useDebouncedCallback } from '../lib/debounce.js';
 import { useUpdateDocument } from '../lib/documents.js';
 import { setDocumentCache } from '../lib/query-keys.js';
@@ -167,7 +168,11 @@ export function useDocumentBuffer(projectId: string, doc: Document | null | unde
           if (!settle()) return;
           // Queued edits stay visibly unsaved; the next edit tries again.
           flushQueuedRef.current = false;
-          if (err instanceof ApiError && err.status === 409) {
+          if (blockingOperationId(err)) {
+            // Not a conflict: the task's recovery notice explains the pause.
+            void invalidateRecovery(qc);
+            setSaveError('paused while recovery is pending. Your changes are kept here.');
+          } else if (err instanceof ApiError && err.status === 409) {
             markConflict(true);
           } else {
             setSaveError(err.message);

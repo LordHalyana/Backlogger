@@ -4,6 +4,7 @@ import { ApiError } from '../lib/api.js';
 import { isTextField } from '../lib/keyboard.js';
 import { useBoard } from '../lib/board.js';
 import { newUuid } from '../lib/comments.js';
+import { useRecoveryBlockedToast } from '../lib/recovery.js';
 import {
   filingTargets,
   readRecentTargets,
@@ -18,6 +19,8 @@ import { TaskStateSelect } from './TaskStateSelect.js';
 interface InboxTriageProps {
   projects: readonly Project[];
   onOpenTask: (projectId: string, documentId: string) => void;
+  /** Open the Recovery page on an operation that blocks the item. */
+  onOpenRecovery: (operationId: string) => void;
 }
 
 /** Inbox items, oldest first, regardless of task state. */
@@ -48,7 +51,11 @@ function failureMessage(err: Error, what: string): string {
  * (it stays in the Inbox), `a` archives and `o` opens it in the editor. The
  * item stays, marked as moving, until a filing is saved.
  */
-export function InboxTriage({ projects, onOpenTask }: InboxTriageProps): JSX.Element {
+export function InboxTriage({
+  projects,
+  onOpenTask,
+  onOpenRecovery,
+}: InboxTriageProps): JSX.Element {
   const inbox = projects.find((p) => p.isInbox);
   if (!inbox) {
     return (
@@ -60,15 +67,24 @@ export function InboxTriage({ projects, onOpenTask }: InboxTriageProps): JSX.Ele
       </div>
     );
   }
-  return <Triage inbox={inbox} projects={projects} onOpenTask={onOpenTask} />;
+  return (
+    <Triage
+      inbox={inbox}
+      projects={projects}
+      onOpenTask={onOpenTask}
+      onOpenRecovery={onOpenRecovery}
+    />
+  );
 }
 
 function Triage({
   inbox,
   projects,
   onOpenTask,
+  onOpenRecovery,
 }: InboxTriageProps & { inbox: Project }): JSX.Element {
   const { data, isLoading, isError, error, refetch } = useBoard(inbox.id);
+  const recoveryBlocked = useRecoveryBlockedToast(onOpenRecovery);
   const fileItem = useFileItem();
   const updateItem = useUpdateItem();
   const [skipped, setSkipped] = useState(0);
@@ -110,7 +126,9 @@ function Triage({
         },
         onError: (err) => {
           setBusy(null);
-          setMessage({ kind: 'error', text: failureMessage(err, 'move') });
+          if (!recoveryBlocked('file', err)) {
+            setMessage({ kind: 'error', text: failureMessage(err, 'move') });
+          }
           void refetch();
         },
       },
@@ -129,10 +147,12 @@ function Triage({
           if (archiving) setMessage({ kind: 'ok', text: `Archived “${item.title}”.` });
         },
         onError: (err) => {
-          setMessage({
-            kind: 'error',
-            text: failureMessage(err, archiving ? 'archive' : 'change'),
-          });
+          if (!recoveryBlocked(archiving ? 'archive' : 'save the change', err)) {
+            setMessage({
+              kind: 'error',
+              text: failureMessage(err, archiving ? 'archive' : 'change'),
+            });
+          }
           void refetch();
         },
         onSettled: () => setBusy(null),

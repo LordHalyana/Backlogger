@@ -175,6 +175,28 @@ a {
   background: color-mix(in srgb, var(--danger) 10%, transparent);
 }
 
+/* The primary action of a panel. */
+.btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+.btn--primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 85%, var(--bg));
+  border-color: var(--accent);
+}
+
+/* A confirmed destructive action. */
+.btn--danger-solid {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--bg);
+}
+.btn--danger-solid:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 85%, var(--bg));
+  border-color: var(--danger);
+}
+
 /* Compact size for dense toolbars and inline actions. */
 .btn--sm {
   padding: 2px 10px;
@@ -259,6 +281,9 @@ a {
 }
 
 .toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   background: var(--bg-elev);
   border: 1px solid var(--border);
   color: var(--fg);

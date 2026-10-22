@@ -269,7 +269,6 @@ export class RecoveryService {
     if (!op) throw new NotFoundError('RECOVERY_NOT_FOUND', `No operation ${rawId}.`);
     return op;
   }
-
 }
 
 /** Changes whenever what the user reviewed changes: the reason, the files or the payload. */

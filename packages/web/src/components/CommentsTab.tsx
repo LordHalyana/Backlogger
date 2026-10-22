@@ -6,6 +6,8 @@ import { ApiError } from '../lib/api.js';
 import {
   fetchComment,
   flattenHistory,
+  heldDraft,
+  holdDraft,
   newUuid,
   useCommentHistory,
   useCommentsAround,
@@ -19,6 +21,7 @@ import { useBlockLeave } from '../lib/leave-guard.js';
 import { markTerms, type Landing } from '../lib/landing.js';
 import { useMediaQuery } from '../hooks/useMediaQuery.js';
 import { queryKeys } from '../lib/query-keys.js';
+import { blockingOperationId, invalidateRecovery } from '../lib/recovery.js';
 import { CommentMarkdown, CommentMeta, firstLine } from './CommentBody.js';
 import { CommentComposer, type ComposerError } from './CommentComposer.js';
 import { CommentReader, isEditDirty, type EditDraft } from './CommentReader.js';
@@ -46,6 +49,11 @@ interface CommentsTabProps {
   /** Land on this comment (search result or direct link). */
   landing: CommentLanding | null;
   writability: CommentWritability;
+  /**
+   * A pending operation on the task pauses comment writes: the composer is
+   * disabled and its draft is kept, across leaving the task too.
+   */
+  paused?: boolean;
   hidden: boolean;
   panel: TabPanelIds;
   /** Unarchive the task (Archived state). */
@@ -120,6 +128,7 @@ export function CommentsTab({
   taskTitle,
   landing,
   writability,
+  paused = false,
   hidden,
   panel,
   onRestoreTask,
@@ -137,10 +146,10 @@ export function CommentsTab({
   const editComment = useEditComment(taskId);
   const deleteComment = useDeleteComment(taskId);
   const { comments, total } = flattenHistory(history.data);
-  const writable = writability === 'writable';
+  const writable = writability === 'writable' && !paused;
 
   const [readerId, setReaderId] = useState<string | null>(null);
-  const [composerText, setComposerText] = useState('');
+  const [composerText, setComposerText] = useState(() => heldDraft(taskId));
   /** The last post attempt. Retry resends it unchanged, so the server can recognise it. */
   const [postAttempt, setPostAttempt] = useState<CreateCommentArgs | null>(null);
   const [composerError, setComposerError] = useState<ComposerError | null>(null);
@@ -163,8 +172,10 @@ export function CommentsTab({
   const deletingRef = useRef(false);
 
   const hasDraft = composerText !== '' || (edit !== null && isEditDirty(edit));
-  useBlockLeave(hasDraft);
+  // While paused the composer draft is held, so leaving the task does not lose it.
+  useBlockLeave((composerText !== '' && !paused) || (edit !== null && isEditDirty(edit)));
   useEffect(() => onDraftChange(hasDraft), [hasDraft, onDraftChange]);
+  useEffect(() => holdDraft(taskId, paused ? composerText : ''), [composerText, paused, taskId]);
 
   // Focus moves after an action land once the target element has rendered,
   // and not before the render holding the request: a render for another
@@ -372,7 +383,12 @@ export function CommentsTab({
       setAnnouncement('Comment posted.');
       focusSoon({ kind: 'comment', id: attempt.commentId });
     } catch (err) {
-      if (isTaskChanged(err)) {
+      if (blockingOperationId(err)) {
+        // The task's notice and the paused composer explain it; the draft stays.
+        void invalidateRecovery(qc);
+        setPostAttempt(null);
+        setAnnouncement('Blocked. Recovery required. Your text is kept.');
+      } else if (isTaskChanged(err)) {
         setPostAttempt(null);
         setComposerError({
           kind: 'task-changed',
@@ -776,9 +792,10 @@ export function CommentsTab({
           )}
         </div>
 
-        {writable && (
+        {writability === 'writable' && (
           <CommentComposer
             text={composerText}
+            paused={paused}
             posting={createComment.isPending}
             error={composerError}
             canRetry={composerError?.kind === 'failed' && postAttempt?.body === composerText}

@@ -22,6 +22,10 @@ export const queryKeys = {
   /** A task's history opened on one comment; under `comments(taskId)`, so writes refresh it. */
   commentsAround: (taskId: string, commentId: string) =>
     ['comments', taskId, 'around', commentId] as const,
+  /** Pending operations, and abandoned ones not yet dismissed (`GET /api/recovery`). */
+  recovery: () => ['recovery'] as const,
+  /** One operation's review; under `recovery()`, so refreshing the list refreshes it. */
+  recoveryDetail: (operationId: string) => ['recovery', operationId] as const,
   /** Every search query; each one appends its query, project filter and limit. */
   search: () => ['search'] as const,
 } as const;

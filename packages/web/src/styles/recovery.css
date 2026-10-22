@@ -1,0 +1,464 @@
+/* Recovery review (spec #58, #61): the workspace banner, the Recovery page,
+   and how pending operations show on boards, Current work and the task. */
+
+.recovery-banner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 6px 16px;
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  border-bottom: 1px solid var(--warning);
+  font-size: 13px;
+}
+
+.recovery-banner p {
+  margin: 0;
+}
+
+.recovery-banner strong {
+  color: var(--warning);
+}
+
+.recovery-muted {
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+/* Page */
+.recovery-page {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.recovery-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.recovery-head h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.recovery-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.recovery-list {
+  flex: 0 0 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  overflow: auto;
+  border-right: 1px solid var(--border);
+  background: var(--bg-elev);
+}
+
+.recovery-option {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  cursor: pointer;
+}
+
+.recovery-option:hover {
+  background: var(--hover);
+}
+
+.recovery-option.is-selected {
+  background: var(--selected);
+  border-color: var(--accent);
+}
+
+.recovery-option:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.recovery-option-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+}
+
+.recovery-option-line strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recovery-detail {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.recovery-detail-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.recovery-detail-head h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.recovery-reason {
+  margin: 0;
+  max-width: 78ch;
+}
+
+.recovery-badge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--warning);
+  color: var(--warning);
+  white-space: nowrap;
+}
+
+.recovery-badge.is-moving {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.recovery-badge.is-danger {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.recovery-badge.is-muted {
+  border-color: var(--border);
+  color: var(--fg-muted);
+}
+
+.recovery-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 3px 14px;
+  margin: 0;
+  font-size: 12px;
+}
+
+.recovery-facts dt {
+  color: var(--fg-muted);
+}
+
+.recovery-facts dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.recovery-notice,
+.recovery-task-notice {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--fg-muted);
+  border-radius: 4px;
+  background: var(--bg-panel);
+  font-size: 13px;
+}
+
+.recovery-notice p,
+.recovery-task-notice p {
+  margin: 0;
+  flex: 1;
+  min-width: 220px;
+}
+
+.recovery-notice.is-info,
+.recovery-task-notice.is-info {
+  border-left-color: var(--accent);
+}
+
+.recovery-notice.is-ok {
+  border-left-color: var(--ok);
+}
+
+.recovery-notice.is-error {
+  border-left-color: var(--danger);
+}
+
+.recovery-task-notice {
+  margin: 8px 12px 0;
+}
+
+.recovery-task-notice.is-warning {
+  border-left-color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+}
+
+/* Content conflict: current file and pending change side by side */
+.recovery-versions {
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+}
+
+.recovery-version {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.recovery-version-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 4px 10px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.recovery-version-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+}
+
+.recovery-version pre {
+  margin: 0;
+  padding: 8px 10px;
+  font:
+    12px/1.55 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.recovery-version-empty {
+  margin: 0;
+  padding: 8px 10px;
+}
+
+.recovery-line {
+  display: block;
+}
+
+.recovery-version:first-child .recovery-line.is-changed {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+}
+
+.recovery-version:last-child .recovery-line.is-changed {
+  background: color-mix(in srgb, var(--ok) 16%, transparent);
+}
+
+/* Structural problem: paths and repair steps */
+.recovery-table-wrap {
+  overflow-x: auto;
+}
+
+.recovery-paths {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.recovery-paths th,
+.recovery-paths td {
+  text-align: left;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.recovery-paths th {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-muted);
+}
+
+.recovery-paths td code {
+  overflow-wrap: anywhere;
+}
+
+.recovery-paths tr.is-problem td {
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+}
+
+.recovery-repair {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.recovery-repair h3 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.recovery-repair ol {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.recovery-repair p {
+  margin: 0;
+}
+
+.recovery-progress p {
+  margin: 0;
+}
+
+.recovery-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.recovery-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--danger);
+  border-radius: 6px;
+  background: var(--bg-elev);
+}
+
+.recovery-final {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--fg-muted);
+  border-radius: 6px;
+  background: var(--bg-panel);
+}
+
+.recovery-final h3,
+.recovery-final p {
+  margin: 0;
+}
+
+.recovery-final h3 {
+  font-size: 13px;
+}
+
+.recovery-final:focus-visible,
+.recovery-notice:focus-visible,
+.recovery-head h2:focus-visible,
+.recovery-detail-head h2:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* Boards and Current work */
+.board-card.is-blocked {
+  border-left: 3px solid var(--warning);
+}
+
+.board-card.is-moving {
+  opacity: 0.6;
+}
+
+.board-badge--moving {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.board-card-note {
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.recovery-hidden-notice {
+  flex-wrap: wrap;
+  border-left: 3px solid var(--warning);
+}
+
+.recovery-hidden-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.current-work-row.is-blocked {
+  flex-wrap: wrap;
+  border-left: 3px solid var(--warning);
+}
+
+.current-work-recovery {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-basis: 100%;
+}
+
+.current-work-paused {
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+/* The task's paused composer */
+.comments-composer-paused {
+  margin: 4px 12px 0;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.comments-composer textarea:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+@media (max-width: 720px) {
+  .recovery-body {
+    flex-direction: column;
+  }
+
+  .recovery-list {
+    flex: 0 0 auto;
+    max-height: 40vh;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .recovery-versions {
+    flex-direction: column;
+  }
+}
