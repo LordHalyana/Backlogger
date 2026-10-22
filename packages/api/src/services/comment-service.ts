@@ -353,7 +353,12 @@ export class CommentService {
   /** The rows of the page `query` asks for, oldest first. */
   private pageRows(taskId: string, query: ListCommentsQuery): CommentRow[] {
     if (query.around !== undefined) {
-      const neighbours = parseLimit(query.limit, COMMENT_AROUND_DEFAULT);
+      // Neighbours either side, so the page stays within the page maximum.
+      const neighbours = parseLimit(
+        query.limit,
+        COMMENT_AROUND_DEFAULT,
+        Math.floor((COMMENT_PAGE_MAX - 1) / 2),
+      );
       const anchor = this.commentsRepo.find(parseAroundId(query.around));
       if (!anchor || anchor.task_id !== taskId) throw commentNotFound(String(query.around));
       return [
@@ -507,11 +512,11 @@ function parseBody(raw: unknown): string {
   return raw;
 }
 
-function parseLimit(raw: unknown, fallback: number): number {
+function parseLimit(raw: unknown, fallback: number, max = COMMENT_PAGE_MAX): number {
   if (raw === undefined) return fallback;
   const n = typeof raw === 'string' && /^\d+$/.test(raw) ? Number(raw) : NaN;
-  if (!Number.isInteger(n) || n < 1 || n > COMMENT_PAGE_MAX) {
-    throw invalid(`limit must be an integer from 1 to ${COMMENT_PAGE_MAX}.`);
+  if (!Number.isInteger(n) || n < 1 || n > max) {
+    throw invalid(`limit must be an integer from 1 to ${max}.`);
   }
   return n;
 }

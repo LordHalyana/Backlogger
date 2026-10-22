@@ -166,17 +166,23 @@ export function CommentsTab({
   useBlockLeave(hasDraft);
   useEffect(() => onDraftChange(hasDraft), [hasDraft, onDraftChange]);
 
-  // Focus moves after an action land once the target element has rendered.
+  // Focus moves after an action land once the target element has rendered,
+  // and not before the render holding the request: a render for another
+  // update (a query refresh) can commit first, without the state that came
+  // with the request, such as the landed comment's marker.
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const pendingFocus = useRef<FocusTarget | null>(null);
-  const [, setFocusRequest] = useState(0);
+  const pendingFocus = useRef<{ target: FocusTarget; request: number } | null>(null);
+  const focusRequests = useRef(0);
+  const [focusRequest, setFocusRequest] = useState(0);
   const focusSoon = useCallback((target: FocusTarget) => {
-    pendingFocus.current = target;
-    setFocusRequest((n) => n + 1);
+    focusRequests.current += 1;
+    pendingFocus.current = { target, request: focusRequests.current };
+    setFocusRequest(focusRequests.current);
   }, []);
   useEffect(() => {
-    const target = pendingFocus.current;
-    if (!target || !rootRef.current) return;
+    const pending = pendingFocus.current;
+    if (!pending || pending.request > focusRequest || !rootRef.current) return;
+    const { target } = pending;
     const el = rootRef.current.querySelector<HTMLElement>(focusSelector(target));
     if (el) {
       if (target.kind === 'comment' && target.center) {
@@ -724,7 +730,7 @@ export function CommentsTab({
                     {around.hasPreviousPage && (
                       <>
                         <span className="comments-page-count">
-                          {newerCount} newer {newerCount === 1 ? 'comment' : 'comments'}
+                          {plural(newerCount).replace(' ', ' newer ')}
                         </span>
                         <button
                           type="button"

@@ -488,7 +488,7 @@ within the page:
 - `after`: the next newer page. `newer_cursor` is `null` on the page holding
   the newest comment (always on the default newest page).
 - `around=<commentId>`: that comment with up to `limit` neighbours either side
-  (default 2), for landing on a comment beyond the newest page. Its
+  (default 2, at most 99), for landing on a comment beyond the newest page. Its
   `next_cursor` and `newer_cursor` page outwards from there. A comment that is
   deleted or belongs to another task is `404 COMMENT_NOT_FOUND`.
 - `older_count` and `newer_count` count the comments before and after the

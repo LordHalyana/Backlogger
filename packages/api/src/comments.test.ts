@@ -534,6 +534,12 @@ describe('GET /api/documents/:taskId/comments', () => {
 
     const wide = (await list({ around: ids[3]!, limit: 1 })).body as PageBody;
     expect(wide.comments.map((c) => c.id)).toEqual(ids.slice(2, 5));
+
+    // Never more than the 200-comment page maximum: 99 either side.
+    expect((await list({ around: ids[3]!, limit: 99 })).status).toBe(200);
+    const tooWide = await list({ around: ids[3]!, limit: 100 });
+    expect(tooWide.status).toBe(400);
+    expect(tooWide.body.error.code).toBe('INVALID_COMMAND');
   });
 
   it('the newest page has no newer cursor; an older page has one', async () => {

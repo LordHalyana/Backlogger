@@ -33,9 +33,9 @@ context.
   **Jump to latest** page from there.
 - A **Description match** opens the Description with the matching paragraph
   marked.
-- Each comment has a link, `/projects/<project>/documents/<task>/comments/<comment>`,
-  that lands the same way. It keeps working after the task is filed into
-  another project.
+- A comment link, `/projects/<project>/documents/<task>/comments/<comment>`
+  (the address bar shows it after opening a Comment match), lands the same
+  way. It keeps working after the task is filed into another project.
 - A deleted comment opens the newest comments with a notice; a deleted task
   says it is no longer available. Nothing is recreated.
 
