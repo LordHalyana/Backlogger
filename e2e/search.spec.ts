@@ -65,3 +65,51 @@ test('command palette opens with Ctrl+K and closes with Escape', async ({ page }
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog', { name: 'Search documents' })).not.toBeVisible();
 });
+
+/**
+ * Comment search (#70): a task is found through the text of a comment posted
+ * in the Comments tab, even when the same query ran before the comment
+ * existed, and its row carries the Comment match chip.
+ */
+test('finds a task through its comment text', async ({ page }) => {
+  const projectId = `comment-search-${Date.now()}`;
+  const phrase = `plugh${Date.now()}`;
+  const project = await page.request.post('/api/projects', {
+    data: { id: projectId, name: projectId },
+  });
+  expect(project.ok(), await project.text()).toBe(true);
+  const doc = await page.request.post(`/api/projects/${projectId}/documents`, {
+    data: { title: 'Track down the stale cache', type: 'backlog_item' },
+  });
+  expect(doc.ok()).toBe(true);
+  const { id: taskId } = (await doc.json()) as { id: string };
+
+  await page.goto(`/projects/${projectId}/documents/${taskId}`);
+  const dialog = page.getByRole('dialog', { name: 'Search documents' });
+  const paletteInput = page.locator('.command-palette-input');
+  const results = page.locator('.command-palette-row');
+
+  // Nothing matches yet; this result is cached by the palette.
+  await page.locator('.search-button').click();
+  await paletteInput.pressSequentially(phrase);
+  await expect(dialog.getByText('No results.')).toBeVisible({ timeout: 8000 });
+  await page.keyboard.press('Escape');
+
+  await page.getByRole('tab', { name: 'Comments (0)' }).click();
+  const composer = page.getByRole('textbox', { name: 'New comment' });
+  await composer.fill(`Found it: the ${phrase} key never expires.`);
+  await composer.press('Control+Enter');
+  await expect(page.getByTestId('comments-live')).toHaveText('Comment posted.');
+
+  await page.locator('.search-button').click();
+  await paletteInput.pressSequentially(phrase);
+  await expect(results).toHaveCount(1, { timeout: 8000 });
+  const row = results.first();
+  await expect(row).toContainText('Track down the stale cache');
+  await expect(row).toContainText('Comment match ·');
+  await expect(row.locator('mark')).toHaveText(phrase);
+
+  await row.click();
+  await expect(dialog).not.toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`/projects/${projectId}/documents/${taskId}`));
+});

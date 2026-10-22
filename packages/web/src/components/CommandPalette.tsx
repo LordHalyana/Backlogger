@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { SearchHit } from '@backlogger/shared';
+import { TASK_STATE_LABELS, taskStateColumn, type SearchHit } from '@backlogger/shared';
 import { useSearch } from '../lib/search.js';
+import { DOCUMENT_TYPE_LABELS } from '../lib/display.js';
 
 export interface CommandPaletteProps {
   open: boolean;
@@ -159,10 +160,45 @@ function CommandPaletteRow(props: CommandPaletteRowProps): JSX.Element {
       <div className="command-palette-row-title">
         <span className="command-palette-row-doc">{hit.title}</span>
         <span className="command-palette-row-meta">
-          {hit.project_id} &middot; {hit.type}
+          {hit.status === 'archived' && <span className="command-palette-chip">Archived</span>}
+          <span>{hit.project_id}</span>
+          <span aria-hidden="true">&middot;</span>
+          <span>{stateLabel(hit)}</span>
         </span>
       </div>
-      <div className="command-palette-row-snippet">{hit.snippet}</div>
+      <div className="command-palette-row-match">
+        <span className="command-palette-chip">{matchLabel(hit)}</span>
+        <span className="command-palette-row-snippet">
+          <Highlighted text={hit.snippet} ranges={hit.highlights} />
+        </span>
+      </div>
     </li>
   );
+}
+
+/** A backlog item's task state; any other document's type. */
+function stateLabel(hit: SearchHit): string {
+  if (hit.type === 'backlog_item') return TASK_STATE_LABELS[taskStateColumn(hit.task_state)];
+  return DOCUMENT_TYPE_LABELS[hit.type];
+}
+
+function matchLabel(hit: SearchHit): string {
+  if (hit.match.kind === 'description') return 'Description match';
+  const date = new Date(hit.match.created_at).toLocaleDateString(undefined, { dateStyle: 'medium' });
+  return `Comment match · ${date}`;
+}
+
+/** `text` with the `[start, end)` ranges wrapped in `<mark>`. */
+function Highlighted(props: { text: string; ranges: SearchHit['highlights'] }): JSX.Element {
+  const { text, ranges } = props;
+  const parts: Array<string | JSX.Element> = [];
+  let at = 0;
+  for (const [start, end] of ranges) {
+    if (start < at || end <= start) continue;
+    if (start > at) parts.push(text.slice(at, start));
+    parts.push(<mark key={start}>{text.slice(start, end)}</mark>);
+    at = end;
+  }
+  if (at < text.length) parts.push(text.slice(at));
+  return <>{parts}</>;
 }

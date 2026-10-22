@@ -1,6 +1,7 @@
 import {
   SEARCH_DEFAULT_LIMIT,
   SEARCH_MAX_LIMIT,
+  type DocumentStatus,
   type DocumentType,
   type SearchHit,
 } from '@backlogger/shared';
@@ -12,6 +13,12 @@ interface SearchRow {
   project_id: string;
   title: string;
   type: string;
+  status: string;
+  task_state: string | null;
+  record_id: string;
+  /** `search_fts.kind`: which record matched. */
+  kind: 'document' | 'comment';
+  comment_created_at: string | null;
   snippet: string;
   rank: number;
 }
@@ -21,13 +28,32 @@ export interface SearchOptions {
   limit?: number;
 }
 
+/** Control characters FTS5 wraps matched terms in; they never occur in Markdown we index. */
+const SNIPPET_MARK_OPEN = '\u0001';
+const SNIPPET_MARK_CLOSE = '\u0002';
+
 /**
- * FTS5-backed full-text search across documents.
+ * FTS5-backed full-text search across documents and comments on backlog
+ * items, one result per document (spec #58).
  *
  * Query strategy: the user-provided string is treated as one or more terms
  * (whitespace-split) and rewritten into an AND-of-prefixes query. This makes
- * "rate limit" match documents containing both terms, with prefix completion
+ * "rate limit" match records containing both terms, with prefix completion
  * so partial words still hit. Reserved FTS5 characters are stripped.
+ *
+ * Every record (a document, or one comment) is a row of the shared
+ * `search_fts` projection, so all terms must match within one record and
+ * bm25 ranks are comparable across kinds. Each document is ranked by its
+ * strongest record, and grouping happens before the limit.
+ *
+ * The snippet comes from whichever column matched best, so a title-only
+ * match shows the title with its terms marked.
+ *
+ * Comments count only while their parent is an indexed backlog item, so
+ * comments left behind by a deleted task never surface. Invalid and orphaned
+ * comment files are never indexed, and recovery payloads live outside the
+ * index altogether. Items pending deletion are not excluded here yet: that
+ * state arrives with resumable deletion (#73), which must filter them out.
  */
 export class SearchService {
   constructor(private readonly db: Db) {}
@@ -40,21 +66,37 @@ export class SearchService {
     const limit = clampLimit(opts.limit);
 
     const params: unknown[] = [query];
-    let sql =
-      `SELECT documents_fts.id        AS id,
-              documents_fts.project_id AS project_id,
-              documents.title          AS title,
-              documents.type           AS type,
-              snippet(documents_fts, 4, '[[', ']]', '…', 12) AS snippet,
-              documents_fts.rank       AS rank
-       FROM documents_fts
-       JOIN documents ON documents.id = documents_fts.id
-       WHERE documents_fts MATCH ?`;
+    let matches =
+      `SELECT documents.id         AS id,
+              documents.project_id AS project_id,
+              documents.title      AS title,
+              documents.type       AS type,
+              documents.status     AS status,
+              documents.task_state AS task_state,
+              search_fts.record_id AS record_id,
+              search_fts.kind      AS kind,
+              comments.created_at  AS comment_created_at,
+              snippet(search_fts, -1, '${SNIPPET_MARK_OPEN}', '${SNIPPET_MARK_CLOSE}', '…', 12) AS snippet,
+              search_fts.rank      AS rank
+       FROM search_fts
+       JOIN documents ON documents.id = search_fts.document_id
+       LEFT JOIN comments ON search_fts.kind = 'comment' AND comments.id = search_fts.record_id
+       WHERE search_fts MATCH ?
+         AND (search_fts.kind = 'document'
+              OR (comments.id IS NOT NULL AND documents.type = 'backlog_item'))`;
     if (opts.projectId) {
-      sql += ` AND documents_fts.project_id = ?`;
+      matches += ` AND documents.project_id = ?`;
       params.push(opts.projectId);
     }
-    sql += ` ORDER BY rank LIMIT ?`;
+    const sql =
+      `WITH matches AS (${matches}),
+       ranked AS (
+         SELECT *, ROW_NUMBER() OVER (
+           PARTITION BY id ORDER BY rank, kind = 'comment', record_id
+         ) AS n
+         FROM matches
+       )
+       SELECT * FROM ranked WHERE n = 1 ORDER BY rank, id LIMIT ?`;
     params.push(limit);
 
     let rows: SearchRow[];
@@ -73,7 +115,15 @@ export class SearchService {
       project_id: row.project_id,
       title: row.title,
       type: row.type as DocumentType,
-      snippet: stripSnippetMarkers(row.snippet),
+      status: row.status as DocumentStatus,
+      task_state: row.task_state,
+      // A document record is presented as a description match (spec #58).
+      match:
+        row.kind === 'comment'
+          ? // The comments join is required for comment records, so the date is present.
+            { kind: 'comment', comment_id: row.record_id, created_at: row.comment_created_at! }
+          : { kind: 'description' },
+      ...parseSnippet(row.snippet),
       rank: row.rank,
     }));
   }
@@ -101,7 +151,17 @@ export function buildFtsQuery(raw: string): string {
   return terms.map((t) => `${t}*`).join(' ');
 }
 
-/** Remove the `[[`/`]]` markers we asked FTS5 to wrap matches in. */
-function stripSnippetMarkers(snippet: string): string {
-  return snippet.replace(/\[\[|\]\]/g, '');
+/** Split an FTS5 snippet into plain text and the offsets of its marked terms. */
+export function parseSnippet(marked: string): Pick<SearchHit, 'snippet' | 'highlights'> {
+  let snippet = '';
+  const highlights: Array<[number, number]> = [];
+  let start = -1;
+  for (const ch of marked) {
+    if (ch === SNIPPET_MARK_OPEN) start = snippet.length;
+    else if (ch === SNIPPET_MARK_CLOSE) {
+      if (start >= 0) highlights.push([start, snippet.length]);
+      start = -1;
+    } else snippet += ch;
+  }
+  return { snippet, highlights };
 }

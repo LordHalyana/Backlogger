@@ -52,7 +52,7 @@ The machine-readable JSON Schema lives at `GET /health/schema` (`application/sch
 | `database` | `SELECT 1` succeeded against SQLite. | — | The DB handle is closed or rejected the query. |
 | `storage`  | `BACKLOGGER_DATA_DIR` exists, is readable, and is writable (write/unlink of a hidden `.health-probe` succeeded at the data-dir root). | Stat succeeded but the probe write failed (read-only filesystem). | `stat()` failed — directory missing or unreadable. |
 | `templates`| ≥ 5 templates loaded into the registry. | < 5 templates loaded. | The registry threw on `list()`. |
-| `fts`      | `SELECT count(*) FROM documents_fts` succeeded. A count of `0` is healthy. | — | The FTS table is missing or the query failed. |
+| `fts`      | `SELECT count(*) FROM search_fts` succeeded. A count of `0` is healthy. | — | The FTS table is missing or the query failed. |
 
 ## Caching
 

@@ -19,7 +19,18 @@ export const queryKeys = {
   board: (projectId: string) => ['board', projectId] as const,
   currentWork: () => ['current-work'] as const,
   comments: (taskId: string) => ['comments', taskId] as const,
+  /** Every search query; each one appends its query, project filter and limit. */
+  search: () => ['search'] as const,
 } as const;
+
+/**
+ * Search results match documents and comments, so every write that can change
+ * what search finds (saves, filing, comment writes, deletion, Reload,
+ * Reindex) clears them. External edits show up after Reload or Reindex.
+ */
+export function invalidateSearch(qc: QueryClient): void {
+  void qc.invalidateQueries({ queryKey: queryKeys.search() });
+}
 
 /**
  * Invalidate every cache derived from a document's body or frontmatter for a
@@ -37,6 +48,7 @@ export function invalidateDocumentDerived(qc: QueryClient, projectId: string): v
   void qc.invalidateQueries({ queryKey: queryKeys.currentWork() });
   // Backlinks are keyed per-document; invalidate the whole family.
   void qc.invalidateQueries({ queryKey: ['backlinks'] });
+  invalidateSearch(qc);
 }
 
 export function invalidateProjectList(qc: QueryClient): void {
@@ -44,13 +56,17 @@ export function invalidateProjectList(qc: QueryClient): void {
   // Board cards and Current work carry the project's read-only flag.
   void qc.invalidateQueries({ queryKey: ['board'] });
   void qc.invalidateQueries({ queryKey: queryKeys.currentWork() });
+  // A deleted project's documents leave the results.
+  invalidateSearch(qc);
 }
 
 /**
  * Refetch comment histories: one task's after a comment write, or every
  * task's (no `taskId`) after a reload or reindex re-reads them from disk.
+ * Search results match comment text, so they are cleared too.
  */
 export function invalidateComments(qc: QueryClient, taskId?: string): Promise<void> {
+  invalidateSearch(qc);
   return qc.invalidateQueries({ queryKey: taskId ? queryKeys.comments(taskId) : ['comments'] });
 }
 

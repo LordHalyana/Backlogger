@@ -37,6 +37,10 @@ _Avoid_: Today, planned, focus
 Unarchiving a document. A restored backlog item keeps its identity and task state and returns to that state's column.
 _Avoid_: reopening
 
+**Search match**:
+The record that earned a search result its place: the document itself (title, tags or body), labelled **Description match**, or one of its comments, labelled **Comment match**. A task appears once, labelled with its strongest match.
+_Avoid_: hit type, result source
+
 ## Relationships
 
 - Only a **backlog item** has a **task state**; other document types never appear on the board.
@@ -45,6 +49,7 @@ _Avoid_: reopening
 - The board shows active and draft backlog items; archived backlog items are not on the board.
 - **Current work** follows the board's rules about which items are shown: drafts are included and archived items are not. An item leaves it when it leaves In progress, and a restored In progress item returns to it.
 - There is exactly one designated **Inbox**. A project that happens to be named "Inbox" is not the Inbox.
+- Every term of a search must occur within one **search match**: the description, or a single comment. Terms spread across separate comments do not match.
 - Reaching **Done** never archives a backlog item, and **archiving** never moves it to Done.
 
 ## Flagged ambiguities
