@@ -291,7 +291,7 @@ If the document was indexed from plain Markdown without Backlogger frontmatter a
 
 ### `DELETE /api/documents/:id`
 
-Permanently deletes a document and, for a backlog item, every comment on it and its `tickets/<task-id>/` folder. Requires an `Idempotency-Key` header holding a client-generated UUID; without a valid one the request is `400 INVALID_COMMAND` and nothing changes.
+Permanently deletes a document and, for a backlog item, every comment on it and its `tickets/<task-id>/` folder. Requires an `Idempotency-Key` header holding a client-generated UUID for every document type, including those that cannot have comments; without a valid one the request is `400 INVALID_COMMAND` and nothing changes.
 
 ```json
 {
@@ -306,7 +306,7 @@ Permanently deletes a document and, for a backlog item, every comment on it and 
 
 Returns `200` with this acknowledgement. Retrying with the same key returns it again, even though the document is gone; the same key with another document is `409 OPERATION_ID_CONFLICT`.
 
-The deletion is resumable. Before removing anything it records an inventory of the paths it covers and their fingerprints, never their content. From then on the document is hidden from lists, the board, Current work and search, while the operation is listed by `GET /api/recovery`. It removes only files that still match the inventory (one already gone counts as done), the task file after its comments, and folders only once they are empty. It never follows a symlink. If a covered file has changed, or a file it does not cover appears in scope, that file is kept and the deletion stops for review: the request is `409 RECOVERY_REQUIRED` and the operation stays pending. A deletion cannot be cancelled once it has started; startup and Recheck finish it, and Reload and Reindex never bring the document back meanwhile.
+The deletion is resumable. Before removing anything it records an inventory of the paths it covers and their fingerprints, never their content. From then on the document is hidden from lists, the board, Current work and search, while the operation is listed by `GET /api/recovery`. It removes only files that still match the inventory (one already gone counts as done), the task file after its comments, and folders only once they are empty. In a sidecar project the document's sidecar entry is part of the inventory too: it is removed after the file only while it still matches, and an entry written only after the deletion started is left alone. It never follows a symlink. If a covered file has changed, or a file it does not cover appears in scope, that file is kept and the deletion stops for review: the request is `409 RECOVERY_REQUIRED` and the operation stays pending. A deletion cannot be cancelled once it has started; startup and Recheck finish it, and Reload and Reindex never bring the document back meanwhile.
 
 - `409 DELETION_BLOCKED` with `details.paths`, changing nothing, when the task's comment folder holds anything but its own comment files (an unknown or malformed file, a folder, a symlink). Move or repair those first.
 - `409 RECOVERY_REQUIRED` while an operation is pending on the task, a filing or a comment write included.

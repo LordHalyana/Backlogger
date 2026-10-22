@@ -9,7 +9,9 @@ import {
   type SidecarEntry,
   type SidecarIndex,
 } from '@backlogger/shared';
+import type { CheckedDeleteResult } from './durable.js';
 import type { PathResolver } from './path-resolver.js';
+import { sidecarEntryRevision } from './revision.js';
 
 /**
  * Reads and writes a project's sidecar metadata index
@@ -98,6 +100,25 @@ export class SidecarStore {
     if (!(relKey in index.entries)) return;
     delete index.entries[relKey];
     await this.save(projectId, index);
+  }
+
+  /**
+   * Remove an entry only while its revision (`sidecarEntryRevision`) is still
+   * `expectedRevision`: a missing entry is `'missing'`, a changed one is kept
+   * and reported as `'changed'`.
+   */
+  async deleteIfUnchanged(
+    projectId: string,
+    relKey: string,
+    expectedRevision: string,
+  ): Promise<CheckedDeleteResult> {
+    const index = await this.load(projectId);
+    const entry = index.entries[relKey];
+    if (!entry) return 'missing';
+    if (sidecarEntryRevision(entry) !== expectedRevision) return 'changed';
+    delete index.entries[relKey];
+    await this.save(projectId, index);
+    return 'deleted';
   }
 
   async list(projectId: string): Promise<Record<string, SidecarEntry>> {

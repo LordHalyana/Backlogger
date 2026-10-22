@@ -1,5 +1,7 @@
 import {
   COMMENTS_SEGMENT,
+  SIDECAR_DIR,
+  SIDECAR_INDEX_FILE,
   TICKETS_SEGMENT,
   type DeleteDocumentAck,
   type DeleteProjectAck,
@@ -18,6 +20,7 @@ import {
   type SidecarStore,
 } from '../fs/index.js';
 import { parseCommentFile } from '../fs/comment-file.js';
+import { sidecarEntryRevision } from '../fs/revision.js';
 import type { CommentsRepo } from '../db/comments-repo.js';
 import type { DocumentsRepo } from '../db/documents-repo.js';
 import type { ProjectsRepo } from '../db/projects-repo.js';
@@ -71,6 +74,12 @@ export interface DeletionPlan {
   documentId: string | null;
   documentPath: string | null;
   sidecarKey: string | null;
+  /**
+   * The revision the sidecar entry must still have to be removed. `null` with
+   * a `sidecarKey` only for a deletion recorded before entries were
+   * fingerprinted, whose entry is removed as found.
+   */
+  sidecarRevision: string | null;
   scopes: string[];
   /** Files to remove, with the revision each must still have. */
   files: Array<{ path: string; revision: string }>;
@@ -98,6 +107,8 @@ interface Observation {
   unexpected: Array<{ path: string; revision: string | null }>;
   /** For a linked project: what its folder links to now; `null` when it is no longer a link. */
   linkTarget?: string | null;
+  /** The revision of the document's sidecar entry now; `null` when it is gone. */
+  sidecarRevision?: string | null;
 }
 
 export type DeletionResult<A> = { done: true; ack: A } | { done: false; stop: Stop };
@@ -122,7 +133,8 @@ export function ticketDir(projectId: string, taskId: string): string {
  *     (`pendingDeletionCovers`) and the operation is listed for recovery.
  *  3. Remove only files that still match: a missing one is done, a changed
  *     one, or anything new in scope, stops the deletion with everything left
- *     kept. A document's own file goes last, after its comments.
+ *     kept. A document's own file goes last, after its comments, then its
+ *     sidecar entry, which is fingerprinted and checked the same way.
  *  4. Remove folders only once empty, deepest first; never recursively and
  *     never through a symlink. A project whose own folder is a symlink (a
  *     mount) is the exception to step 1: its inventory is the link alone,
@@ -155,7 +167,8 @@ export class PermanentDeletion implements Recoverer {
   /**
    * Step 1 for a document (with its comments, for a backlog item). Refuses,
    * changing nothing, when its comment folder holds anything but its
-   * comments. `sidecarKey` names its sidecar entry, if it has one.
+   * comments. `sidecarKey` names its sidecar entry, if it has one; an entry
+   * written there only after this step is not part of the deletion.
    */
   async prepareDocument(
     operationId: string,
@@ -201,6 +214,8 @@ export class PermanentDeletion implements Recoverer {
     // A file already gone (an interrupted older delete) is simply not listed.
     const documentRevision = await this.fs.fileRevision(summary.path);
     if (documentRevision !== null) files.push({ path: summary.path, revision: documentRevision });
+    const entry =
+      sidecarKey === null ? undefined : await this.sidecarStore.get(projectId, sidecarKey);
 
     const plan: DeletionPlan = {
       operationId,
@@ -208,7 +223,8 @@ export class PermanentDeletion implements Recoverer {
       projectId,
       documentId: taskId,
       documentPath: summary.path,
-      sidecarKey,
+      sidecarKey: entry === undefined ? null : sidecarKey,
+      sidecarRevision: entry === undefined ? null : sidecarEntryRevision(entry),
       scopes: [scope],
       files,
       dirs: [comments, scope],
@@ -245,6 +261,7 @@ export class PermanentDeletion implements Recoverer {
         documentId: null,
         documentPath: null,
         sidecarKey: null,
+        sidecarRevision: null,
         scopes: [projectId],
         files: [],
         dirs: [],
@@ -273,6 +290,7 @@ export class PermanentDeletion implements Recoverer {
       documentId: null,
       documentPath: null,
       sidecarKey: null,
+      sidecarRevision: null,
       scopes: [projectId],
       files,
       dirs,
@@ -302,7 +320,16 @@ export class PermanentDeletion implements Recoverer {
       }
       if (result === 'changed') return { done: false, stop: changed(file.path) };
     }
-    if (plan.sidecarKey !== null) await this.sidecarStore.delete(plan.projectId, plan.sidecarKey);
+    if (plan.sidecarKey !== null && plan.sidecarRevision === null) {
+      await this.sidecarStore.delete(plan.projectId, plan.sidecarKey);
+    } else if (plan.sidecarKey !== null && plan.sidecarRevision !== null) {
+      const result = await this.sidecarStore.deleteIfUnchanged(
+        plan.projectId,
+        plan.sidecarKey,
+        plan.sidecarRevision,
+      );
+      if (result === 'changed') return { done: false, stop: changed(sidecarPath(plan)) };
+    }
     if (plan.linkTarget !== null) {
       const result = await this.fs.unlinkProjectIfUnchanged(plan.projectId, plan.linkTarget);
       if (result === 'changed') return { done: false, stop: relinked(plan.projectId) };
@@ -372,6 +399,16 @@ export class PermanentDeletion implements Recoverer {
             observed_revision: u.revision,
           }),
         ),
+        ...(plan.sidecarRevision === null
+          ? []
+          : [
+              {
+                path: sidecarPath(plan),
+                before_revision: plan.sidecarRevision,
+                after_revision: null,
+                observed_revision: seen.sidecarRevision ?? null,
+              },
+            ]),
         ...(plan.linkTarget === null
           ? []
           : [
@@ -412,6 +449,9 @@ export class PermanentDeletion implements Recoverer {
         ...(plan.linkTarget === null
           ? []
           : [{ path: plan.projectId, role: 'link', fingerprint: plan.linkTarget }]),
+        ...(plan.sidecarRevision === null || plan.documentPath === null
+          ? []
+          : [{ path: plan.documentPath, role: 'sidecar', fingerprint: plan.sidecarRevision }]),
       ],
     };
   }
@@ -441,6 +481,7 @@ export class PermanentDeletion implements Recoverer {
     const files: DeletionPlan['files'] = [];
     const dirs: string[] = [];
     let linkTarget: string | null = null;
+    let sidecarRevision: string | null = null;
     for (const e of this.coordinator.manifestOf(op.operation_id)) {
       if (!inProject(e.path)) return undefined;
       if (e.role === 'file' && e.fingerprint !== null)
@@ -453,6 +494,13 @@ export class PermanentDeletion implements Recoverer {
         op.command === DELETE_PROJECT_COMMAND
       )
         linkTarget = e.fingerprint;
+      else if (
+        e.role === 'sidecar' &&
+        e.fingerprint !== null &&
+        e.path === payload.document_path &&
+        typeof payload.sidecar_key === 'string'
+      )
+        sidecarRevision = e.fingerprint;
       else return undefined;
     }
     return {
@@ -462,6 +510,7 @@ export class PermanentDeletion implements Recoverer {
       documentId,
       documentPath: payload.document_path ?? null,
       sidecarKey: payload.sidecar_key ?? null,
+      sidecarRevision,
       scopes,
       files,
       dirs,
@@ -472,6 +521,7 @@ export class PermanentDeletion implements Recoverer {
   private async observe(plan: DeletionPlan): Promise<Observation> {
     const revisions = new Map<string, string | null>();
     for (const f of plan.files) revisions.set(f.path, await this.revisionOf(f.path));
+    const sidecarRevision = await this.sidecarRevisionOf(plan);
     const listedDirs = new Set(plan.dirs);
     const unexpected: Observation['unexpected'] = [];
     if (plan.linkTarget !== null) {
@@ -501,7 +551,17 @@ export class PermanentDeletion implements Recoverer {
         });
       }
     }
-    return { revisions, unexpected };
+    return { revisions, unexpected, sidecarRevision };
+  }
+
+  /**
+   * The revision of the deletion's sidecar entry now, `null` when it is gone;
+   * `undefined` when the deletion has none to check.
+   */
+  private async sidecarRevisionOf(plan: DeletionPlan): Promise<string | null | undefined> {
+    if (plan.sidecarKey === null || plan.sidecarRevision === null) return undefined;
+    const entry = await this.sidecarStore.get(plan.projectId, plan.sidecarKey);
+    return entry === undefined ? null : sidecarEntryRevision(entry);
   }
 
   /** Whether the deletion can go on: nothing new in scope, every listed file unchanged or gone. */
@@ -525,6 +585,9 @@ export class PermanentDeletion implements Recoverer {
       const now = seen.revisions.get(f.path) ?? null;
       if (now === NOT_A_FILE) return notAFile(f.path);
       if (now !== null && now !== f.revision) return changed(f.path);
+    }
+    if (seen.sidecarRevision != null && seen.sidecarRevision !== plan.sidecarRevision) {
+      return changed(sidecarPath(plan));
     }
     return null;
   }
@@ -576,6 +639,11 @@ export class PermanentDeletion implements Recoverer {
 function removalOrder(plan: DeletionPlan): DeletionPlan['files'] {
   const last = plan.files.filter((f) => f.path === plan.documentPath);
   return [...plan.files.filter((f) => f.path !== plan.documentPath), ...last];
+}
+
+/** How a deletion's sidecar entry is named to the user: the index file and the entry's key. */
+function sidecarPath(plan: DeletionPlan): string {
+  return `${plan.projectId}/${SIDECAR_DIR}/${SIDECAR_INDEX_FILE}#${plan.sidecarKey ?? ''}`;
 }
 
 function deepestFirst(a: string, b: string): number {

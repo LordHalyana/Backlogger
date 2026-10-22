@@ -59,3 +59,6 @@ tags: ['docs']
   are never touched. Projects now report `linked`, and the delete dialog says
   which kind of deletion it is. See
   [`DELETE /api/projects/:id`](api.md#delete-apiprojectsid).
+- In a sidecar project, a document's sidecar entry is fingerprinted with the
+  rest of the deletion: an entry edited by hand while the deletion runs is kept
+  and the deletion stops for review, like a changed file.

@@ -793,3 +793,76 @@ describe('Permanently deleting a linked project', () => {
     await fs.rm(elsewhere, { recursive: true, force: true });
   });
 });
+
+describe('Permanently deleting a sidecar-backed document', () => {
+  let h: Harness;
+  let note: DocBody;
+  let key: string;
+  const index = 'work/.backlogger/index.json';
+
+  async function sidecarEntries(): Promise<Record<string, { title?: string }>> {
+    return JSON.parse(await fs.readFile(abs(h, index), 'utf8')).entries;
+  }
+
+  beforeEach(async () => {
+    h = await setup();
+    await createProject(h, 'work');
+    const mode = await request(h.app).put('/api/projects/work').send({ metadataMode: 'sidecar' });
+    expect(mode.status).toBe(200);
+    const res = await request(h.app)
+      .post('/api/projects/work/documents')
+      .send({ type: 'note', title: 'Bilby note' });
+    expect(res.status).toBe(201);
+    note = res.body as DocBody;
+    key = path.posix.relative('work', note.path);
+    expect(Object.keys(await sidecarEntries())).toContain(key);
+  });
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await teardown(h);
+  });
+
+  it('removes the file and its sidecar entry', async () => {
+    const res = await deleteDoc(h, note.id, KEY);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(await exists(h, note.path)).toBe(false);
+    expect(Object.keys(await sidecarEntries())).not.toContain(key);
+    expectSettled(h, KEY);
+  });
+
+  it('a sidecar entry edited mid-deletion is kept and reported; recheck finishes once it is removed', async () => {
+    crashOn(h.ctx.fs, 'deleteIfUnchanged', 1, 'before');
+    expect((await deleteDoc(h, note.id, KEY)).status).toBe(500);
+    vi.restoreAllMocks();
+    const raw = JSON.parse(await fs.readFile(abs(h, index), 'utf8'));
+    raw.entries[key].title = 'Edited by hand';
+    await fs.writeFile(abs(h, index), JSON.stringify(raw, null, 2));
+
+    h = await restart(h);
+
+    expect(operation(h, KEY)?.state).toBe('pending');
+    expect((await sidecarEntries())[key]?.title).toBe('Edited by hand');
+    expect(await exists(h, note.path)).toBe(true);
+    const detail = await request(h.app).get(`/api/recovery/${KEY}`);
+    expect(detail.body).toMatchObject({
+      command: 'document.delete',
+      kind: 'content_conflict',
+      reason: 'content_changed',
+      actions: ['recheck'],
+    });
+    expect(detail.body.paths).toContainEqual({
+      path: `${index}#${key}`,
+      before_revision: expect.any(String),
+      after_revision: null,
+      observed_revision: expect.any(String),
+    });
+
+    const edited = JSON.parse(await fs.readFile(abs(h, index), 'utf8'));
+    delete edited.entries[key];
+    await fs.writeFile(abs(h, index), JSON.stringify(edited, null, 2));
+    const recheck = await request(h.app).post(`/api/recovery/${KEY}/recheck`);
+    expect(recheck.body.state).toBe('completed');
+    expect(await exists(h, note.path)).toBe(false);
+    expectSettled(h, KEY);
+  });
+});
