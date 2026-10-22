@@ -1,5 +1,6 @@
 import type { Statement } from 'better-sqlite3';
 import type { Db } from '../db/database.js';
+import { pendingDeletionCovers } from '../db/operations-repo.js';
 
 export interface TagCount {
   tag: string;
@@ -36,7 +37,7 @@ export class TagsService {
           `SELECT dt.tag, COUNT(*) AS count
            FROM document_tags dt
            JOIN documents d ON d.id = dt.document_id
-           WHERE d.project_id = ?
+           WHERE d.project_id = ? AND NOT ${pendingDeletionCovers('d')}
            GROUP BY dt.tag
            ORDER BY count DESC, dt.tag`,
         )
@@ -44,10 +45,12 @@ export class TagsService {
     }
     return this.db
       .prepare<[], TagCount>(
-        `SELECT tag, COUNT(*) AS count
-         FROM document_tags
-         GROUP BY tag
-         ORDER BY count DESC, tag`,
+        `SELECT dt.tag, COUNT(*) AS count
+         FROM document_tags dt
+         JOIN documents d ON d.id = dt.document_id
+         WHERE NOT ${pendingDeletionCovers('d')}
+         GROUP BY dt.tag
+         ORDER BY count DESC, dt.tag`,
       )
       .all();
   }

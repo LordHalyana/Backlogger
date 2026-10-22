@@ -15,7 +15,6 @@ import {
   type WriteCoordinator,
 } from './write-coordinator.js';
 import { DELETE_PROJECT_COMMAND, type PermanentDeletion } from './permanent-deletion.js';
-import type { OperationsRepo } from '../db/operations-repo.js';
 
 export interface ProjectServiceDeps {
   projectsRepo: ProjectsRepo;
@@ -24,8 +23,6 @@ export interface ProjectServiceDeps {
   coordinator: WriteCoordinator;
   /** Permanent deletion of a project folder with everything in it. */
   deletion: PermanentDeletion;
-  /** Says which projects a pending deletion hides. */
-  operations: OperationsRepo;
   /** Override for tests. */
   now?: () => string;
 }
@@ -42,7 +39,6 @@ export class ProjectService {
   private readonly inbox: InboxService;
   private readonly coordinator: WriteCoordinator;
   private readonly deletion: PermanentDeletion;
-  private readonly operations: OperationsRepo;
   private readonly now: () => string;
 
   constructor(deps: ProjectServiceDeps) {
@@ -51,7 +47,6 @@ export class ProjectService {
     this.inbox = deps.inbox;
     this.coordinator = deps.coordinator;
     this.deletion = deps.deletion;
-    this.operations = deps.operations;
     this.now = deps.now ?? (() => new Date().toISOString());
   }
 
@@ -59,7 +54,7 @@ export class ProjectService {
   list(): Project[] {
     return this.projectsRepo
       .list()
-      .filter((p) => !this.operations.isProjectPendingDeletion(p.id))
+      .filter((p) => !this.coordinator.isProjectPendingDeletion(p.id))
       .map((p) => this.view(p));
   }
 

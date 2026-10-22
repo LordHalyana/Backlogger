@@ -157,6 +157,13 @@ export class PathResolver {
    * project id resolves to the project folder.
    */
   async resolveEntrySafe(relativePath: string): Promise<string> {
+    const absolute = this.resolveEntry(relativePath);
+    await this.assertNoSymlinks(absolute);
+    return absolute;
+  }
+
+  /** `resolveEntrySafe` without the symlink check, for `lstat`-only callers. */
+  resolveEntry(relativePath: string): string {
     if (typeof relativePath !== 'string' || relativePath.length === 0) {
       throw new InvalidRelativePathError(String(relativePath));
     }
@@ -175,7 +182,6 @@ export class PathResolver {
     if (!this.isInsideProjectsRoot(absolute)) {
       throw new PathOutsideDataDirError(relativePath);
     }
-    await this.assertNoSymlinks(absolute);
     return absolute;
   }
 

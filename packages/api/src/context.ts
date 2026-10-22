@@ -111,7 +111,6 @@ export function buildContext(opts: BuildContextOptions): AppContext {
     inbox: inboxService,
     coordinator,
     deletion,
-    operations: operationsRepo,
   });
   const transfer = new TaskTransfer({ coordinator, documentsRepo, commentsRepo, fs });
   coordinator.onRecover(TRANSFER_COMMAND, transfer);

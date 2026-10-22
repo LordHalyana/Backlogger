@@ -114,7 +114,7 @@ Repositories are the only modules that should talk directly to persistence:
 
 - `FsRepository`: safe Markdown file operations.
 - `ProjectsRepo`: `projects` table.
-- `OperationsRepo`: the protected operational tables (`operations`, `operation_payloads`, `operation_manifest_entries`, `operation_guards`). Only `WriteCoordinator` uses it, and the coordinator owns every SQLite transaction a command commits.
+- `OperationsRepo`: the protected operational tables (`operations`, `operation_payloads`, `operation_manifest_entries`, `operation_guards`). Only `WriteCoordinator` writes it, and the coordinator owns every SQLite transaction a command commits. The one read outside it is `pendingDeletionCovers`, a SQL predicate exported from `operations-repo.ts` that document, search, graph, link and tag queries splice in to hide what a pending deletion covers.
 - `DocumentsRepo`: `documents` table reads/writes, including the `body_indexed`
   column. The `search_fts` full-text projection (one row per document and per
   comment) is maintained by SQL triggers on `documents` and `comments`

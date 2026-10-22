@@ -12,6 +12,8 @@ import { ConflictError } from '../errors.js';
 import {
   DocumentNotFoundError,
   FsRepoError,
+  SymlinkNotAllowedError,
+  type DirEntry,
   type FsRepository,
   type SidecarStore,
 } from '../fs/index.js';
@@ -157,7 +159,14 @@ export class PermanentDeletion implements Recoverer {
     const comments = `${scope}/${COMMENTS_SEGMENT}`;
     const files: DeletionPlan['files'] = [];
     const problems: string[] = [];
-    for (const entry of await this.fs.listTree(scope)) {
+    const entries = await this.listScope(scope);
+    if (entries === 'symlink') {
+      throw deletionBlocked(
+        `${scope} is a symlink; Backlogger never deletes through one. Remove the link by hand.`,
+        [scope],
+      );
+    }
+    for (const entry of entries) {
       if (entry.kind === 'directory' && entry.path === comments) continue;
       if (entry.kind !== 'file' || !entry.path.startsWith(`${comments}/`)) {
         problems.push(entry.path);
@@ -172,7 +181,7 @@ export class PermanentDeletion implements Recoverer {
         problems.push(entry.path);
         continue;
       }
-      files.push({ path: entry.path, revision: (await this.fs.fileRevision(entry.path))! });
+      await this.list(files, entry.path);
     }
     if (problems.length > 0) {
       throw deletionBlocked(
@@ -224,9 +233,8 @@ export class PermanentDeletion implements Recoverer {
     const problems: string[] = [];
     for (const entry of await this.fs.listTree(projectId)) {
       if (entry.kind === 'directory') dirs.push(entry.path);
-      else if (entry.kind === 'file') {
-        files.push({ path: entry.path, revision: (await this.fs.fileRevision(entry.path))! });
-      } else problems.push(entry.path);
+      else if (entry.kind === 'file') await this.list(files, entry.path);
+      else problems.push(entry.path);
     }
     if (problems.length > 0) {
       throw deletionBlocked(
@@ -277,6 +285,19 @@ export class PermanentDeletion implements Recoverer {
 
     stop = this.judge(plan, await this.observe(plan));
     if (stop) return { done: false, stop };
+    // Verify cleanup: a listed folder still there was not removed.
+    for (const dir of plan.dirs) {
+      if (await this.fs.entryExists(dir)) {
+        return {
+          done: false,
+          stop: {
+            kind: 'structural',
+            reason: 'unexpected_file',
+            message: `${dir} could not be removed; check it is an empty folder, then Recheck.`,
+          },
+        };
+      }
+    }
     const ack = acknowledgement(plan);
     complete(ack, () => this.removeDerived(plan));
     return { done: true, ack };
@@ -410,7 +431,12 @@ export class PermanentDeletion implements Recoverer {
       return { revisions, unexpected };
     }
     for (const scope of plan.scopes) {
-      for (const entry of await this.fs.listTree(scope)) {
+      const entries = await this.listScope(scope);
+      if (entries === 'symlink') {
+        unexpected.push({ path: scope, revision: null });
+        continue;
+      }
+      for (const entry of entries) {
         if (entry.kind === 'directory' && listedDirs.has(entry.path)) continue;
         if (entry.kind === 'file' && revisions.has(entry.path)) continue;
         unexpected.push({
@@ -461,9 +487,23 @@ export class PermanentDeletion implements Recoverer {
       return await this.fs.fileRevision(relPath);
     } catch (err) {
       // A symlink or a folder where a listed file was: never followed.
-      if (err instanceof FsRepoError || (err as NodeJS.ErrnoException).code === 'EISDIR') {
-        return NOT_A_FILE;
-      }
+      if (err instanceof FsRepoError) return NOT_A_FILE;
+      throw err;
+    }
+  }
+
+  /** Inventory one file with the revision of its bytes; a file gone meanwhile has nothing to delete. */
+  private async list(files: DeletionPlan['files'], relPath: string): Promise<void> {
+    const revision = await this.fs.fileRevision(relPath);
+    if (revision !== null) files.push({ path: relPath, revision });
+  }
+
+  /** Every entry below a scope folder, or `'symlink'` when the folder (or one above it) is one. */
+  private async listScope(scope: string): Promise<DirEntry[] | 'symlink'> {
+    try {
+      return await this.fs.listTree(scope);
+    } catch (err) {
+      if (err instanceof SymlinkNotAllowedError) return 'symlink';
       throw err;
     }
   }

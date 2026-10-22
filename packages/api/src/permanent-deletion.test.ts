@@ -158,13 +158,19 @@ function crashInTransaction(h: Harness, method: 'markCompleted'): void {
   });
 }
 
-/** Where a task shows up in ordinary views: the board, lists, Current work and search. */
+/**
+ * Where a task shows up in ordinary views: the board, lists, Current work,
+ * search, the graph, link titles and tag counts (its tag is `term`).
+ */
 async function visibility(h: Harness, projectId: string, taskId: string, term: string) {
   const board = await request(h.app).get(`/api/projects/${projectId}/board`);
   const cards = board.status === 200 ? Object.values(board.body.columns).flat() : [];
   const list = await request(h.app).get(`/api/projects/${projectId}/documents`);
   const work = await request(h.app).get('/api/current-work');
   const search = await request(h.app).get('/api/search').query({ q: term });
+  const graph = await request(h.app).get(`/api/projects/${projectId}/graph`);
+  const titles = await request(h.app).get(`/api/projects/${projectId}/titles`);
+  const tags = await request(h.app).get('/api/tags');
   return {
     board: (cards as Array<{ id: string }>).some((c) => c.id === taskId),
     list: list.status === 200 && (list.body as Array<{ id: string }>).some((d) => d.id === taskId),
@@ -172,11 +178,33 @@ async function visibility(h: Harness, projectId: string, taskId: string, term: s
       g.items.some((i) => i.id === taskId),
     ),
     search: (search.body as Array<{ id: string }>).some((r) => r.id === taskId),
+    graph:
+      graph.status === 200 &&
+      (graph.body.nodes as Array<{ id: string }>).some((n) => n.id === taskId),
+    titles:
+      titles.status === 200 && (titles.body as Array<{ id: string }>).some((t) => t.id === taskId),
+    tag: (tags.body as Array<{ tag: string }>).some((t) => t.tag === term),
   };
 }
 
-const HIDDEN = { board: false, list: false, currentWork: false, search: false };
-const SHOWN = { board: true, list: true, currentWork: true, search: true };
+const HIDDEN = {
+  board: false,
+  list: false,
+  currentWork: false,
+  search: false,
+  graph: false,
+  titles: false,
+  tag: false,
+};
+const SHOWN = {
+  board: true,
+  list: true,
+  currentWork: true,
+  search: true,
+  graph: true,
+  titles: true,
+  tag: true,
+};
 
 const KEY = uuid(500);
 
@@ -189,7 +217,10 @@ describe('Permanently deleting a commented task', () => {
   beforeEach(async () => {
     h = await setup();
     await createProject(h, 'work');
-    task = await createItem(h, 'work', 'Quokka gate', { task_state: 'in_progress' });
+    task = await createItem(h, 'work', 'Quokka gate', {
+      task_state: 'in_progress',
+      tags: ['quokka'],
+    });
     other = await createItem(h, 'work', 'Unrelated');
     await comment(h, task.id, 1, 'First quokka finding');
     await comment(h, task.id, 2, '## Decision\n\n- keep it\n');
@@ -446,6 +477,26 @@ describe('Permanently deleting a commented task', () => {
     await fs.rm(outside, { recursive: true, force: true });
   });
 
+  it('a ticket folder replaced by a symlink mid-deletion is not followed and stops recovery', async () => {
+    crashOn(h.ctx.fs, 'deleteIfUnchanged', 1, 'after');
+    expect((await deleteDoc(h, task.id, KEY)).status).toBe(500);
+    vi.restoreAllMocks();
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'backlogger-outside-'));
+    await fs.rename(abs(h, ticketDir), path.join(outside, 'moved'));
+    await fs.symlink(path.join(outside, 'moved'), abs(h, ticketDir));
+
+    h = await restart(h);
+
+    expect(operation(h, KEY)?.state).toBe('pending');
+    const detail = await request(h.app).get(`/api/recovery/${KEY}`);
+    expect(detail.status).toBe(200);
+    expect(detail.body).toMatchObject({ kind: 'structural', reason: 'unexpected_file' });
+    const recheck = await request(h.app).post(`/api/recovery/${KEY}/recheck`);
+    expect(recheck.body.state).toBe('pending');
+    expect(await fs.readdir(path.join(outside, 'moved', 'comments'))).toHaveLength(1);
+    await fs.rm(outside, { recursive: true, force: true });
+  });
+
   it('an orphaned comment found by Reindex is kept and reported', async () => {
     const orphanDir = abs(h, `work/tickets/${uuid(77)}/comments`);
     await fs.mkdir(orphanDir, { recursive: true });
@@ -472,7 +523,10 @@ describe('Permanently deleting a project', () => {
   beforeEach(async () => {
     h = await setup();
     await createProject(h, 'work');
-    task = await createItem(h, 'work', 'Wombat task', { task_state: 'in_progress' });
+    task = await createItem(h, 'work', 'Wombat task', {
+      task_state: 'in_progress',
+      tags: ['wombat'],
+    });
     await createItem(h, 'work', 'Second task');
     await comment(h, task.id, 1, 'Wombat comment');
     await fs.writeFile(abs(h, 'work/notes.txt'), 'not markdown');
@@ -547,6 +601,7 @@ describe('Permanently deleting a project', () => {
   });
 
   for (const [phase, inject] of [
+    ['before the first removal', (x: Harness) => crashOn(x.ctx.fs, 'deleteIfUnchanged', 1, 'before')],
     ['after the first removal', (x: Harness) => crashOn(x.ctx.fs, 'deleteIfUnchanged', 1, 'after')],
     ['after the third removal', (x: Harness) => crashOn(x.ctx.fs, 'deleteIfUnchanged', 3, 'after')],
     ['while removing folders', (x: Harness) => crashOn(x.ctx.fs, 'removeEmptyDir', 2, 'after')],

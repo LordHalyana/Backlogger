@@ -4,6 +4,7 @@ import matter from 'gray-matter';
 import {
   DocumentNotFoundError,
   FsRepoError,
+  NotAFileError,
   NotUtf8Error,
   ProjectNotFoundError,
 } from './errors.js';
@@ -296,14 +297,29 @@ export class FsRepository {
 
   /**
    * The revision of a file's raw bytes (see `bytesRevision`), or `null` when
-   * it is absent. Never follows a symlink below the project folder.
+   * it is absent. Never follows a symlink below the project folder (that is
+   * `SymlinkNotAllowedError`); a folder there is `NotAFileError`.
    */
   async fileRevision(relativePath: string): Promise<string | null> {
     const absolute = await this.resolver.resolveEntrySafe(relativePath);
     try {
       return bytesRevision(await fs.readFile(absolute));
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') return null;
+      if (code === 'EISDIR') throw new NotAFileError(relativePath);
+      throw err;
+    }
+  }
+
+  /** Whether anything (a symlink included, never followed) exists at a path. */
+  async entryExists(relativePath: string): Promise<boolean> {
+    const absolute = this.resolver.resolveEntry(relativePath);
+    try {
+      await fs.lstat(absolute);
+      return true;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return false;
       throw err;
     }
   }
