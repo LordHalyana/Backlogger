@@ -183,7 +183,7 @@ describe('WriteCoordinator receipts', () => {
       }),
     ).rejects.toMatchObject({
       code: 'RECOVERY_REQUIRED',
-      details: { operationId: ID, inspect: `/api/recovery/${ID}` },
+      details: { operationId: ID, inspect: `/recovery/${ID}` },
     });
     expect(operationRow(h)).toEqual({ state: 'pending', outcome: null });
   });

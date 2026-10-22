@@ -109,7 +109,7 @@ function expectRecoveryRequired(res: request.Response, operationId: string): voi
   expect(res.status).toBe(409);
   expect(res.body.error).toMatchObject({
     code: 'RECOVERY_REQUIRED',
-    details: { operationId, inspect: `/api/recovery/${operationId}` },
+    details: { operationId, inspect: `/recovery/${operationId}` },
   });
 }
 
@@ -371,6 +371,7 @@ describe('Filing a commented task', () => {
       kind: 'resumable',
       task_id: task.id,
       project_id: 'inbox',
+      target_project_id: 'work',
       actions: ['recheck'],
     });
     expect(detail.body.paths).toContainEqual({

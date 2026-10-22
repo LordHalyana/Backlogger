@@ -139,7 +139,7 @@ function expectRecoveryRequired(res: request.Response, operationId: string): voi
   expect(res.status).toBe(409);
   expect(res.body.error).toMatchObject({
     code: 'RECOVERY_REQUIRED',
-    details: { operationId, inspect: `/api/recovery/${operationId}` },
+    details: { operationId, inspect: `/recovery/${operationId}` },
   });
 }
 
@@ -556,8 +556,11 @@ describe('Recovery API', () => {
           message: expect.any(String),
           project_id: 'work',
           task_id: task.id,
+          task_title: 'Review me',
+          target_project_id: null,
           comment_id: uuid(1),
           in_progress: false,
+          abandoned_at: null,
         },
       ],
     });
@@ -618,7 +621,9 @@ describe('Recovery API', () => {
     expect(operation(h, uuid(301))?.state).toBe('completed');
     expect(payload(h, uuid(101))).toBeUndefined();
     expect(count(h, 'operation_guards')).toBe(0);
-    expect((await request(h.app).get('/api/recovery')).body.operations).toEqual([]);
+    expect((await request(h.app).get('/api/recovery')).body.operations).toMatchObject([
+      { operation_id: uuid(101), state: 'abandoned' },
+    ]);
 
     // The abandon itself is retry-safe.
     const again = await abandon(h, uuid(101), uuid(301), fresh.review_token);
@@ -637,6 +642,54 @@ describe('Recovery API', () => {
     expect(operation(h, uuid(101))?.state).toBe('abandoned');
     const edit = await put(h, uuid(1), uuid(102), contentRevision(external), { body: 'Next' });
     expect(edit.status).toBe(200);
+  });
+
+  it('an abandoned operation stays listed with its final state until it is dismissed', async () => {
+    const token = (await request(h.app).get(`/api/recovery/${uuid(101)}`)).body.review_token;
+    expect((await abandon(h, uuid(101), uuid(300), token)).status).toBe(200);
+
+    const list = await request(h.app).get('/api/recovery');
+    expect(list.body.operations).toEqual([
+      expect.objectContaining({
+        operation_id: uuid(101),
+        command: 'comment.edit',
+        state: 'abandoned',
+        project_id: 'work',
+        task_id: task.id,
+        task_title: 'Review me',
+        comment_id: uuid(1),
+        in_progress: false,
+        abandoned_at: expect.any(String),
+      }),
+    ]);
+    const detail = await request(h.app).get(`/api/recovery/${uuid(101)}`);
+    expect(detail.status).toBe(200);
+    expect(detail.body).toMatchObject({
+      state: 'abandoned',
+      task_id: task.id,
+      actions: [],
+      paths: [],
+      pending_content: null,
+    });
+    expect(JSON.stringify(detail.body)).not.toContain('zebracorn');
+
+    // Dismissing is refused while the operation is pending, and is idempotent once abandoned.
+    h = await restart(h);
+    expect((await request(h.app).get('/api/recovery')).body.operations).toHaveLength(1);
+    const dismissed = await request(h.app).post(`/api/recovery/${uuid(101)}/dismiss`);
+    expect(dismissed.status).toBe(200);
+    expect(dismissed.body).toEqual({ operation_id: uuid(101), dismissed: true });
+    expect((await request(h.app).post(`/api/recovery/${uuid(101)}/dismiss`)).status).toBe(200);
+    expect((await request(h.app).get('/api/recovery')).body.operations).toEqual([]);
+    expect(operation(h, uuid(101))?.state).toBe('abandoned');
+  });
+
+  it('dismiss is refused for a pending operation and unknown for a missing one', async () => {
+    const refused = await request(h.app).post(`/api/recovery/${uuid(101)}/dismiss`);
+    expect(refused.status).toBe(409);
+    expect(refused.body.error.code).toBe('RECOVERY_ACTION_NOT_ALLOWED');
+    expect((await request(h.app).post(`/api/recovery/${uuid(999)}/dismiss`)).status).toBe(404);
+    expect((await request(h.app).get('/api/recovery')).body.operations).toHaveLength(1);
   });
 
   it('abandon needs its own Idempotency-Key and a review token', async () => {

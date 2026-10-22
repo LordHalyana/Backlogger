@@ -10,6 +10,8 @@ export interface ComposerError {
 
 interface CommentComposerProps {
   text: string;
+  /** Recovery pauses writing: the composer is disabled and its draft kept. */
+  paused?: boolean;
   posting: boolean;
   error: ComposerError | null;
   /** The failed post would be resent unchanged (same Idempotency-Key): offer Retry. */
@@ -24,6 +26,7 @@ interface CommentComposerProps {
 /** The composer docked under the thread. Ctrl/⌘+Enter posts. */
 export function CommentComposer({
   text,
+  paused = false,
   posting,
   error,
   canRetry,
@@ -56,9 +59,15 @@ export function CommentComposer({
         placeholder="Add a comment (Markdown). Ctrl+Enter posts."
         value={text}
         readOnly={posting}
+        disabled={paused}
         onChange={(e) => onText(e.target.value)}
         onKeyDown={onKeyDown}
       />
+      {paused && (
+        <p className="comments-composer-paused">
+          Writing is paused while recovery is pending. Your draft is kept.
+        </p>
+      )}
       {error && (
         <div className="comments-composer-error">
           <span className="error">{error.message}</span>
@@ -73,7 +82,7 @@ export function CommentComposer({
         <button
           type="submit"
           className="btn btn--sm comment-submit"
-          disabled={posting || text.trim() === ''}
+          disabled={paused || posting || text.trim() === ''}
         >
           {submitLabel(posting ? 'Posting…' : null, canRetry, 'Post comment')}
         </button>

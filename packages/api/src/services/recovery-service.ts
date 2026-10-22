@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import {
   isUuid,
   type AbandonRecoveryAck,
+  type DismissRecoveryAck,
   type RecheckResult,
   type RecoveryAction,
   type RecoveryDetail,
@@ -9,8 +10,10 @@ import {
   type RecoverySummary,
 } from '@backlogger/shared';
 import { BadRequestError, ConflictError, NotFoundError } from '../errors.js';
+import type { DocumentsRepo } from '../db/documents-repo.js';
 import {
   operationFingerprint,
+  type AbandonedTarget,
   parseOperationId,
   type PendingOperation,
   type RecoveryAssessment,
@@ -19,6 +22,8 @@ import {
 
 export interface RecoveryServiceDeps {
   coordinator: WriteCoordinator;
+  /** For the task titles the Recovery page names operations by. */
+  documentsRepo: DocumentsRepo;
 }
 
 /** `recovery.abandon`, as received: its own Idempotency-Key and the review token. */
@@ -38,22 +43,64 @@ export interface AbandonCommand {
  */
 export class RecoveryService {
   private readonly coordinator: WriteCoordinator;
+  private readonly documentsRepo: DocumentsRepo;
 
   constructor(deps: RecoveryServiceDeps) {
     this.coordinator = deps.coordinator;
+    this.documentsRepo = deps.documentsRepo;
   }
 
-  /** Summaries of every pending operation, oldest first. Never any content. */
+  /**
+   * Summaries of every pending operation, and of abandoned ones not yet
+   * dismissed, oldest first. Never any content.
+   */
   async list(): Promise<RecoveryList> {
     const operations: RecoverySummary[] = [];
-    for (const op of this.coordinator.pendingOperations()) {
-      operations.push(this.summary(op, await this.assess(op)));
+    for (const op of this.coordinator.reviewableOperations()) {
+      operations.push(
+        op.state === 'abandoned'
+          ? this.abandonedSummary(op)
+          : this.summary(op, await this.assess(op)),
+      );
     }
     return { operations };
   }
 
+  /** A pending operation's review, or an abandoned one's final state. */
   async detail(rawId: string): Promise<RecoveryDetail> {
-    return this.detailOf(this.findPending(rawId));
+    const op = this.find(rawId);
+    if (op.state === 'abandoned') {
+      return {
+        ...this.abandonedSummary(op),
+        paths: [],
+        actions: [],
+        review_token: reviewToken(op, null),
+        pending_content: null,
+        current_content: null,
+      };
+    }
+    if (op.state !== 'pending') {
+      throw new NotFoundError('RECOVERY_NOT_FOUND', `Operation ${rawId} is not pending.`);
+    }
+    return this.detailOf(op);
+  }
+
+  /**
+   * Take an abandoned operation's final state off the Recovery page, once the
+   * user dismissed its notice on the task. Only a display flag changes, so a
+   * repeat is harmless and needs no Idempotency-Key.
+   */
+  dismiss(rawId: string): DismissRecoveryAck {
+    const op = this.find(rawId);
+    if (op.state !== 'abandoned') {
+      throw new ConflictError(
+        'RECOVERY_ACTION_NOT_ALLOWED',
+        `Operation ${op.operation_id} (${op.command}, ${op.state}) has no final state to dismiss.`,
+        { operationId: op.operation_id, actions: this.actionsFor(op) },
+      );
+    }
+    this.coordinator.dismiss(op.operation_id);
+    return { operation_id: op.operation_id, dismissed: true };
   }
 
   /** Resume the original operation from where it stands; never start a new one. */
@@ -124,7 +171,14 @@ export class RecoveryService {
           target_operation_id: targetId,
           outcome: 'abandoned',
         };
-        return scope.abandon(targetId, ack);
+        const about: AbandonedTarget = {
+          kind: current.kind,
+          reason: current.reason,
+          project_id: current.project_id,
+          task_id: current.task_id,
+          comment_id: current.comment_id,
+        };
+        return scope.abandon(targetId, ack, about);
       },
     });
   }
@@ -152,9 +206,38 @@ export class RecoveryService {
       message: assessed.message,
       project_id: assessed.project_id,
       task_id: assessed.task_id,
+      task_title: this.titleOf(assessed.task_id),
+      target_project_id: assessed.target_project_id ?? null,
       comment_id: assessed.comment_id,
       in_progress: this.coordinator.isRunning(op.operation_id),
+      abandoned_at: null,
     };
+  }
+
+  /** An abandoned operation, from what its row kept once the payload went. */
+  private abandonedSummary(op: PendingOperation): RecoverySummary {
+    const about = (op.outcome ?? {}) as Partial<AbandonedTarget>;
+    const taskId = about.task_id ?? null;
+    return {
+      operation_id: op.operation_id,
+      command: op.command,
+      state: 'abandoned',
+      created_at: op.created_at,
+      kind: about.kind ?? 'content_conflict',
+      reason: about.reason ?? 'content_changed',
+      message: 'The pending change was abandoned. The current file was kept unchanged.',
+      project_id: about.project_id ?? null,
+      task_id: taskId,
+      task_title: this.titleOf(taskId),
+      target_project_id: null,
+      comment_id: about.comment_id ?? null,
+      in_progress: false,
+      abandoned_at: op.completed_at,
+    };
+  }
+
+  private titleOf(taskId: string | null): string | null {
+    return taskId === null ? null : (this.documentsRepo.find(taskId)?.title ?? null);
   }
 
   private assess(op: PendingOperation): Promise<RecoveryAssessment> {
@@ -186,25 +269,17 @@ export class RecoveryService {
     if (!op) throw new NotFoundError('RECOVERY_NOT_FOUND', `No operation ${rawId}.`);
     return op;
   }
-
-  private findPending(rawId: string): PendingOperation {
-    const op = this.find(rawId);
-    if (op.state !== 'pending') {
-      throw new NotFoundError('RECOVERY_NOT_FOUND', `Operation ${rawId} is not pending.`);
-    }
-    return op;
-  }
 }
 
 /** Changes whenever what the user reviewed changes: the reason, the files or the payload. */
-function reviewToken(op: PendingOperation, assessed: RecoveryAssessment): string {
+function reviewToken(op: PendingOperation, assessed: RecoveryAssessment | null): string {
   return createHash('sha256')
     .update(
       JSON.stringify([
         op.operation_id,
         op.state,
-        assessed.reason,
-        assessed.paths,
+        assessed?.reason ?? null,
+        assessed?.paths ?? [],
         op.payload === null ? null : createHash('sha256').update(op.payload).digest('hex'),
       ]),
       'utf8',

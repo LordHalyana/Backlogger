@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   readCommentFromUrl,
+  readRecoveryFromUrl,
+  recoveryPathname,
   readWorkspaceFromUrl,
   workspacePathname,
   syncWorkspaceUrl,
@@ -143,5 +145,23 @@ describe('comment links', () => {
     syncWorkspaceUrl('new', 'doc-1', 'documents', false, { commentId: 'c-1', replace: true });
     expect(window.location.pathname).toBe('/projects/new/documents/doc-1/comments/c-1');
     expect(window.history.length).toBe(before);
+  });
+});
+
+describe('the Recovery page', () => {
+  it('reads /recovery and /recovery/:operationId', () => {
+    setPath('/recovery');
+    expect(readRecoveryFromUrl()).toEqual({ operationId: null });
+    setPath('/recovery/4b1e0c9a-77d2-4f0e-9a51-3c2d8e6f1a20');
+    expect(readRecoveryFromUrl()).toEqual({
+      operationId: '4b1e0c9a-77d2-4f0e-9a51-3c2d8e6f1a20',
+    });
+    setPath('/projects/demo');
+    expect(readRecoveryFromUrl()).toBeNull();
+  });
+
+  it('builds its path', () => {
+    expect(recoveryPathname(null)).toBe('/recovery');
+    expect(recoveryPathname('abc')).toBe('/recovery/abc');
   });
 });

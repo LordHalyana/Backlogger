@@ -20,6 +20,18 @@ import { flattenHistory, newUuid, useCommentHistory } from '../lib/comments.js';
 import { CommentsTab, type CommentWritability, type TabPanelIds } from './CommentsTab.js';
 import { ApiError } from '../lib/api.js';
 import type { Landing } from '../lib/landing.js';
+import { useProjects } from '../lib/projects.js';
+import {
+  isCommentOperation,
+  isDeletion,
+  isMoving,
+  isTransfer,
+  operationForTask,
+  useDismissRecovery,
+  useRecoveryBlockedToast,
+  useRecoveryList,
+} from '../lib/recovery.js';
+import type { RecoverySummary } from '@backlogger/shared';
 
 const DocumentEditor = lazy(() =>
   import('./DocumentEditor.js').then((m) => ({ default: m.DocumentEditor })),
@@ -52,7 +64,11 @@ interface DocumentWorkspaceProps {
   onProjectMoved?: (projectId: string) => void;
   /** Open search, from the page shown when the document no longer exists. */
   onOpenSearch?: () => void;
+  /** Open the Recovery page on the operation that pauses this task. */
+  onOpenRecovery?: (operationId: string) => void;
 }
+
+const noop = (): void => undefined;
 
 export function DocumentWorkspace({
   projectId,
@@ -65,6 +81,7 @@ export function DocumentWorkspace({
   landing = null,
   onProjectMoved,
   onOpenSearch,
+  onOpenRecovery = noop,
 }: DocumentWorkspaceProps): JSX.Element {
   const { data: doc, isLoading, isError, error, refetch } = useDocument(documentId);
   const del = useDeleteDocument(projectId);
@@ -76,6 +93,11 @@ export function DocumentWorkspace({
   );
   const docsQuery = useDocuments(projectId);
   const isReadOnly = doc?.readOnly ?? false;
+  const recovery = useRecoveryList();
+  const taskOperation = operationForTask(recovery.data?.operations, documentId);
+  // Every write to the task waits while an operation on it is pending.
+  const paused = taskOperation?.state === 'pending';
+  const recoveryBlocked = useRecoveryBlockedToast(onOpenRecovery);
 
   const {
     buffer,
@@ -166,9 +188,17 @@ export function DocumentWorkspace({
       })
       .then((ok) => {
         if (!ok) return;
-        del.mutate({ id: doc.id, operationId: newUuid() }, { onSuccess: onDeleted });
+        del.mutate(
+          { id: doc.id, operationId: newUuid() },
+          {
+            onSuccess: onDeleted,
+            onError: (e) => {
+              if (!recoveryBlocked('delete', e)) toastError(dialog, 'Failed to delete', e);
+            },
+          },
+        );
       });
-  }, [del, dialog, doc, onDeleted]);
+  }, [del, dialog, doc, onDeleted, recoveryBlocked]);
 
   const handleMove = useCallback(() => {
     if (!doc) return;
@@ -203,10 +233,14 @@ export function DocumentWorkspace({
         if (target === current) return;
         moveDoc.mutate(
           { id: doc.id, folder: target },
-          { onError: (e) => toastError(dialog, 'Failed to move document', e) },
+          {
+            onError: (e) => {
+              if (!recoveryBlocked('move', e)) toastError(dialog, 'Failed to move document', e);
+            },
+          },
         );
       });
-  }, [doc, dirty, isSaving, dialog, projectId, moveDoc]);
+  }, [doc, dirty, isSaving, dialog, projectId, moveDoc, recoveryBlocked]);
 
   if (isError && error instanceof ApiError && error.status === 404) {
     return (
@@ -250,6 +284,7 @@ export function DocumentWorkspace({
         </span>
         <code className="workspace-path">{doc.path}</code>
       </div>
+      {taskOperation && <RecoveryNotice operation={taskOperation} onReview={onOpenRecovery} />}
       {isBacklogItem && (
         <div className="workspace-tabs" role="tablist" aria-label="Task views">
           {(['description', 'comments'] as const).map((t) => (
@@ -370,6 +405,7 @@ export function DocumentWorkspace({
             taskTitle={doc.title}
             landing={landing?.kind === 'comment' ? landing : null}
             writability={commentWritability(doc.readOnly, doc.status)}
+            paused={paused}
             hidden={tab !== 'comments'}
             panel={tabPanelIds(doc.id, 'comments')}
             onRestoreTask={() => handleMetaChange({ ...buffer.meta, status: 'active' })}
@@ -392,6 +428,76 @@ export function DocumentWorkspace({
           onOpenDocument={onOpenDocument}
         />
       </div>
+    </div>
+  );
+}
+
+/**
+ * The task's notice while an operation on it is pending: what needs review
+ * and what is paused, with Review recovery; a move in progress; or, once a
+ * change was abandoned, a notice that stays until dismissed.
+ */
+function RecoveryNotice({
+  operation,
+  onReview,
+}: {
+  operation: RecoverySummary;
+  onReview: (operationId: string) => void;
+}): JSX.Element {
+  const projects = useProjects();
+  const dismiss = useDismissRecovery();
+  const projectName = (id: string | null): string =>
+    projects.data?.find((p) => p.id === id)?.name ?? id ?? '';
+  if (operation.state === 'abandoned') {
+    return (
+      <div className="recovery-task-notice" role="note" aria-label="Recovery">
+        <p>
+          <strong>Pending change abandoned.</strong> The current file was kept. Comments can be
+          written again.
+        </p>
+        <button
+          type="button"
+          className="btn btn--sm btn--ghost"
+          disabled={dismiss.isPending}
+          onClick={() => dismiss.mutate(operation.operation_id)}
+        >
+          Dismiss
+        </button>
+      </div>
+    );
+  }
+  if (isMoving(operation)) {
+    return (
+      <div className="recovery-task-notice is-info" role="note" aria-label="Recovery">
+        <p>
+          <strong>Moving to {projectName(operation.target_project_id)}…</strong>; editing is paused
+          until the move finishes.
+        </p>
+      </div>
+    );
+  }
+  const what = isCommentOperation(operation)
+    ? 'A comment change needs your review.'
+    : isTransfer(operation)
+      ? `Filing to ${projectName(operation.target_project_id)} stopped.`
+      : isDeletion(operation)
+        ? 'Deletion stopped.'
+        : 'An operation on this task needs your review.';
+  const paused = isCommentOperation(operation)
+    ? 'Comment writes, archive, filing and deletion are paused for this task. You can still read everything.'
+    : 'Writes to this task are paused until recovery finishes. You can still read everything.';
+  return (
+    <div className="recovery-task-notice is-warning" role="note" aria-label="Recovery">
+      <p>
+        <strong>{what}</strong> {paused}
+      </p>
+      <button
+        type="button"
+        className="btn btn--sm"
+        onClick={() => onReview(operation.operation_id)}
+      >
+        Review recovery
+      </button>
     </div>
   );
 }

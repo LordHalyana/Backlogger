@@ -22,6 +22,10 @@ export const queryKeys = {
   /** A task's history opened on one comment; under `comments(taskId)`, so writes refresh it. */
   commentsAround: (taskId: string, commentId: string) =>
     ['comments', taskId, 'around', commentId] as const,
+  /** Pending operations, and abandoned ones not yet dismissed (`GET /api/recovery`). */
+  recovery: () => ['recovery'] as const,
+  /** One operation's review; under `recovery()`, so refreshing the list refreshes it. */
+  recoveryDetail: (operationId: string) => ['recovery', operationId] as const,
   /** Every search query; each one appends its query, project filter and limit. */
   search: () => ['search'] as const,
 } as const;
@@ -71,6 +75,24 @@ export function invalidateProjectList(qc: QueryClient): void {
 export function invalidateComments(qc: QueryClient, taskId?: string): Promise<void> {
   invalidateSearch(qc);
   return qc.invalidateQueries({ queryKey: taskId ? queryKeys.comments(taskId) : ['comments'] });
+}
+
+/** Refetch the Recovery list and every open review, e.g. after a write that may be blocked. */
+export function invalidateRecovery(qc: QueryClient): Promise<void> {
+  return qc.invalidateQueries({ queryKey: queryKeys.recovery() });
+}
+
+/**
+ * A recovered or abandoned operation can change any project's boards,
+ * documents and comments (filing moves a task between projects), and so
+ * Current work and search too.
+ */
+export function invalidateAfterRecovery(qc: QueryClient): void {
+  void qc.invalidateQueries({ queryKey: ['board'] });
+  void qc.invalidateQueries({ queryKey: ['documents'] });
+  void qc.invalidateQueries({ queryKey: ['document'] });
+  void qc.invalidateQueries({ queryKey: queryKeys.currentWork() });
+  void invalidateComments(qc);
 }
 
 export function invalidateProjectFolders(qc: QueryClient, projectId: string): void {

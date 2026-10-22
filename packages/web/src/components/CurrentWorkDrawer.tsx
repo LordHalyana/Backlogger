@@ -4,6 +4,12 @@ import { ApiError } from '../lib/api.js';
 import { useCurrentWork } from '../lib/current-work.js';
 import { useUpdateItem } from '../lib/inbox.js';
 import { toastError, useDialog } from '../lib/dialog.js';
+import {
+  isCommentOperation,
+  needsReview,
+  useRecoveryBlockedToast,
+  useRecoveryList,
+} from '../lib/recovery.js';
 import { Icon } from './Icon.js';
 import { ProjectName } from './ProjectName.js';
 import { TaskStateSelect } from './TaskStateSelect.js';
@@ -11,6 +17,8 @@ import { TaskStateSelect } from './TaskStateSelect.js';
 interface CurrentWorkDrawerProps {
   onOpenTask: (projectId: string, documentId: string) => void;
   onGoToBoard: (projectId: string) => void;
+  /** Open the Recovery page on the operation that blocks a row. */
+  onOpenRecovery: (operationId: string) => void;
   onClose: () => void;
 }
 
@@ -22,9 +30,14 @@ interface CurrentWorkDrawerProps {
 export function CurrentWorkDrawer({
   onOpenTask,
   onGoToBoard,
+  onOpenRecovery,
   onClose,
 }: CurrentWorkDrawerProps): JSX.Element {
   const { data, isLoading, isError, isFetching, refetch } = useCurrentWork();
+  const recovery = useRecoveryList();
+  const recoveryBlocked = useRecoveryBlockedToast(onOpenRecovery);
+  const blockerOf = (taskId: string) =>
+    recovery.data?.operations.find((op) => op.task_id === taskId && op.state === 'pending');
   const update = useUpdateItem();
   const dialog = useDialog();
   const [saving, setSaving] = useState<ReadonlySet<string>>(() => new Set());
@@ -36,6 +49,7 @@ export function CurrentWorkDrawer({
       { id: card.id, projectId, revision: card.revision, change: { task_state: next } },
       {
         onError: (err) => {
+          if (recoveryBlocked('change the task state', err)) return;
           if (err instanceof ApiError && err.status === 409) {
             setConflict(`“${card.title}” was changed somewhere else, so the change was not saved.`);
             void refetch();
@@ -125,10 +139,12 @@ export function CurrentWorkDrawer({
             <ul className="current-work-rows">
               {group.items.map((card) => {
                 const busy = saving.has(card.id);
+                const blocker = blockerOf(card.id);
+                const blocked = blocker !== undefined && needsReview(blocker);
                 return (
                   <li
                     key={card.id}
-                    className={`current-work-row${card.readOnly ? ' read-only' : ''}${busy ? ' saving' : ''}`}
+                    className={`current-work-row${card.readOnly ? ' read-only' : ''}${busy ? ' saving' : ''}${blocked ? ' is-blocked' : ''}`}
                     aria-busy={busy}
                   >
                     <button
@@ -150,9 +166,24 @@ export function CurrentWorkDrawer({
                       <TaskStateSelect
                         title={card.title}
                         value={card.task_state}
-                        disabled={busy}
+                        disabled={busy || blocker !== undefined}
                         onChange={(next) => changeState(group.project.id, card, next)}
                       />
+                    )}
+                    {blocked && (
+                      <span className="current-work-recovery">
+                        <span className="board-badge">Recovery required</span>
+                        <span className="current-work-paused">
+                          {isCommentOperation(blocker) ? 'Comment writes paused' : 'Writes paused'}
+                        </span>
+                        <button
+                          type="button"
+                          className="btn btn--sm btn--link"
+                          onClick={() => onOpenRecovery(blocker.operation_id)}
+                        >
+                          Review
+                        </button>
+                      </span>
                     )}
                   </li>
                 );

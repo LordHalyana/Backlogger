@@ -3,12 +3,13 @@ import {
   useMutation,
   useQueryClient,
   type InfiniteData,
+  type QueryClient,
   type UseInfiniteQueryResult,
   type UseMutationResult,
 } from '@tanstack/react-query';
 import type { Comment, CommentAck, CommentPage } from '@backlogger/shared';
 import { apiFetch } from './api.js';
-import { invalidateComments, queryKeys } from './query-keys.js';
+import { invalidateComments, invalidateRecovery, queryKeys } from './query-keys.js';
 
 /**
  * A task's comment history. The first page is the newest one; each further
@@ -116,7 +117,29 @@ export interface DeleteCommentArgs {
 /*
  * Comment writes. Each refetches the task's history once it settles, success
  * or not, and resolves only after that refetch, so callers see the new history.
+ * A failed write may have left an operation pending, so recovery refetches too.
  */
+
+/**
+ * Composer drafts held while recovery pauses writing: the draft is kept, so
+ * leaving the task (to review the recovery, say) does not discard it, and
+ * reopening the task in this tab restores it.
+ */
+const heldDrafts = new Map<string, string>();
+
+export function holdDraft(taskId: string, text: string): void {
+  if (text === '') heldDrafts.delete(taskId);
+  else heldDrafts.set(taskId, text);
+}
+
+export function heldDraft(taskId: string): string {
+  return heldDrafts.get(taskId) ?? '';
+}
+
+function settleWrite(qc: QueryClient, taskId: string): Promise<void> {
+  void invalidateRecovery(qc);
+  return invalidateComments(qc, taskId);
+}
 
 export function useCreateComment(
   taskId: string,
@@ -129,7 +152,7 @@ export function useCreateComment(
         headers: { 'Idempotency-Key': operationId },
         body: JSON.stringify({ id: commentId, body }),
       }),
-    onSettled: () => invalidateComments(qc, taskId),
+    onSettled: () => settleWrite(qc, taskId),
   });
 }
 
@@ -144,7 +167,7 @@ export function useEditComment(
         headers: { 'Idempotency-Key': operationId, 'If-Match': revision },
         body: JSON.stringify({ body }),
       }),
-    onSettled: () => invalidateComments(qc, taskId),
+    onSettled: () => settleWrite(qc, taskId),
   });
 }
 
@@ -158,6 +181,6 @@ export function useDeleteComment(
         method: 'DELETE',
         headers: { 'Idempotency-Key': operationId, 'If-Match': revision },
       }),
-    onSettled: () => invalidateComments(qc, taskId),
+    onSettled: () => settleWrite(qc, taskId),
   });
 }

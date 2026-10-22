@@ -10,6 +10,8 @@
 //   /projects/:projectId/board/documents/:documentId     → document opened from the board
 //   …/documents/:documentId/comments/:commentId          → landing on one of its comments
 //   /inbox                                               → ⌂ Inbox triage mode
+//   /recovery                                            → the Recovery page
+//   /recovery/:operationId                               → … with one operation selected
 //
 // Only path-based selection lives here; the `?help=` query param (help-link.ts)
 // and any hash are preserved when we rewrite the path. This intentionally stays
@@ -60,6 +62,28 @@ export function readTriageFromUrl(): boolean {
   return window.location.pathname.replace(/\/+$/, '') === TRIAGE_PATHNAME;
 }
 
+/** The Recovery page, and the operation it shows. */
+export interface RecoveryRoute {
+  operationId: string | null;
+}
+
+/** The path of the Recovery page. */
+export const RECOVERY_PATHNAME = '/recovery';
+
+/** The Recovery page the current URL shows, or `null` when it shows something else. */
+export function readRecoveryFromUrl(): RecoveryRoute | null {
+  if (typeof window === 'undefined') return null;
+  const parts = window.location.pathname.split('/').filter(Boolean);
+  if (parts[0] !== 'recovery') return null;
+  return { operationId: parts[1] ? decodeURIComponent(parts[1]) : null };
+}
+
+export function recoveryPathname(operationId: string | null): string {
+  return operationId
+    ? `${RECOVERY_PATHNAME}/${encodeURIComponent(operationId)}`
+    : RECOVERY_PATHNAME;
+}
+
 /** Build the pathname for a given selection (no leading project → `/`). */
 export function workspacePathname(
   projectId: string | null,
@@ -86,12 +110,14 @@ export function syncWorkspaceUrl(
   documentId: string | null,
   view: WorkspaceView = 'documents',
   triage = false,
-  options: { commentId?: string | null; replace?: boolean } = {},
+  options: { commentId?: string | null; replace?: boolean; recovery?: RecoveryRoute | null } = {},
 ): void {
   if (typeof window === 'undefined') return;
-  const target = triage
-    ? TRIAGE_PATHNAME
-    : workspacePathname(projectId, documentId, view, options.commentId ?? null);
+  const target = options.recovery
+    ? recoveryPathname(options.recovery.operationId)
+    : triage
+      ? TRIAGE_PATHNAME
+      : workspacePathname(projectId, documentId, view, options.commentId ?? null);
   if (window.location.pathname === target) return;
   const u = new URL(window.location.href);
   u.pathname = target;

@@ -50,7 +50,7 @@ Common codes include:
 - `DOCUMENT_VERSION_MISMATCH`
 - `DELETION_BLOCKED` (a permanent deletion whose scope holds files it must not judge on its own; `details: { paths }`)
 - `REVISION_CONFLICT` (filing, and an update, move or delete whose document was filed into another project while it waited; `details: { currentRevision, currentProjectId }`)
-- `RECOVERY_REQUIRED` (a write blocked by an unfinished operation; `details: { operationId, inspect }`, where `inspect` is the operation's `/api/recovery/:operationId` link)
+- `RECOVERY_REQUIRED` (a write blocked by an unfinished operation; `details: { operationId, inspect }`, where `inspect` is the Recovery page link `/recovery/:operationId`; its review is `GET /api/recovery/:operationId`)
 - `CAPTURE_ID_CONFLICT`
 - `INVALID_COMMAND`, `REVISION_REQUIRED` (`428`), `OPERATION_ID_CONFLICT`, `OPERATION_IN_PROGRESS`, `OPERATION_ABANDONED`, `COMMENT_NOT_WRITABLE`, `COMMENT_ID_CONFLICT`, `COMMENT_NOT_PRESERVABLE`, `PARENT_NOT_FOUND`, `COMMENT_NOT_FOUND` (see [Comments](#comments))
 - `RECOVERY_NOT_FOUND` (`404`), `RECOVERY_ACTION_NOT_ALLOWED` (see [Recovery](#recovery))
@@ -628,7 +628,8 @@ the changed one, then Recheck. There is no abandon and no undo.
 
 ### `GET /api/recovery`
 
-Summaries of the pending operations, oldest first. They never include
+Summaries of the pending operations, and of abandoned operations whose
+final state has not been dismissed, oldest first. They never include
 content:
 
 ```json
@@ -644,8 +645,11 @@ content:
       "message": "The comment file was changed outside this operation.",
       "project_id": "work",
       "task_id": "<task uuid>",
+      "task_title": "Fix the gate",
+      "target_project_id": null,
       "comment_id": "<comment uuid>",
-      "in_progress": false
+      "in_progress": false,
+      "abandoned_at": null
     }
   ]
 }
@@ -665,6 +669,11 @@ content:
   `unsupported`.
 - `in_progress` is true while a request for the operation is running in
   the server.
+- `state` is `pending`, or `abandoned` (with `abandoned_at`) until the
+  abandoned operation is dismissed.
+- `task_title` is the task's title as last indexed, or `null` once it is gone.
+- `target_project_id` is where a filing is taking the task; `null` for other
+  operations.
 
 ### `GET /api/recovery/:operationId`
 
@@ -683,8 +692,9 @@ The summary plus:
   (`after_revision: null`) and each copy (`before_revision: null`).
 - `current_content`: the file as it is now, or `null` when it is absent.
 
-An unknown operation, or one that is no longer pending, gets
-`404 RECOVERY_NOT_FOUND`.
+An abandoned operation returns its final state: `state: "abandoned"`, no
+`paths`, no `actions` and no content. An unknown or completed operation
+gets `404 RECOVERY_NOT_FOUND`.
 
 ### `POST /api/recovery/:operationId/recheck`
 
@@ -724,6 +734,21 @@ are left exactly as they are.
   `409 RECOVERY_ACTION_NOT_ALLOWED`.
 - An operation that was already abandoned: `409 OPERATION_ABANDONED`.
 - Retrying with the same key returns the same acknowledgement.
+
+The abandoned operation stays in `GET /api/recovery` until it is dismissed.
+
+### `POST /api/recovery/:operationId/dismiss`
+
+Takes an abandoned operation's final state off the list, once the user has
+seen it. Only that display flag changes, so it needs no `Idempotency-Key` and
+repeating it is harmless.
+
+```json
+{ "operation_id": "<uuid>", "dismissed": true }
+```
+
+- A pending or completed operation: `409 RECOVERY_ACTION_NOT_ALLOWED`.
+- Unknown operation: `404 RECOVERY_NOT_FOUND`.
 
 ## Capture
 

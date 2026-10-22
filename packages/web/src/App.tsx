@@ -18,6 +18,8 @@ import { WorkspaceRail } from './components/WorkspaceRail.js';
 import { CapturePalette } from './components/CapturePalette.js';
 import { InboxTriage } from './components/InboxTriage.js';
 import { CurrentWorkDrawer } from './components/CurrentWorkDrawer.js';
+import { RecoveryBanner } from './components/RecoveryBanner.js';
+import { RecoveryPage } from './components/RecoveryPage.js';
 import { useInboxCount } from './lib/inbox.js';
 import { readDrawerOpen, writeDrawerOpen } from './lib/current-work.js';
 import { useProjects } from './lib/projects.js';
@@ -47,7 +49,10 @@ export function App(): JSX.Element {
     tags: selectedTags,
     triage,
     landing,
+    recovery,
     openTriage,
+    openRecovery,
+    selectRecoveryOperation,
     selectProject,
     selectView,
     selectTreeDocument,
@@ -241,6 +246,7 @@ export function App(): JSX.Element {
           </TopbarAction>
         </div>
       </header>
+      <RecoveryBanner onOpen={() => openRecovery()} />
       <main className="content daily-shell">
         <WorkspaceRail
           projects={projectList}
@@ -252,8 +258,19 @@ export function App(): JSX.Element {
           onSelectProject={goToBoard}
         />
         <div className="daily-main">
-          {triage ? (
-            <InboxTriage projects={projectList} onOpenTask={openFromTriage} />
+          {recovery ? (
+            <RecoveryPage
+              operationId={recovery.operationId}
+              projects={projectList}
+              onSelect={selectRecoveryOperation}
+              onOpenTask={openDocument}
+            />
+          ) : triage ? (
+            <InboxTriage
+              projects={projectList}
+              onOpenTask={openFromTriage}
+              onOpenRecovery={openRecovery}
+            />
           ) : selectedProjectId ? (
             <div className="project-layout">
               <div className="project-sidebar">
@@ -281,7 +298,11 @@ export function App(): JSX.Element {
                 />
               </div>
               {view === 'board' && !selectedDocumentId ? (
-                <TaskBoard projectId={selectedProjectId} onOpenCard={selectDocument} />
+                <TaskBoard
+                  projectId={selectedProjectId}
+                  onOpenCard={selectDocument}
+                  onOpenRecovery={openRecovery}
+                />
               ) : selectedDocumentId ? (
                 <DocumentWorkspace
                   projectId={selectedProjectId}
@@ -296,6 +317,7 @@ export function App(): JSX.Element {
                   landing={landing}
                   onProjectMoved={relocateProject}
                   onOpenSearch={overlays.openPalette}
+                  onOpenRecovery={openRecovery}
                 />
               ) : (
                 <div className="workspace-empty">
@@ -311,6 +333,7 @@ export function App(): JSX.Element {
           <CurrentWorkDrawer
             onOpenTask={openDocument}
             onGoToBoard={goToBoard}
+            onOpenRecovery={openRecovery}
             onClose={toggleDrawer}
           />
         )}

@@ -121,7 +121,7 @@ function expectRecoveryRequired(res: request.Response, operationId: string): voi
   expect(res.status, JSON.stringify(res.body)).toBe(409);
   expect(res.body.error).toMatchObject({
     code: 'RECOVERY_REQUIRED',
-    details: { operationId, inspect: `/api/recovery/${operationId}` },
+    details: { operationId, inspect: `/recovery/${operationId}` },
   });
 }
 
@@ -409,6 +409,7 @@ describe('Permanently deleting a commented task', () => {
       kind: 'content_conflict',
       reason: 'content_changed',
       task_id: task.id,
+      task_title: 'Quokka gate',
       actions: ['recheck'],
     });
     expect(detail.body.paths).toContainEqual({

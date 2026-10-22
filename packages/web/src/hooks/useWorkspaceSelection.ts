@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   readCommentFromUrl,
+  readRecoveryFromUrl,
   readTriageFromUrl,
   historyIndex,
   readWorkspaceFromUrl,
   syncWorkspaceUrl,
+  type RecoveryRoute,
   type WorkspaceView,
 } from '../lib/workspace-url.js';
 import { useConfirmLeave } from '../lib/leave-guard.js';
@@ -30,8 +32,14 @@ export interface WorkspaceSelection {
    * Moving to another document drops it.
    */
   landing: Landing | null;
+  /** The Recovery page, in place of a project, or `null`. */
+  recovery: RecoveryRoute | null;
   /** Enter triage mode; selecting a project or opening a document leaves it. */
   openTriage: () => void;
+  /** Open the Recovery page, on one operation when given. */
+  openRecovery: (operationId?: string | null) => void;
+  /** Select an operation on the Recovery page, in place (no new history entry). */
+  selectRecoveryOperation: (operationId: string) => void;
   /**
    * Select a project.  Switching to a different project clears the open
    * document and tag filters so we never show stale state from the previous
@@ -74,6 +82,7 @@ interface Selection {
   view: WorkspaceView;
   triage: boolean;
   landing: Landing | null;
+  recovery: RecoveryRoute | null;
 }
 
 /** The landing a comment link in the current URL asks for. */
@@ -99,10 +108,11 @@ export function useWorkspaceSelection(): WorkspaceSelection {
   const [tags, setTags] = useState<string[]>([]);
   const [triage, setTriage] = useState<boolean>(() => readTriageFromUrl());
   const [landing, setLanding] = useState<Landing | null>(landingFromUrl);
+  const [recovery, setRecovery] = useState<RecoveryRoute | null>(() => readRecoveryFromUrl());
   // Mirrors of the selection so the stable callbacks can build the next one
   // without depending on (and being recreated by) every change.
-  const current = useRef<Selection>({ ...initial, triage, landing });
-  current.current = { projectId, documentId, view, triage, landing };
+  const current = useRef<Selection>({ ...initial, triage, landing, recovery });
+  current.current = { projectId, documentId, view, triage, landing, recovery };
   // Set by a redirect, so the URL sync rewrites the entry instead of adding one.
   const replaceUrl = useRef(false);
   const confirmLeave = useConfirmLeave();
@@ -122,6 +132,7 @@ export function useWorkspaceSelection(): WorkspaceSelection {
         setView(next.view);
         setTriage(next.triage);
         setLanding(next.landing);
+        setRecovery(next.recovery);
         if (options.clearTags || next.projectId !== prev.projectId) setTags([]);
       };
       if (next.documentId === current.current.documentId) go();
@@ -142,10 +153,11 @@ export function useWorkspaceSelection(): WorkspaceSelection {
     syncWorkspaceUrl(projectId, documentId, view, triage, {
       commentId: landedCommentId,
       replace: replaceUrl.current,
+      recovery,
     });
     replaceUrl.current = false;
     shownIndex.current = historyIndex();
-  }, [projectId, documentId, view, triage, landedCommentId]);
+  }, [projectId, documentId, view, triage, landedCommentId, recovery]);
 
   // Back/forward navigation maps to workspace navigation: re-read the URL and
   // apply it. The sync effect above then sees a matching path and does not push.
@@ -171,6 +183,7 @@ export function useWorkspaceSelection(): WorkspaceSelection {
           view: nextView,
           triage: readTriageFromUrl(),
           landing: landingFromUrl(),
+          recovery: readRecoveryFromUrl(),
         },
         {
           clearTags: true,
@@ -191,15 +204,47 @@ export function useWorkspaceSelection(): WorkspaceSelection {
 
   const openTriage = useCallback((): void => {
     navigate(
-      { projectId: null, documentId: null, view: 'documents', triage: true, landing: null },
+      {
+        projectId: null,
+        documentId: null,
+        view: 'documents',
+        triage: true,
+        landing: null,
+        recovery: null,
+      },
       { clearTags: true },
     );
   }, [navigate]);
 
+  const openRecovery = useCallback(
+    (operationId: string | null = null): void => {
+      navigate(
+        {
+          projectId: null,
+          documentId: null,
+          view: 'documents',
+          triage: false,
+          landing: null,
+          recovery: { operationId },
+        },
+        { clearTags: true },
+      );
+    },
+    [navigate],
+  );
+
+  const selectRecoveryOperation = useCallback(
+    (operationId: string): void => {
+      replaceUrl.current = true;
+      navigate({ ...current.current, recovery: { operationId } });
+    },
+    [navigate],
+  );
+
   const selectProject = useCallback(
     (id: string | null): void => {
       const now = current.current;
-      if (now.projectId === id) navigate({ ...now, triage: false });
+      if (now.projectId === id) navigate({ ...now, triage: false, recovery: null });
       else {
         navigate({
           projectId: id,
@@ -207,6 +252,7 @@ export function useWorkspaceSelection(): WorkspaceSelection {
           view: 'documents',
           triage: false,
           landing: null,
+          recovery: null,
         });
       }
     },
@@ -215,21 +261,33 @@ export function useWorkspaceSelection(): WorkspaceSelection {
 
   const selectView = useCallback(
     (next: WorkspaceView): void => {
-      navigate({ ...current.current, view: next, documentId: null, landing: null });
+      navigate({
+        ...current.current,
+        view: next,
+        documentId: null,
+        landing: null,
+        recovery: null,
+      });
     },
     [navigate],
   );
 
   const selectDocument = useCallback(
     (id: string | null): void => {
-      navigate({ ...current.current, documentId: id, landing: null });
+      navigate({ ...current.current, documentId: id, landing: null, recovery: null });
     },
     [navigate],
   );
 
   const selectTreeDocument = useCallback(
     (id: string): void => {
-      navigate({ ...current.current, view: 'documents', documentId: id, landing: null });
+      navigate({
+        ...current.current,
+        view: 'documents',
+        documentId: id,
+        landing: null,
+        recovery: null,
+      });
     },
     [navigate],
   );
@@ -242,6 +300,7 @@ export function useWorkspaceSelection(): WorkspaceSelection {
         documentId: nextDocumentId,
         triage: false,
         landing: target ? keyLanding(target) : null,
+        recovery: null,
       });
     },
     [navigate],
@@ -276,7 +335,10 @@ export function useWorkspaceSelection(): WorkspaceSelection {
     tags,
     triage,
     landing,
+    recovery,
     openTriage,
+    openRecovery,
+    selectRecoveryOperation,
     selectProject,
     selectView,
     selectTreeDocument,

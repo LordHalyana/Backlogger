@@ -124,7 +124,19 @@ export interface CommandScope {
    * receipt, mark `targetOperationId` abandoned (never replayed) and remove
    * its payload and guards. Returns the acknowledgement.
    */
-  abandon<A>(targetOperationId: string, outcome: A): A;
+  abandon<A>(targetOperationId: string, outcome: A, target?: AbandonedTarget): A;
+}
+
+/**
+ * What an abandoned operation was about, kept on its row once its payload is
+ * gone, so the Recovery page can still show its final state.
+ */
+export interface AbandonedTarget {
+  kind: RecoveryKind;
+  reason: RecoveryReason;
+  project_id: string | null;
+  task_id: string | null;
+  comment_id: string | null;
 }
 
 export interface WriteCoordinatorDeps {
@@ -150,6 +162,8 @@ export interface RecoveryAssessment {
   project_id: string | null;
   task_id: string | null;
   comment_id: string | null;
+  /** Where a filing is taking the task; absent for other operations. */
+  target_project_id?: string | null;
   paths: RecoveryPath[];
   pending_content: string | null;
   current_content: string | null;
@@ -203,7 +217,7 @@ export function recoveryRequired(operationId: string): ConflictError {
   return new ConflictError(
     'RECOVERY_REQUIRED',
     `Blocked by pending operation ${operationId}; review it before retrying.`,
-    { operationId, inspect: `/api/recovery/${operationId}` },
+    { operationId, inspect: `/recovery/${operationId}` },
   );
 }
 
@@ -300,6 +314,21 @@ export class WriteCoordinator {
   /** Whether a request for this operation ID is running in this process. */
   isRunning(operationId: string): boolean {
     return this.running.has(operationId);
+  }
+
+  /**
+   * The Recovery page's operations, oldest first: the pending ones with their
+   * payloads, then abandoned ones not yet dismissed (which have none).
+   */
+  reviewableOperations(): PendingOperation[] {
+    return this.operations
+      .listReviewable()
+      .map((op) => ({ ...op, payload: this.operations.getPayload(op.operation_id) }));
+  }
+
+  /** Take an abandoned operation's final state off the Recovery page. */
+  dismiss(operationId: string): void {
+    this.operations.markDismissed(operationId, this.now());
   }
 
   /** Every pending operation with its payload, oldest first. */
@@ -458,7 +487,7 @@ export class WriteCoordinator {
         if (!intended) throw new Error('checkpoint() needs a recorded intent.');
         this.checkpoint(id, payload);
       },
-      abandon: (targetOperationId, outcome) => {
+      abandon: (targetOperationId, outcome, target) => {
         const claimed = requireOp();
         if (intended) throw new Error('abandon() is for commands without an intent.');
         const now = this.now();
@@ -472,7 +501,11 @@ export class WriteCoordinator {
             created_at: now,
             completed_at: now,
           });
-          this.operations.markAbandoned(targetOperationId, { abandoned_by: claimed.id }, now);
+          this.operations.markAbandoned(
+            targetOperationId,
+            { abandoned_by: claimed.id, ...target },
+            now,
+          );
           this.operations.removePayload(targetOperationId);
           this.operations.removeManifest(targetOperationId);
           this.operations.releaseGuards(targetOperationId);
