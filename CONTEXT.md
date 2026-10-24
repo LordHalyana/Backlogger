@@ -37,6 +37,14 @@ _Avoid_: Today, planned, focus
 Unarchiving a document. A restored backlog item keeps its identity and task state and returns to that state's column.
 _Avoid_: reopening
 
+**Workspace backup**:
+An archive that can recreate this whole workspace, its records and its recovery state, on an empty install. Projects mounted from elsewhere are recorded, not copied.
+_Avoid_: export, snapshot
+
+**Workspace restore**:
+Recreating a workspace from a workspace backup on an empty install. It never merges into or replaces a workspace already in use.
+_Avoid_: restoring, import
+
 **Search match**:
 The record that earned a search result its place: the document itself (title, tags or body), labelled **Description match**, or one of its comments, labelled **Comment match**. A task appears once, labelled with its strongest match.
 _Avoid_: hit type, result source
@@ -56,4 +64,5 @@ _Avoid_: hit type, result source
 
 - "status" was used for both document lifecycle and task progress. Resolved: **document status** is lifecycle, **task state** is progress.
 - "Done" vs "archived": Done means the work is finished; archived means the document is no longer current. Neither implies the other.
+- "restore" was used for both unarchiving a document and recreating a workspace from a backup. Resolved: **restoring** is unarchiving, as the app's "Restore task" says; the other is always a **workspace restore**.
 - The product-direction whitepaper says "ticket" and "task" and gives a ticket a `status: in_progress`. In Backlogger these are a **backlog item** and its **task state**; `status` stays **document status**.
