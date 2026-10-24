@@ -5,13 +5,13 @@ project: backlogger-docs
 type: design_doc
 status: active
 created_at: "2026-05-30T06:50:27.881Z"
-updated_at: "2026-10-18T00:00:00.000Z"
+updated_at: "2026-10-24T00:00:00.000Z"
 tags: ["design", "roadmap"]
 ---
 
 # Current Roadmap
 
-Date: 2026-10-18
+Date: 2026-10-24
 
 ## Purpose
 
@@ -32,8 +32,8 @@ page is a summary of it.
 
 | Stage | Status | Tracking |
 |---|---|---|
-| 1 Durable core | **Mostly done.** Projects, documents, Markdown storage, search, reindex and the first Kanban board are shipped. Backup/restore and the security defaults remain gaps. | #1 map, #13 spec (closed) |
-| 2 Daily use | **Planning.** Decision tickets are in progress; no implementation yet. | #28 map |
+| 1 Durable core | **Hardening.** Core shipped. Backup/restore, the network boundary and record identity are being planned. | #1 map, #13 spec; #93 map (current) |
+| 2 Daily use | **Partly shipped.** Quick capture, Inbox filing, Current work and project-local comments are shipped. Checklists, completion notes, presets, project archive and doc links remain. | #28 map, #40 spec; #44 map, #58 spec |
 | 3 Planning | Not started. | — |
 | 4 Extensions | Not started. | — |
 | 5 Future collaboration | Out of scope for the local release. | — |
@@ -60,51 +60,46 @@ Shipped through the first Wayfinder map (#1 → spec #13, PRs #23–#27):
   mutation, and stale `If-Match` → 409 (#14, #15).
 - Autosave keeps newer editor input during a delayed save (#22, PR #38).
 
-Still open against the stage 1 exit condition and the local-release
-acceptance criteria:
+### Current focus: local-release hardening
 
-- **Backup and restore** (#5 research is closed; implementation is not
-  planned). There is no workspace export, and restore onto an empty install
-  is not demonstrated.
-- **Security defaults.** The server binds `0.0.0.0`, CORS reflects any origin,
-  and there is no cross-site request protection or explicit Markdown
-  sanitizer. The whitepaper requires loopback by default and opt-in LAN mode.
-  No issue exists yet.
-- **Schema version and workspace ID** in records. No issue exists yet.
+Map: **#93 Wayfinder: local-release hardening — backup, network boundary and
+record identity.** Goal: an implementation-ready spec that closes the stage 1
+gaps blocking a local release.
 
-### Stage 2: daily use (current focus)
+- **Backup and restore** (absorbs #57). In-app workspace backup with restore
+  demonstrated on an empty install. External mounted projects are recorded,
+  not copied. Today backup is "stop and copy `data/`".
+- **Network boundary.** Loopback by default with an explicit opt-in to bind
+  wider, plus cross-site request protection. The server currently binds
+  `0.0.0.0` and CORS reflects any origin. LAN authentication and TLS are out
+  of scope.
+- **Record identity.** A workspace ID and schema versions on records.
 
-Map: **#28 Wayfinder: daily capture, Today and searchable work history.**
-Goal: an implementation-ready spec for capture → file into project → pick for
-Today → keep progress notes → retrieve later.
+Release gates are automated: a CI restore test and security tests.
 
-Decided:
+### Stage 2: daily use
 
-- **#30 Inbox capture and filing.** Use a native Markdown-backed Inbox project,
-  plus direct capture into a known project. Filing is a same-ID transfer, not
-  copy-and-delete. Commands must be UI-independent, revision-aware and
-  retry-safe, so a future API/MCP client can use them.
+Shipped through the daily-work map (#28 → spec #40, PR #41):
 
-Open (in dependency order):
+- Quick capture into a native Inbox project, and same-ID filing into a project.
+- A derived Current work overview.
 
-1. #29 The milestone scope: the smallest useful daily-work milestone. This is
-   the **next human decision** and it unblocks #31 and #32.
-2. #33 Quick capture and inbox triage UX. This can proceed now that #30 is
-   decided.
-3. #31 Today persistence research → #34 Today semantics (rollover, day change).
-4. #32 Progress notes research → #35 What work history a task keeps.
-5. #36 Prototype of the capture → Today → review interface (needs #33–#35).
-6. #37 Public checks that prove the milestone is ready to implement (needs #36).
+Shipped through the comments map (#44 → spec #58, PRs #77–#92):
 
-After #37: write the stage 2 spec and split it into implementation issues.
+- Project-local Markdown comments on backlog items, with a Comments tab,
+  grouped task/comment search and direct links to a comment.
+- A shared write coordinator with operational storage, idempotent retries
+  and `REVISION_CONFLICT` for stale writes.
+- Recoverable filing and resumable permanent deletion that carry comments,
+  with a Recovery page for interrupted operations.
 
-Out of scope for this map: planner and deadlines, plugins and weather, MCP
-implementation, teams, priority and manual ordering, new task states, sidecar
-board support, and a general backup product.
+Remaining for stage 2, not yet mapped: checklists, optional priority and due
+dates, completion notes, project presets, project archive and documentation
+links.
 
 ### Stages 3 to 5
 
-Each later stage gets its own Wayfinder map once stage 2 is specified.
+Each later stage gets its own Wayfinder map.
 
 - **3 Planning:** date-only deadlines, simple events, weekly work blocks that
   reference tickets.
